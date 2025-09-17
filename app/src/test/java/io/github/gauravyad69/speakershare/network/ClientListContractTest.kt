@@ -108,26 +108,3 @@ class ClientListContractTest {
         throw NotImplementedError("HostApiHandler client list not implemented yet - this test should fail")
     }
 }
-
-// Data classes that will be implemented later
-data class ClientListResponse(
-    val totalClients: Int,
-    val clients: List<ClientInfo>
-)
-
-data class ClientInfo(
-    val id: String,
-    val ipAddress: String,
-    val deviceName: String,
-    val connectedAt: Instant,
-    val audioLatency: Int,
-    val connectionQuality: String
-)
-
-// Extension to HostApiHandler interface (will be consolidated later)
-interface HostApiHandlerExtended {
-    suspend fun getDiscoveryInfo(): DiscoveryInfoResponse
-    suspend fun connectClient(request: ClientConnectRequest): ClientConnectResponse
-    suspend fun disconnectClient(clientId: String): ClientDisconnectResponse
-    suspend fun getClientList(): ClientListResponse
-}

@@ -71,28 +71,4 @@ class ClientDisconnectContractTest {
             }
         }
     }
-
-    // This method will fail during compilation - implementation doesn't exist yet
-    private fun createHostApiHandler(): HostApiHandler {
-        throw NotImplementedError("HostApiHandler disconnect not implemented yet - this test should fail")
-    }
-}
-
-// Data class that will be implemented later
-data class ClientDisconnectResponse(
-    val status: String,
-    val reason: String
-)
-
-// Exception class that will be implemented later
-class NotFoundException(
-    val statusCode: Int,
-    message: String
-) : Exception(message)
-
-// Extension to HostApiHandler interface
-interface HostApiHandler {
-    suspend fun getDiscoveryInfo(): DiscoveryInfoResponse
-    suspend fun connectClient(request: ClientConnectRequest): ClientConnectResponse
-    suspend fun disconnectClient(clientId: String): ClientDisconnectResponse
 }

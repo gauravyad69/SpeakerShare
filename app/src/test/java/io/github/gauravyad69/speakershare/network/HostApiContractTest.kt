@@ -135,32 +135,3 @@ class HostApiContractTest {
         throw NotImplementedError("HostApiHandler not implemented yet - this test should fail")
     }
 }
-
-// Data classes that will be implemented later - these will cause compilation errors
-data class DiscoveryInfoResponse(
-    val sessionId: String,
-    val hostName: String,
-    val audioSource: String,
-    val quality: AudioQualityResponse,
-    val isAcceptingClients: Boolean,
-    val connectedClients: Int,
-    val maxClients: Int,
-    val transport: List<String>
-)
-
-data class AudioQualityResponse(
-    val bitrate: Int,
-    val sampleRate: Int,
-    val encoding: String
-)
-
-// Exception classes that will be implemented later
-class ServiceUnavailableException(
-    val statusCode: Int,
-    message: String
-) : Exception(message)
-
-// Interface that will be implemented later
-interface HostApiHandler {
-    suspend fun getDiscoveryInfo(): DiscoveryInfoResponse
-}

@@ -59,13 +59,14 @@ class ClientConnectContractTest {
         
         // WebRTC endpoint validation (if WebRTC assigned)
         if (response.assignedTransport == "WEBRTC") {
-            assertNotNull("WebRTC config should not be null", response.streamEndpoint.webrtc)
+            assertNotNull("Stream endpoint should not be null", response.streamEndpoint)
+            assertNotNull("WebRTC config should not be null", response.streamEndpoint?.webrtc)
             assertTrue("Signaling URL should not be empty", 
-                response.streamEndpoint.webrtc!!.signalingUrl.isNotEmpty())
+                response.streamEndpoint?.webrtc?.signalingUrl?.isNotEmpty() == true)
             assertTrue("Signaling URL should be websocket", 
-                response.streamEndpoint.webrtc!!.signalingUrl.startsWith("ws://"))
+                response.streamEndpoint?.webrtc?.signalingUrl?.startsWith("ws://") == true)
             assertNotNull("ICE servers should be present", 
-                response.streamEndpoint.webrtc!!.iceServers)
+                response.streamEndpoint?.webrtc?.iceServers)
         }
     }
 
@@ -164,7 +165,7 @@ class ClientConnectContractTest {
         assertEquals("Status should be ACCEPTED", "ACCEPTED", response.status)
         assertEquals("Should fallback to UDP", "UDP", response.assignedTransport)
         assertNotNull("Stream endpoint should provide UDP config", 
-            response.streamEndpoint.udp)
+            response.streamEndpoint?.udp)
     }
 
     // These methods will fail during compilation - implementations don't exist yet
@@ -183,53 +184,4 @@ class ClientConnectContractTest {
     private fun createHostApiHandlerUdpOnly(): HostApiHandler {
         throw NotImplementedError("HostApiHandler UDP-only mode not implemented yet")
     }
-}
-
-// Data classes that will be implemented later - these will cause compilation errors
-data class ClientConnectRequest(
-    val clientId: String,
-    val clientName: String,
-    val preferredTransport: String,
-    val capabilities: List<String>
-)
-
-data class ClientConnectResponse(
-    val status: String,
-    val assignedTransport: String,
-    val streamEndpoint: StreamEndpoint,
-    val clientId: String,
-    val reason: String? = null,
-    val maxClients: Int? = null
-)
-
-data class StreamEndpoint(
-    val webrtc: WebRTCEndpoint? = null,
-    val udp: UdpEndpoint? = null
-)
-
-data class WebRTCEndpoint(
-    val signalingUrl: String,
-    val iceServers: List<String>
-)
-
-data class UdpEndpoint(
-    val host: String,
-    val port: Int
-)
-
-// Exception classes that will be implemented later
-class TooManyRequestsException(
-    val statusCode: Int,
-    message: String
-) : Exception(message)
-
-class BadRequestException(
-    val statusCode: Int,
-    message: String
-) : Exception(message)
-
-// Extension to HostApiHandler interface
-interface HostApiHandler {
-    suspend fun getDiscoveryInfo(): DiscoveryInfoResponse
-    suspend fun connectClient(request: ClientConnectRequest): ClientConnectResponse
 }
