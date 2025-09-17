@@ -1,15 +1,64 @@
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+
+# Gradle files
 *.iml
 .gradle
+/build
+/captures
+.externalNativeBuild
+.cxx
+
+# Local configuration file (sdk path, etc)
 /local.properties
+
+# IntelliJ/Android Studio
 /.idea/caches
 /.idea/libraries
 /.idea/modules.xml
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
+/.idea/dictionaries
+.idea/gradle.xml
+.idea/tasks.xml
+
+# Log Files
+*.log
+
+# Android Profiling
+*.hprof
+
+# Kotlin
+*.kt~
+
+# Mac OS
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+
+# Temporary files
+*.tmp
+*.temp
+*~
+*.swp
+*.swo
+
+# SpeakerShare specific
+# Exclude audio test files
+/test-audio/
+*.wav
+*.mp3
+*.aac

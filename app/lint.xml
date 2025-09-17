@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Disable lint checks that are not relevant for our project -->
+    <issue id="MissingTranslation" severity="ignore" />
+    <issue id="ExtraTranslation" severity="ignore" />
+    
+    <!-- Audio-specific lint rules -->
+    <issue id="MissingPermission" severity="error" />
+    <issue id="WrongManifestParent" severity="error" />
+    
+    <!-- Compose-specific -->
+    <issue id="ComposableNaming" severity="error" />
+    <issue id="UnusedMaterial3ScaffoldPaddingParameter" severity="warning" />
+    
+    <!-- Performance -->
+    <issue id="UnusedResources" severity="warning" />
+    <issue id="IconDensities" severity="warning" />
+    
+    <!-- Security for local network -->
+    <issue id="UnsafeNativeCodeLocation" severity="error" />
+    <issue id="TrustAllX509TrustManager" severity="error" />
+    
+    <!-- Code quality -->
+    <issue id="RtlHardcoded" severity="warning" />
+    <issue id="RtlSymmetry" severity="warning" />
+    <issue id="NewApi" severity="error" />
+    <issue id="ObsoleteSdkInt" severity="warning" />
+    
+    <!-- Allow local network communication -->
+    <issue id="UsesCleartextTraffic" severity="ignore" />
+</lint>
