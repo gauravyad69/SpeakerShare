@@ -1,50 +1,47 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report:
+- Version change: Template → 1.0.0
+- New constitution creation for SpeakerShare Android audio broadcasting app
+- Added principles: Simplicity-First, Test-Driven Development, Real-Time Performance, Android-Native Architecture, LAN-Only Security
+- Added sections: Performance Standards, Development Workflow
+- Templates requiring updates: ✅ Updated plan-template.md references / ⚠ spec-template.md and tasks-template.md may need alignment review
+- Follow-up TODOs: None
+-->
+
+# SpeakerShare Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Simplicity-First
+Single-module Android architecture with clear separation of concerns. Dual transport implementations (WebRTC/UDP) are justified only when necessary for compatibility and reliability. Avoid unnecessary abstractions - favor composition over complex inheritance hierarchies. Each component must have a single, well-defined responsibility.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Test-Driven Development (NON-NEGOTIABLE)
+TDD mandatory: Contract tests written → Tests MUST fail → Implementation makes tests pass. Integration tests required for all user scenarios. All audio pipeline components must include latency, memory, and CPU performance assertions. Red-Green-Refactor cycle strictly enforced.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Real-Time Performance
+Audio streaming latency MUST be <200ms end-to-end. Memory usage MUST stay <100MB during active streaming. CPU usage for audio processing MUST be <15% on target devices. Battery impact MUST be <10%/hour during background streaming. Performance degradation requires architectural justification.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Android-Native Architecture
+Follow Android architectural patterns: MVVM with Repository pattern, Jetpack Compose for UI, Kotlin Coroutines for async operations, Hilt for dependency injection. Handle Android lifecycle properly including app process termination and background restrictions. Proper permission handling is non-negotiable.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. LAN-Only Security
+No internet connectivity required or allowed for core functionality. Local network operation ensures privacy and low latency. WebRTC and UDP protocols must use secure local-only configurations. Client authentication through network presence validation only.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+## Performance Standards
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+Audio pipeline components must meet measurable performance criteria:
+- Latency measurement at each stage with <200ms total budget
+- Memory profiling with active monitoring during streaming
+- CPU usage validation on minimum supported hardware (API 21+)
+- Battery impact assessment for background operation compliance
+- Network bandwidth optimization for multiple concurrent clients
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+## Development Workflow
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+Constitution supersedes all other development practices. All design decisions must pass constitutional compliance check before and after implementation. Complexity must be explicitly justified against simplicity principle. Contract tests must be written and failing before any implementation begins. Performance requirements must be validated at each audio pipeline stage.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+All feature development must verify constitutional compliance through the established gate system. Architecture changes require explicit complexity justification documented in plan artifacts. Test-first discipline is non-negotiable and must be validated before implementation phases. Performance standards must be continuously monitored and validated.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2025-09-23 | **Last Amended**: 2025-09-23
