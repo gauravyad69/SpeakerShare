@@ -12,7 +12,8 @@ data class HostSession(
     val isActive: Boolean,           // Currently broadcasting
     val startTime: Long,             // Session start timestamp
     val connectedClients: List<ClientConnection>,
-    val networkInfo: NetworkInfo     // IP, port, discovery info
+    val networkInfo: NetworkInfo,    // IP, port, discovery info
+    val maxClients: Int = 50         // Maximum concurrent clients allowed
 )
 
 /**

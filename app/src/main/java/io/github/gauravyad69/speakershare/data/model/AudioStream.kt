@@ -7,13 +7,27 @@ package io.github.gauravyad69.speakershare.data.model
 data class AudioStream(
     val streamId: String,
     val sessionId: String,           // Parent session
-    val source: AudioSource,
+    val audioSource: AudioSource,    // Updated to match HostSession field name
     val transport: StreamTransport,  // WebRTC or UDP
     val quality: AudioQuality,
+    val state: StreamState,          // Added state field
     val isActive: Boolean,
+    val startTime: Long,             // Added start time
     val bufferSize: Int,             // Audio buffer size
-    val metrics: StreamMetrics
+    val metrics: Map<String, Any>    // Simplified metrics as map
 )
+
+/**
+ * Stream state enumeration
+ */
+enum class StreamState {
+    IDLE,
+    STARTING,
+    ACTIVE,
+    STOPPING,
+    STOPPED,
+    ERROR
+}
 
 /**
  * Transport methods for audio streaming

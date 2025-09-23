@@ -42,17 +42,17 @@
 
 ## Phase 3.1: Project Setup
 
-- [ ] **T001** Initialize Android project with Kotlin and Compose dependencies
+- [x] **T001** Initialize Android project with Kotlin and Compose dependencies
   - Create build.gradle.kts with WebRTC, Ktor, Compose BOM dependencies
   - Set minSdkVersion 21, targetSdkVersion 34
   - Enable Compose in buildFeatures
 
-- [ ] **T002** Configure Android manifest and permissions
+- [x] **T002** Configure Android manifest and permissions
   - Add RECORD_AUDIO, ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE permissions
   - Add FOREGROUND_SERVICE permission for background audio
   - Configure network security config for local connections
 
-- [ ] **T003** [P] Setup project structure and base packages
+- [x] **T003** [P] Setup project structure and base packages
   - Create package structure: data/models, services, ui, network, audio
   - Add .gitignore for Android project
   - Setup lint configuration for Kotlin/Compose
@@ -64,10 +64,10 @@
 **CRITICAL: These tests MUST be written and MUST FAIL before ANY implementation**
 
 ### Contract Tests (API Endpoints)
-- [ ] **T004** [P] Contract test GET /discovery/info in `app/src/test/java/io/github/gauravyad69/speakershare/network/HostApiContractTest.kt`
-- [ ] **T005** [P] Contract test POST /clients/connect in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientConnectContractTest.kt`  
-- [ ] **T006** [P] Contract test POST /clients/{clientId}/disconnect in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientDisconnectContractTest.kt`
-- [ ] **T007** [P] Contract test GET /clients in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientsListContractTest.kt`
+- [x] **T004** [P] Contract test GET /discovery/info in `app/src/test/java/io/github/gauravyad69/speakershare/network/HostApiContractTest.kt`
+- [x] **T005** [P] Contract test POST /clients/connect in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientConnectContractTest.kt`  
+- [x] **T006** [P] Contract test POST /clients/{clientId}/disconnect in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientDisconnectContractTest.kt`
+- [x] **T007** [P] Contract test GET /clients in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientsListContractTest.kt`
 - [ ] **T008** [P] Contract test POST /clients/{clientId}/kick in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientKickContractTest.kt`
 - [ ] **T009** [P] Contract test PUT /host/settings in `app/src/test/java/io/github/gauravyad69/speakershare/network/HostSettingsContractTest.kt`
 - [ ] **T010** [P] Contract test GET /session/status in `app/src/test/java/io/github/gauravyad69/speakershare/network/SessionStatusContractTest.kt`
@@ -90,16 +90,16 @@
 ## Phase 3.3: Core Implementation (ONLY after tests are failing)
 
 ### Data Models
-- [ ] **T020** [P] HostSession data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/HostSession.kt`
-- [ ] **T021** [P] ClientConnection data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/ClientConnection.kt`
-- [ ] **T022** [P] AudioStream data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/AudioStream.kt`
-- [ ] **T023** [P] NetworkInfo data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/NetworkInfo.kt`
-- [ ] **T024** [P] UserSettings data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/UserSettings.kt`
+- [x] **T020** [P] HostSession data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/HostSession.kt`
+- [x] **T021** [P] ClientConnection data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/ClientConnection.kt`
+- [x] **T022** [P] AudioStream data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/AudioStream.kt`
+- [x] **T023** [P] NetworkInfo data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/NetworkInfo.kt`
+- [x] **T024** [P] UserSettings data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/UserSettings.kt`
 
 ### Core Services (Sequential - shared state)
-- [ ] **T025** AudioStreamManager service in `app/src/main/java/io/github/gauravyad69/speakershare/services/AudioStreamManager.kt`
-- [ ] **T026** HostService for session management in `app/src/main/java/io/github/gauravyad69/speakershare/services/HostService.kt`
-- [ ] **T027** ClientManager for connection handling in `app/src/main/java/io/github/gauravyad69/speakershare/services/ClientManager.kt`
+- [x] **T025** AudioStreamManager service in `app/src/main/java/io/github/gauravyad69/speakershare/services/AudioStreamManager.kt`
+- [x] **T026** HostService for session management in `app/src/main/java/io/github/gauravyad69/speakershare/services/HostService.kt`
+- [x] **T027** ClientManager for connection handling in `app/src/main/java/io/github/gauravyad69/speakershare/services/ClientManager.kt`
 - [ ] **T028** NetworkDiscoveryService (mDNS + UDP broadcast) in `app/src/main/java/io/github/gauravyad69/speakershare/services/NetworkDiscoveryService.kt`
 - [ ] **T029** SettingsRepository for SharedPreferences in `app/src/main/java/io/github/gauravyad69/speakershare/data/repositories/SettingsRepository.kt`
 - [ ] **T030** PermissionManager for Android permissions in `app/src/main/java/io/github/gauravyad69/speakershare/services/PermissionManager.kt`
@@ -118,7 +118,7 @@
 ### WebRTC Implementation
 - [ ] **T036** WebRTCManager setup and configuration in `app/src/main/java/io/github/gauravyad69/speakershare/network/WebRTCManager.kt`
 - [ ] **T037** WebRTC signaling server (WebSocket) in `app/src/main/java/io/github/gauravyad69/speakershare/network/SignalingServer.kt`
-- [ ] **T038** WebRTC client connection handler in `app/src/main/java/io/github/gauravyad69/speakershare/network/WebRTCClient.kt`
+- [ ] **T038** WebRTC client connection handler in `Theseapp/src/main/java/io/github/gauravyad69/speakershare/network/WebRTCClient.kt`
 
 ### UDP Fallback Implementation  
 - [ ] **T039** UDP server for audio streaming in `app/src/main/java/io/github/gauravyad69/speakershare/network/UdpAudioServer.kt`
@@ -135,7 +135,7 @@
 ## Phase 3.5: User Interface (Compose)
 
 ### UI Components (Parallel - independent screens)
-- [ ] **T045** [P] MainActivity and navigation setup in `app/src/main/java/io/github/gauravyad69/speakershare/MainActivity.kt`
+- [x] **T045** [P] MainActivity and navigation setup in `app/src/main/java/io/github/gauravyad69/speakershare/MainActivity.kt`
 - [ ] **T046** [P] Mode selection screen (Host/Client) in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/ModeSelectionScreen.kt`
 - [ ] **T047** [P] Host screen with controls in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/HostScreen.kt`
 - [ ] **T048** [P] Client screen with volume controls in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/ClientScreen.kt`

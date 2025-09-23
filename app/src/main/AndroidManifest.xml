@@ -45,12 +45,13 @@
         </activity>
         
         <!-- Foreground Service for background audio streaming -->
-        <service
-            android:name=".services.AudioForegroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
-            
+<!--        todo: implement this later on-->
+<!--        <service-->
+<!--            android:name=".services.AudioForegroundService"-->
+<!--            android:enabled="true"-->
+<!--            android:exported="false"-->
+<!--            android:foregroundServiceType="mediaPlayback" />-->
+<!--            -->
     </application>
 
 </manifest>
