@@ -290,8 +290,9 @@ class HostViewModel @Inject constructor(
      */
     private fun createAudioStream() {
         viewModelScope.launch {
-            val quality = userSettingsRepository.getAudioQuality()
-            val source = userSettingsRepository.getDefaultAudioSource()
+            val settings = userSettingsRepository.getCurrentSettings()
+            val quality = settings.defaultQuality
+            val source = settings.defaultAudioSource
 
             val result = audioStreamRepository.createStream(
                 sessionId = _hostSession.value?.sessionId ?: "",
@@ -301,9 +302,9 @@ class HostViewModel @Inject constructor(
             )
 
             result.onSuccess { stream ->
-                _hostSession.value = _hostSession.value?.copy(
-                    audioStream = stream
-                )
+                // Note: HostSession doesn't have audioStream property
+                // The stream is managed separately by the repository
+                _isBroadcasting.value = true
             }.onFailure { e ->
                 _error.value = "Failed to create audio stream: ${e.message}"
             }
@@ -311,20 +312,16 @@ class HostViewModel @Inject constructor(
     }
 
 
+
     /**
      * Stop audio stream
      */
     private fun stopAudioStream() {
         viewModelScope.launch {
-            try {
-                _audioStream.value?.let { stream ->
-                    val stoppedStream = stream.copy(
-                        isActive = false,
-                        lastUpdated = System.currentTimeMillis()
-                    )
-                    audioStreamRepository.updateStream(stoppedStream)
-                }
-            } catch (e: Exception) {
+            val result = audioStreamRepository.stopStream()
+            result.onSuccess {
+                _isBroadcasting.value = false
+            }.onFailure { e ->
                 _error.value = "Failed to stop audio stream: ${e.message}"
             }
         }

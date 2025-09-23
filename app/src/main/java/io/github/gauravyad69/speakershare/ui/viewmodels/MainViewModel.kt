@@ -114,10 +114,10 @@ class MainViewModel @Inject constructor(
      */
     fun updateUserSettings(settings: UserSettings) {
         viewModelScope.launch {
-            try {
-                userSettingsRepository.updateUserSettings(settings)
+            val result = userSettingsRepository.updateSettings(settings)
+            result.onSuccess {
                 _userSettings.value = settings
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 _error.value = "Failed to update settings: ${e.message}"
             }
         }

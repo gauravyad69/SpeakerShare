@@ -23,7 +23,7 @@ class SettingsViewModel @Inject constructor(
     val userSettings: StateFlow<UserSettings?> = _userSettings.asStateFlow()
 
     // Audio settings
-    private val _audioQuality = MutableStateFlow(AudioQuality.STANDARD)
+    private val _audioQuality = MutableStateFlow(AudioQuality())
     val audioQuality: StateFlow<AudioQuality> = _audioQuality.asStateFlow()
 
     private val _defaultAudioSource = MutableStateFlow(AudioSource.MICROPHONE)
@@ -33,8 +33,8 @@ class SettingsViewModel @Inject constructor(
     val bufferSize: StateFlow<Int> = _bufferSize.asStateFlow()
 
     // Network settings
-    private val _preferredTransport = MutableStateFlow(TransportType.WEBRTC)
-    val preferredTransport: StateFlow<TransportType> = _preferredTransport.asStateFlow()
+    private val _preferredTransport = MutableStateFlow(StreamTransport.WEBRTC)
+    val preferredTransport: StateFlow<StreamTransport> = _preferredTransport.asStateFlow()
 
     private val _defaultPort = MutableStateFlow(8080)
     val defaultPort: StateFlow<Int> = _defaultPort.asStateFlow()
@@ -114,33 +114,20 @@ class SettingsViewModel @Inject constructor(
      */
     private fun createDefaultSettings() {
         viewModelScope.launch {
-            try {
-                val defaultSettings = UserSettings(
-                    userId = generateUserId(),
-                    deviceName = getDefaultDeviceName(),
-                    audioQuality = AudioQuality.STANDARD,
-                    defaultAudioSource = AudioSource.MICROPHONE,
-                    preferredTransport = TransportType.WEBRTC,
-                    maxClients = 0,
-                    defaultPort = 8080,
-                    bufferSize = 1024,
-                    enableAutoDiscovery = true,
-                    allowDiscovery = true,
-                    requirePermissionForClients = false,
-                    darkMode = DarkModePreference.SYSTEM,
-                    keepScreenOn = true,
-                    showNotifications = true,
-                    enableDebugLogging = false,
-                    autoStopTimer = 0,
-                    createdAt = System.currentTimeMillis(),
-                    lastUpdated = System.currentTimeMillis()
-                )
-                
-                userSettingsRepository.updateUserSettings(defaultSettings)
+            val defaultSettings = UserSettings(
+                displayName = getDefaultDeviceName(),
+                defaultAudioSource = AudioSource.MICROPHONE,
+                defaultQuality = AudioQuality(),
+                autoStartHost = false,
+                keepScreenOn = false,
+                showNetworkMetrics = false,
+                maxClients = 0
+            )
+            
+            val result = userSettingsRepository.updateSettings(defaultSettings)
+            result.onSuccess {
                 _userSettings.value = defaultSettings
-                updateUIStateFromSettings(defaultSettings)
-                
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 _error.value = "Failed to create default settings: ${e.message}"
             }
         }
@@ -150,23 +137,13 @@ class SettingsViewModel @Inject constructor(
      * Update UI state from loaded settings
      */
     private fun updateUIStateFromSettings(settings: UserSettings) {
-        _audioQuality.value = settings.audioQuality
+        _audioQuality.value = settings.defaultQuality
         _defaultAudioSource.value = settings.defaultAudioSource
-        _preferredTransport.value = settings.preferredTransport
         _maxClients.value = settings.maxClients
-        _defaultPort.value = settings.defaultPort
-        _bufferSize.value = settings.bufferSize
-        _enableAutoDiscovery.value = settings.enableAutoDiscovery
-        _allowDiscovery.value = settings.allowDiscovery
-        _requirePermissionForClients.value = settings.requirePermissionForClients
-        _deviceName.value = settings.deviceName
-        _darkMode.value = settings.darkMode
         _keepScreenOn.value = settings.keepScreenOn
-        _showNotifications.value = settings.showNotifications
-        _enableDebugLogging.value = settings.enableDebugLogging
-        _autoStopTimer.value = settings.autoStopTimer
         _hasUnsavedChanges.value = false
     }
+    
 
     /**
      * Observe settings changes to detect unsaved changes
@@ -176,12 +153,8 @@ class SettingsViewModel @Inject constructor(
             combine(
                 _audioQuality,
                 _defaultAudioSource,
-                _preferredTransport,
-                _maxClients,
-                _defaultPort,
-                _deviceName,
-                _darkMode
-            ) { _, _, _, _, _, _, _ ->
+                _maxClients
+            ) { _, _, _ ->
                 // Mark as having unsaved changes when any setting changes
                 if (_userSettings.value != null) {
                     _hasUnsavedChanges.value = true
@@ -199,7 +172,7 @@ class SettingsViewModel @Inject constructor(
         _defaultAudioSource.value = source
     }
 
-    fun setPreferredTransport(transport: TransportType) {
+    fun setPreferredTransport(transport: StreamTransport) {
         _preferredTransport.value = transport
     }
 
@@ -261,27 +234,21 @@ class SettingsViewModel @Inject constructor(
                 val currentSettings = _userSettings.value
                 if (currentSettings != null) {
                     val updatedSettings = currentSettings.copy(
-                        deviceName = _deviceName.value,
-                        audioQuality = _audioQuality.value,
+                        displayName = _deviceName.value,
+                        defaultQuality = _audioQuality.value,
                         defaultAudioSource = _defaultAudioSource.value,
-                        preferredTransport = _preferredTransport.value,
                         maxClients = _maxClients.value,
-                        defaultPort = _defaultPort.value,
-                        bufferSize = _bufferSize.value,
-                        enableAutoDiscovery = _enableAutoDiscovery.value,
-                        allowDiscovery = _allowDiscovery.value,
-                        requirePermissionForClients = _requirePermissionForClients.value,
-                        darkMode = _darkMode.value,
                         keepScreenOn = _keepScreenOn.value,
-                        showNotifications = _showNotifications.value,
-                        enableDebugLogging = _enableDebugLogging.value,
-                        autoStopTimer = _autoStopTimer.value,
-                        lastUpdated = System.currentTimeMillis()
+                        showNetworkMetrics = _showNotifications.value // Map showNotifications to showNetworkMetrics
                     )
                     
-                    userSettingsRepository.updateUserSettings(updatedSettings)
-                    _userSettings.value = updatedSettings
-                    _hasUnsavedChanges.value = false
+                    val result = userSettingsRepository.updateSettings(updatedSettings)
+                    result.onSuccess {
+                        _userSettings.value = updatedSettings
+                        _hasUnsavedChanges.value = false
+                    }.onFailure { e ->
+                        _error.value = "Failed to save settings: ${e.message}"
+                    }
                 }
             } catch (e: Exception) {
                 _error.value = "Failed to save settings: ${e.message}"
