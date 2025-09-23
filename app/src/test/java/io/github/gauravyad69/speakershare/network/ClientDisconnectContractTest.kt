@@ -3,6 +3,8 @@ package io.github.gauravyad69.speakershare.network
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.Assert.*
+// Import factory functions from TestDataClasses
+import io.github.gauravyad69.speakershare.network.*
 
 /**
  * Contract test for POST /clients/{clientId}/disconnect endpoint

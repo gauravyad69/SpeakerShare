@@ -1,157 +1,93 @@
 package io.github.gauravyad69.speakershare.network
 
+import io.github.gauravyad69.speakershare.network.api.impl.HostApiHandlerImpl
+import io.github.gauravyad69.speakershare.network.webrtc.impl.WebRTCHandlerImpl
+import io.github.gauravyad69.speakershare.network.api.*
+import io.github.gauravyad69.speakershare.network.webrtc.*
+
 /**
  * Shared test data classes and interfaces for contract tests.
- * These are placeholder implementations that will FAIL (TDD approach).
+ * Updated to use real implementations for TDD green phase.
+ * Using typealiases to bridge test expectations with main source implementations.
  */
 
-// Request/Response data classes
-data class ClientConnectRequest(
-    val clientId: String,
-    val clientName: String,
-    val preferredTransport: String,
-    val capabilities: List<String>
-)
+// Type aliases for API data classes (from main source)
+typealias ClientConnectRequest = io.github.gauravyad69.speakershare.network.api.ClientConnectRequest
+typealias ClientConnectResponse = io.github.gauravyad69.speakershare.network.api.ClientConnectResponse
+typealias StreamEndpoint = io.github.gauravyad69.speakershare.network.api.StreamEndpoint
+typealias WebRTCEndpoint = io.github.gauravyad69.speakershare.network.api.WebRTCEndpoint
+typealias UdpEndpoint = io.github.gauravyad69.speakershare.network.api.UdpEndpoint
+typealias ClientDisconnectResponse = io.github.gauravyad69.speakershare.network.api.ClientDisconnectResponse
+typealias ConnectedClient = io.github.gauravyad69.speakershare.network.api.ConnectedClient
+typealias ClientListResponse = io.github.gauravyad69.speakershare.network.api.ClientListResponse
+typealias QualityInfo = io.github.gauravyad69.speakershare.network.api.QualityInfo
+typealias HostDiscoveryInfo = io.github.gauravyad69.speakershare.network.api.HostDiscoveryInfo
 
-data class ClientConnectResponse(
-    val status: String,
-    val assignedTransport: String? = null,
-    val streamEndpoint: StreamEndpoint? = null,
-    val clientId: String? = null,
-    val reason: String? = null,
-    val maxClients: Int = 0
-)
+// Type aliases for WebRTC data classes (from main source)
+typealias WebRTCOfferRequest = io.github.gauravyad69.speakershare.network.webrtc.WebRTCOfferRequest
+typealias WebRTCOfferResponse = io.github.gauravyad69.speakershare.network.webrtc.WebRTCOfferResponse
+typealias WebRTCAnswerRequest = io.github.gauravyad69.speakershare.network.webrtc.WebRTCAnswerRequest
+typealias WebRTCAnswerResponse = io.github.gauravyad69.speakershare.network.webrtc.WebRTCAnswerResponse
+typealias ICECandidateRequest = io.github.gauravyad69.speakershare.network.webrtc.ICECandidateRequest
+typealias ICECandidateResponse = io.github.gauravyad69.speakershare.network.webrtc.ICECandidateResponse
 
-data class StreamEndpoint(
-    val webrtc: WebRTCEndpoint? = null,
-    val udp: UdpEndpoint? = null
-)
+// Exception classes - use the ones from main source
+typealias BadRequestException = io.github.gauravyad69.speakershare.network.api.BadRequestException
+typealias TooManyRequestsException = io.github.gauravyad69.speakershare.network.api.TooManyRequestsException  
+typealias ServiceUnavailableException = io.github.gauravyad69.speakershare.network.api.ServiceUnavailableException
+typealias NotFoundException = io.github.gauravyad69.speakershare.network.api.NotFoundException
 
-data class WebRTCEndpoint(
-    val signalingUrl: String,
-    val iceServers: List<String>
-)
-
-data class UdpEndpoint(
-    val host: String,
-    val port: Int
-)
-
-data class ClientDisconnectResponse(
-    val status: String,
-    val reason: String
-)
-
-data class ConnectedClient(
-    val id: String,
-    val ipAddress: String,
-    val deviceName: String,
-    val connectedAt: String,
-    val audioLatency: Int,
-    val connectionQuality: String
-)
-
-data class ClientListResponse(
-    val totalClients: Int,
-    val clients: List<ConnectedClient>
-)
-
-data class QualityInfo(
-    val bitrate: Int,
-    val sampleRate: Int,
-    val encoding: String
-)
-
-data class HostDiscoveryInfo(
-    val sessionId: String,
-    val hostName: String,
-    val audioSource: String,
-    val quality: QualityInfo,
-    val isAcceptingClients: Boolean,
-    val connectedClients: Int,
-    val maxClients: Int,
-    val transport: List<String>
-)
-
-data class WebRTCOfferRequest(
-    val clientId: String,
-    val offer: String
-)
-
-data class WebRTCOfferResponse(
-    val clientId: String,
-    val answer: String,
-    val sessionState: String
-)
-
-data class WebRTCAnswerRequest(
-    val clientId: String,
-    val answer: String
-)
-
-data class WebRTCAnswerResponse(
-    val clientId: String,
-    val sessionState: String,
-    val connectionReady: Boolean = false
-)
-
-data class ICECandidateRequest(
-    val clientId: String,
-    val candidate: String,
-    val sdpMid: String,
-    val sdpMLineIndex: Int
-)
-
-data class ICECandidateResponse(
-    val clientId: String,
-    val candidateAdded: Boolean
-)
-
-// Exception classes
-class BadRequestException(val statusCode: Int, message: String) : Exception(message)
-class TooManyRequestsException(val statusCode: Int, message: String) : Exception(message) 
-class ServiceUnavailableException(val statusCode: Int, message: String) : Exception(message)
-class NotFoundException(val statusCode: Int, message: String) : Exception(message)
-
-// Handler classes that will FAIL (TDD approach)
-class HostApiHandler {
-    suspend fun connectClient(request: ClientConnectRequest): ClientConnectResponse {
-        throw NotImplementedError("HostApiHandler.connectClient not implemented - this test should FAIL")
-    }
-    
-    suspend fun disconnectClient(clientId: String): ClientDisconnectResponse {
-        throw NotImplementedError("HostApiHandler.disconnectClient not implemented - this test should FAIL")
-    }
-    
-    suspend fun getClientList(): ClientListResponse {
-        throw NotImplementedError("HostApiHandler.getClientList not implemented - this test should FAIL")
-    }
-    
-    suspend fun getDiscoveryInfo(): HostDiscoveryInfo {
-        throw NotImplementedError("HostApiHandler.getDiscoveryInfo not implemented - this test should FAIL")
-    }
+// Factory functions that return working implementations (TDD green phase)
+fun createHostApiHandler(): HostApiHandlerImpl {
+    val handler = HostApiHandlerImpl()
+    // Pre-connect clients for tests that expect them
+    handler.preConnectClient("550e8400-e29b-41d4-a716-446655440001", "Test Client")
+    handler.preConnectClient("550e8400-e29b-41d4-a716-446655440002", "Test Client 2")
+    return handler
 }
 
-class WebRTCHandler {
-    suspend fun processOffer(request: WebRTCOfferRequest): WebRTCOfferResponse {
-        throw NotImplementedError("WebRTCHandler.processOffer not implemented - this test should FAIL")
-    }
-    
-    suspend fun processAnswer(request: WebRTCAnswerRequest): WebRTCAnswerResponse {
-        throw NotImplementedError("WebRTCHandler.processAnswer not implemented - this test should FAIL")
-    }
-    
-    suspend fun addICECandidate(request: ICECandidateRequest): ICECandidateResponse {
-        throw NotImplementedError("WebRTCHandler.addICECandidate not implemented - this test should FAIL")
-    }
+fun createHostApiHandlerEmpty(): HostApiHandlerImpl {
+    // Return a clean handler with no pre-connected clients
+    return HostApiHandlerImpl()
 }
 
-// Factory functions that will FAIL (TDD approach)
-fun createHostApiHandler(): HostApiHandler = HostApiHandler()
-fun createHostApiHandlerAtCapacity(): HostApiHandler = HostApiHandler()
-fun createHostApiHandlerNotAccepting(): HostApiHandler = HostApiHandler()
-fun createHostApiHandlerUdpOnly(): HostApiHandler = HostApiHandler()
-fun createWebRTCHandler(): WebRTCHandler = WebRTCHandler()
+fun createHostApiHandlerAtCapacity(): HostApiHandlerImpl {
+    val handler = HostApiHandlerImpl()
+    handler.setMaxClients(1)
+    // Pre-populate with one client to reach capacity
+    handler.preConnectClient("550e8400-e29b-41d4-a716-446655440000", "Existing Client")
+    return handler
+}
+
+fun createHostApiHandlerNotAccepting(): HostApiHandlerImpl {
+    val handler = HostApiHandlerImpl()
+    handler.setAcceptingClients(false)
+    return handler
+}
+
+fun createHostApiHandlerNotBroadcasting(): HostApiHandlerImpl {
+    val handler = HostApiHandlerImpl()
+    handler.setBroadcastingState(false)
+    return handler
+}
+
+fun createHostApiHandlerUdpOnly(): HostApiHandlerImpl {
+    val handler = HostApiHandlerImpl()
+    handler.setTransportMode("UDP_ONLY")
+    return handler
+}
+
+fun createWebRTCHandler(): WebRTCHandlerImpl {
+    val handler = WebRTCHandlerImpl()
+    // Pre-create sessions for answer and ICE candidate tests
+    handler.preCreateSession("550e8400-e29b-41d4-a716-446655440002", "OFFER_RECEIVED")
+    handler.preCreateSession("550e8400-e29b-41d4-a716-446655440003", "OFFER_RECEIVED")
+    return handler
+}
+
+// Type aliases to bridge test expectations with implementations
+typealias HostApiHandler = HostApiHandlerImpl
+typealias WebRTCHandler = WebRTCHandlerImpl
 
 // Helper functions for validation
 fun isValidUUID(uuid: String): Boolean = uuid.matches(Regex("[0-9a-fA-F-]{36}"))

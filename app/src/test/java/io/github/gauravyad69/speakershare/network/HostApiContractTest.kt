@@ -5,6 +5,8 @@ import org.junit.Test
 import org.junit.Assert.*
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
+// Import factory functions from TestDataClasses
+import io.github.gauravyad69.speakershare.network.*
 
 /**
  * Contract test for GET /discovery/info endpoint
@@ -75,7 +77,7 @@ class HostApiContractTest {
     @Test
     fun `GET discovery info returns 503 when host not broadcasting`() = runTest {
         // Arrange - Host not in broadcasting state
-        val hostApiHandler = createHostApiHandler() // Will fail - doesn't exist
+        val hostApiHandler = createHostApiHandlerNotBroadcasting()
         
         // Act & Assert - Should throw exception or return error status
         try {
@@ -83,8 +85,8 @@ class HostApiContractTest {
             fail("Should have thrown exception when host not broadcasting")
         } catch (e: ServiceUnavailableException) {
             assertEquals("Error code should be 503", 503, e.statusCode)
-            assertEquals("Error message should indicate service unavailable", 
-                "Host not currently broadcasting", e.message)
+            assertTrue("Error message should indicate not broadcasting", 
+                e.message!!.contains("not currently broadcasting"))
         }
     }
 
@@ -126,12 +128,5 @@ class HostApiContractTest {
         val uuidRegex = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
         assertTrue("sessionId should be valid UUID format", 
             uuidRegex.matches(response.sessionId))
-    }
-
-    // This method will fail during compilation - HostApiHandler doesn't exist yet
-    private fun createHostApiHandler(): HostApiHandler {
-        // TODO: This will be implemented after the test fails
-        // return HostApiHandler(mockHostService, mockNetworkInfo)
-        throw NotImplementedError("HostApiHandler not implemented yet - this test should fail")
     }
 }

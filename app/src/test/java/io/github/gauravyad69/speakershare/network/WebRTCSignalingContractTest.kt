@@ -3,6 +3,8 @@ package io.github.gauravyad69.speakershare.network
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.Assert.*
+// Import factory functions from TestDataClasses
+import io.github.gauravyad69.speakershare.network.*
 
 /**
  * Contract test for POST /webrtc/offer and POST /webrtc/answer endpoints
@@ -134,10 +136,5 @@ class WebRTCSignalingContractTest {
                sdp.contains("v=") && 
                sdp.contains("o=") && 
                sdp.contains("m=")
-    }
-
-    // This method will fail during compilation - implementation doesn't exist yet
-    private fun createWebRTCHandler(): WebRTCHandler {
-        throw NotImplementedError("WebRTCHandler not implemented yet - this test should fail")
     }
 }

@@ -4,6 +4,8 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.Assert.*
 import java.time.Instant
+// Import factory functions from TestDataClasses
+import io.github.gauravyad69.speakershare.network.*
 
 /**
  * Contract test for GET /clients/list endpoint
@@ -59,7 +61,7 @@ class ClientListContractTest {
     @Test
     fun `GET clients list returns empty list when no clients connected`() = runTest {
         // Arrange - Ensure no clients are connected (will be mocked later)
-        val hostApiHandler = createHostApiHandler() // Will fail - doesn't exist
+        val hostApiHandler = createHostApiHandlerEmpty() // Clean handler with no clients
 
         // Act
         val response = hostApiHandler.getClientList()
@@ -101,10 +103,5 @@ class ClientListContractTest {
         return parts.all { 
             it.toIntOrNull()?.let { num -> num in 0..255 } ?: false 
         }
-    }
-
-    // This method will fail during compilation - implementation doesn't exist yet
-    private fun createHostApiHandler(): HostApiHandler {
-        throw NotImplementedError("HostApiHandler client list not implemented yet - this test should fail")
     }
 }

@@ -3,6 +3,8 @@ package io.github.gauravyad69.speakershare.network
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.Assert.*
+// Import factory functions from TestDataClasses
+import io.github.gauravyad69.speakershare.network.*
 
 /**
  * Contract test for POST /clients/connect endpoint
@@ -166,22 +168,5 @@ class ClientConnectContractTest {
         assertEquals("Should fallback to UDP", "UDP", response.assignedTransport)
         assertNotNull("Stream endpoint should provide UDP config", 
             response.streamEndpoint?.udp)
-    }
-
-    // These methods will fail during compilation - implementations don't exist yet
-    private fun createHostApiHandler(): HostApiHandler {
-        throw NotImplementedError("HostApiHandler not implemented yet - this test should fail")
-    }
-
-    private fun createHostApiHandlerAtCapacity(): HostApiHandler {
-        throw NotImplementedError("HostApiHandler with capacity limit not implemented yet")
-    }
-
-    private fun createHostApiHandlerNotAccepting(): HostApiHandler {
-        throw NotImplementedError("HostApiHandler not accepting mode not implemented yet")
-    }
-
-    private fun createHostApiHandlerUdpOnly(): HostApiHandler {
-        throw NotImplementedError("HostApiHandler UDP-only mode not implemented yet")
     }
 }
