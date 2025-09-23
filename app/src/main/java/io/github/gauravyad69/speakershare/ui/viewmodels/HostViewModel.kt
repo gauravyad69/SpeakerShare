@@ -132,7 +132,7 @@ class HostViewModel @Inject constructor(
                     discoveryMethod = DiscoveryMethod.MDNS,
                     serviceName = "SpeakerShare-${getDeviceName()}"
                 )
-                
+
                 // Create session using repository
                 val result = hostSessionRepository.createSession(
                     hostName = getDeviceName(),
@@ -140,7 +140,7 @@ class HostViewModel @Inject constructor(
                     quality = AudioQuality(),
                     networkInfo = networkInfo
                 )
-                
+
                 result.onSuccess { session ->
                     _hostSession.value = session
                     // Start broadcasting
@@ -167,18 +167,15 @@ class HostViewModel @Inject constructor(
             try {
                 _hostSession.value?.let { session ->
                     // Update session as inactive
-                    val updatedSession = session.copy(
-                        isActive = false,
-                        lastUpdated = System.currentTimeMillis()
-                    )
-                    hostSessionRepository.updateSession(updatedSession)
-                    
+                    // Stop broadcasting using repository
+                    hostSessionRepository.stopBroadcasting()
+
                     // Disconnect all clients
                     disconnectAllClients()
-                    
+
                     // Stop audio stream
                     stopAudioStream()
-                    
+
                     _isBroadcasting.value = false
                 }
             } catch (e: Exception) {
@@ -197,14 +194,10 @@ class HostViewModel @Inject constructor(
             try {
                 val newMuteState = !_isMuted.value
                 _isMuted.value = newMuteState
-                
-                _audioStream.value?.let { stream ->
-                    val updatedStream = stream.copy(
-                        isMuted = newMuteState,
-                        lastUpdated = System.currentTimeMillis()
-                    )
-                    audioStreamRepository.updateStream(updatedStream)
-                }
+
+                // TODO: Apply mute/unmute to actual audio stream
+                // This would interact with the audio service/manager
+
             } catch (e: Exception) {
                 _error.value = "Failed to toggle mute: ${e.message}"
             }
@@ -219,14 +212,10 @@ class HostViewModel @Inject constructor(
             try {
                 val clampedVolume = volume.coerceIn(0f, 1f)
                 _volume.value = clampedVolume
-                
-                _audioStream.value?.let { stream ->
-                    val updatedStream = stream.copy(
-                        volume = clampedVolume,
-                        lastUpdated = System.currentTimeMillis()
-                    )
-                    audioStreamRepository.updateStream(updatedStream)
-                }
+
+                // TODO: Apply volume change to actual audio stream
+                // This would interact with the audio service/manager
+
             } catch (e: Exception) {
                 _error.value = "Failed to set volume: ${e.message}"
             }
@@ -240,14 +229,10 @@ class HostViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 _audioSource.value = source
-                
-                _hostSession.value?.let { session ->
-                    val updatedSession = session.copy(
-                        audioSource = source,
-                        lastUpdated = System.currentTimeMillis()
-                    )
-                    hostSessionRepository.updateSession(updatedSession)
-                }
+
+                // Use repository method to update audio source
+                hostSessionRepository.updateAudioSource(source)
+
             } catch (e: Exception) {
                 _error.value = "Failed to switch audio source: ${e.message}"
             }
@@ -262,14 +247,10 @@ class HostViewModel @Inject constructor(
             try {
                 val newAcceptanceState = !_isAcceptingClients.value
                 _isAcceptingClients.value = newAcceptanceState
-                
-                _hostSession.value?.let { session ->
-                    val updatedSession = session.copy(
-                        isAcceptingClients = newAcceptanceState,
-                        lastUpdated = System.currentTimeMillis()
-                    )
-                    hostSessionRepository.updateSession(updatedSession)
-                }
+
+                // TODO: Implement client acceptance toggle
+                // This would need to be added to the HostSessionRepository interface
+
             } catch (e: Exception) {
                 _error.value = "Failed to toggle client acceptance: ${e.message}"
             }
@@ -277,17 +258,14 @@ class HostViewModel @Inject constructor(
     }
 
     /**
-     * Kick a specific client
+     * Kick client by ID
      */
     fun kickClient(clientId: String) {
         viewModelScope.launch {
             try {
-                // Use the API handler to disconnect the client
-                hostApiHandler.disconnectClient(clientId)
-                
-                // Remove from local repository
-                clientConnectionRepository.removeConnection(clientId)
-                
+                // Use the correct repository method
+                clientConnectionRepository.kickClient(clientId)
+
             } catch (e: Exception) {
                 _error.value = "Failed to kick client: ${e.message}"
             }
@@ -297,16 +275,13 @@ class HostViewModel @Inject constructor(
     /**
      * Disconnect all clients
      */
-    private fun disconnectAllClients() {
-        viewModelScope.launch {
-            try {
-                _connectedClients.value.forEach { client ->
-                    hostApiHandler.disconnectClient(client.id)
-                }
-                clientConnectionRepository.clearAllConnections()
-            } catch (e: Exception) {
-                _error.value = "Failed to disconnect all clients: ${e.message}"
-            }
+    private suspend fun disconnectAllClients() {
+        try {
+            // TODO: Implement disconnect all clients
+            // This would need to be added to repository interfaces
+
+        } catch (e: Exception) {
+            _error.value = "Failed to disconnect clients: ${e.message}"
         }
     }
 
@@ -315,29 +290,26 @@ class HostViewModel @Inject constructor(
      */
     private fun createAudioStream() {
         viewModelScope.launch {
-            try {
-                val stream = AudioStream(
-                    streamId = generateStreamId(),
-                    sessionId = _hostSession.value?.sessionId ?: "",
-                    format = AudioFormat.AAC,
-                    quality = AudioQuality.STANDARD,
-                    sampleRate = 44100,
-                    bitrate = 128000,
-                    channels = 2,
-                    volume = _volume.value,
-                    isMuted = _isMuted.value,
-                    isActive = true,
-                    createdAt = System.currentTimeMillis(),
-                    lastUpdated = System.currentTimeMillis()
+            val quality = userSettingsRepository.getAudioQuality()
+            val source = userSettingsRepository.getDefaultAudioSource()
+
+            val result = audioStreamRepository.createStream(
+                sessionId = _hostSession.value?.sessionId ?: "",
+                source = source,
+                transport = StreamTransport.WEBRTC, // Default to WebRTC
+                quality = quality
+            )
+
+            result.onSuccess { stream ->
+                _hostSession.value = _hostSession.value?.copy(
+                    audioStream = stream
                 )
-                
-                audioStreamRepository.createStream(stream)
-                _audioStream.value = stream
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 _error.value = "Failed to create audio stream: ${e.message}"
             }
         }
     }
+
 
     /**
      * Stop audio stream
@@ -367,6 +339,5 @@ class HostViewModel @Inject constructor(
 
     // Helper functions
     private fun generateSessionId(): String = java.util.UUID.randomUUID().toString()
-    private fun generateStreamId(): String = java.util.UUID.randomUUID().toString()
     private fun getDeviceName(): String = android.os.Build.MODEL
 }

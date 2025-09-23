@@ -89,10 +89,18 @@ class DiscoveryViewModel @Inject constructor(
             
             try {
                 when (_discoveryMethod.value) {
-                    DiscoveryMethod.AUTO -> performAutoDiscovery()
-                    DiscoveryMethod.MDNS -> performMDNSDiscovery()
-                    DiscoveryMethod.UDP_BROADCAST -> performUDPBroadcastDiscovery()
-                    DiscoveryMethod.MANUAL -> performManualDiscovery()
+                    DiscoveryMethod.MDNS -> {
+                        val hosts = performMDNSDiscovery()
+                        _availableHosts.value = hosts
+                    }
+                    DiscoveryMethod.UDP_BROADCAST -> {
+                        val hosts = performUDPBroadcastDiscovery()
+                        _availableHosts.value = hosts
+                    }
+                    DiscoveryMethod.MANUAL_IP -> {
+                        val hosts = performManualDiscovery()
+                        _availableHosts.value = hosts
+                    }
                 }
                 _lastDiscoveryTime.value = System.currentTimeMillis()
             } catch (e: Exception) {
@@ -116,37 +124,12 @@ class DiscoveryViewModel @Inject constructor(
     private fun startAutoDiscovery() {
         viewModelScope.launch {
             while (true) {
-                if (!_isDiscovering.value && _discoveryMethod.value == DiscoveryMethod.AUTO) {
+                if (!_isDiscovering.value && _discoveryMethod.value == DiscoveryMethod.MDNS) {
                     startDiscovery()
                 }
                 delay(10000) // Refresh every 10 seconds
             }
         }
-    }
-
-    /**
-     * Perform automatic discovery (try all methods)
-     */
-    private suspend fun performAutoDiscovery() {
-        val discoveredHosts = mutableListOf<NetworkInfo>()
-        
-        // Try mDNS first
-        try {
-            discoveredHosts.addAll(performMDNSDiscovery())
-        } catch (e: Exception) {
-            // Continue with next method
-        }
-        
-        // Try UDP broadcast
-        try {
-            discoveredHosts.addAll(performUDPBroadcastDiscovery())
-        } catch (e: Exception) {
-            // Continue
-        }
-        
-        // Remove duplicates based on host ID
-        val uniqueHosts = discoveredHosts.distinctBy { it.hostId }
-        _availableHosts.value = uniqueHosts
     }
 
     /**
@@ -259,7 +242,7 @@ class DiscoveryViewModel @Inject constructor(
      */
     fun setDiscoveryMethod(method: DiscoveryMethod) {
         _discoveryMethod.value = method
-        if (method != DiscoveryMethod.MANUAL) {
+        if (method != DiscoveryMethod.MANUAL_IP) {
             startDiscovery()
         }
     }
@@ -278,7 +261,7 @@ class DiscoveryViewModel @Inject constructor(
         viewModelScope.launch {
             _isConnecting.value = true
             try {
-                _discoveryMethod.value = DiscoveryMethod.MANUAL
+                _discoveryMethod.value = DiscoveryMethod.MANUAL_IP
                 val hosts = performManualDiscovery()
                 if (hosts.isNotEmpty()) {
                     _availableHosts.value = hosts
@@ -295,7 +278,7 @@ class DiscoveryViewModel @Inject constructor(
     /**
      * Add host to recent hosts list
      */
-    fun addToRecentHosts(host: NetworkInfo) {
+    fun addToRecentHosts(host: DiscoveredHost) {
         viewModelScope.launch {
             try {
                 val currentRecent = _recentHosts.value.toMutableList()
