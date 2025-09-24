@@ -14,7 +14,7 @@ import io.github.gauravyad69.speakershare.data.models.HostSession
 import io.github.gauravyad69.speakershare.network.HttpApiServer
 import io.github.gauravyad69.speakershare.network.UdpAudioServer
 import io.github.gauravyad69.speakershare.network.WebRTCManager
-import io.github.gauravyad69.speakershare.audio.AudioCaptureManager
+import io.github.gauravyad69.speakershare.audio.AudioCaptureService
 import io.github.gauravyad69.speakershare.ui.MainActivity
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -95,7 +95,7 @@ class AudioForegroundService : Service() {
     lateinit var webRTCManager: WebRTCManager
 
     @Inject
-    lateinit var audioCaptureManager: AudioCaptureManager
+    lateinit var audioCaptureService: AudioCaptureService
 
     @Inject
     lateinit var notificationManager: AudioNotificationManager
@@ -153,7 +153,7 @@ class AudioForegroundService : Service() {
                 httpApiServer.error.map { "HTTP Server: $it" },
                 udpAudioServer.error.map { "UDP Server: $it" },
                 webRTCManager.error.map { "WebRTC: $it" },
-                audioCaptureManager.error.map { "Audio Capture: $it" }
+                audioCaptureService.error.map { "Audio Capture: $it" }
             ).collect { errorMessage ->
                 _error.emit(errorMessage)
                 handleError(errorMessage)
@@ -241,7 +241,7 @@ class AudioForegroundService : Service() {
             startForeground(NOTIFICATION_ID, notification)
 
             // Initialize audio capture
-            audioCaptureManager.initialize(audioSource)
+            audioCaptureService.initialize(audioSource)
             
             // Start servers
             startHttpServer(session)
@@ -249,7 +249,7 @@ class AudioForegroundService : Service() {
             startWebRTCManager(session)
 
             // Start audio capture
-            audioCaptureManager.startCapture()
+            audioCaptureService.startCapture()
 
             _serviceState.value = ServiceState.RUNNING
             
@@ -269,7 +269,7 @@ class AudioForegroundService : Service() {
             _serviceState.value = ServiceState.STOPPING
 
             // Stop audio capture first
-            audioCaptureManager.stopCapture()
+            audioCaptureService.stopCapture()
 
             // Stop servers
             httpApiServer.stop()
@@ -300,7 +300,7 @@ class AudioForegroundService : Service() {
 
         try {
             // Pause audio capture
-            audioCaptureManager.stopCapture()
+            audioCaptureService.stopCapture()
             
             // Keep servers running but mark session as paused
             _currentSession.value = _currentSession.value?.copy(isActive = false)
@@ -320,7 +320,7 @@ class AudioForegroundService : Service() {
 
         try {
             // Resume audio capture
-            audioCaptureManager.startCapture()
+            audioCaptureService.startCapture()
             
             // Mark session as active
             _currentSession.value = _currentSession.value?.copy(isActive = true)
@@ -339,9 +339,9 @@ class AudioForegroundService : Service() {
             _isAudioMuted.value = !wasMuted
             
             if (_isAudioMuted.value) {
-                audioCaptureManager.mute()
+                audioCaptureService.mute()
             } else {
-                audioCaptureManager.unmute()
+                audioCaptureService.unmute()
             }
             
             updateNotificationIfRunning()
