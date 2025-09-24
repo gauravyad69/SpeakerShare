@@ -68,13 +68,13 @@
 - [x] **T005** [P] Contract test POST /clients/connect in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientConnectContractTest.kt`  
 - [x] **T006** [P] Contract test POST /clients/{clientId}/disconnect in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientDisconnectContractTest.kt`
 - [x] **T007** [P] Contract test GET /clients in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientsListContractTest.kt`
-- [ ] **T008** [P] Contract test POST /clients/{clientId}/kick in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientKickContractTest.kt`
-- [ ] **T009** [P] Contract test PUT /host/settings in `app/src/test/java/io/github/gauravyad69/speakershare/network/HostSettingsContractTest.kt`
-- [ ] **T010** [P] Contract test GET /session/status in `app/src/test/java/io/github/gauravyad69/speakershare/network/SessionStatusContractTest.kt`
+- [x] **T008** [P] Contract test POST /clients/{clientId}/kick in `app/src/test/java/io/github/gauravyad69/speakershare/network/ClientKickContractTest.kt`
+- [x] **T009** [P] Contract test PUT /host/settings in `app/src/test/java/io/github/gauravyad69/speakershare/network/HostSettingsContractTest.kt`
+- [x] **T010** [P] Contract test GET /session/status in `app/src/test/java/io/github/gauravyad69/speakershare/network/SessionStatusContractTest.kt`
 
 ### UDP Protocol Tests
-- [ ] **T011** [P] UDP packet format validation test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpPacketFormatTest.kt`
-- [ ] **T012** [P] UDP control commands test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpControlCommandsTest.kt`
+- [x] **T011** [P] UDP packet format validation test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpPacketFormatTest.kt`
+- [x] **T012** [P] UDP control commands test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpControlCommandsTest.kt`
 - [ ] **T013** [P] UDP discovery protocol test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpDiscoveryTest.kt`
 - [ ] **T014** [P] UDP audio streaming flow test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpStreamingTest.kt`
 
@@ -136,8 +136,8 @@
 
 ### UI Components (Parallel - independent screens)
 - [x] **T045** [P] MainActivity and navigation setup in `app/src/main/java/io/github/gauravyad69/speakershare/MainActivity.kt`
-- [ ] **T046** [P] Mode selection screen (Host/Client) in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/ModeSelectionScreen.kt`
-- [ ] **T047** [P] Host screen with controls in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/HostScreen.kt`
+- [x] **T046** [P] Mode selection screen (Host/Client) in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/ModeSelectionScreen.kt`
+- [x] **T047** [P] Host screen with controls in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/HostScreen.kt`
 - [ ] **T048** [P] Client screen with volume controls in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/ClientScreen.kt`
 - [ ] **T049** [P] Host discovery list screen in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/DiscoveryScreen.kt`
 - [ ] **T050** [P] Settings screen in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/SettingsScreen.kt`
