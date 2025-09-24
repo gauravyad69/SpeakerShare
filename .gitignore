@@ -62,3 +62,5 @@ out/
 *.wav
 *.mp3
 *.aac
+.kotlin/sessions/*
+.kotlin/*

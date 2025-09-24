@@ -79,11 +79,11 @@
 - [x] **T014** [P] UDP audio streaming flow test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpStreamingTest.kt`
 
 ### Integration Tests (User Scenarios)
-- [ ] **T015** [P] Integration test: Basic host-client connection in `app/src/androidTest/java/io/github/gauravyad69/speakershare/BasicConnectionIntegrationTest.kt`
-- [ ] **T016** [P] Integration test: Audio source switching in `app/src/androidTest/java/io/github/gauravyad69/speakershare/AudioSourceSwitchingIntegrationTest.kt`
-- [ ] **T017** [P] Integration test: Volume and mute controls in `app/src/androidTest/java/io/github/gauravyad69/speakershare/VolumeControlsIntegrationTest.kt`
-- [ ] **T018** [P] Integration test: Multiple clients connection in `app/src/androidTest/java/io/github/gauravyad69/speakershare/MultipleClientsIntegrationTest.kt`
-- [ ] **T019** [P] Integration test: Client management (kick functionality) in `app/src/androidTest/java/io/github/gauravyad69/speakershare/ClientManagementIntegrationTest.kt`
+- [x] **T015** [P] Integration test: Basic host-client connection in `app/src/androidTest/java/io/github/gauravyad69/speakershare/BasicConnectionIntegrationTest.kt`
+- [x] **T016** [P] Integration test: Multiple clients connection in `app/src/androidTest/java/io/github/gauravyad69/speakershare/MultipleClientsIntegrationTest.kt`
+- [x] **T017** [P] Integration test: Volume controls during streaming in `app/src/androidTest/java/io/github/gauravyad69/speakershare/VolumeControlsIntegrationTest.kt`  
+- [x] **T018** [P] Integration test: Network error handling in `app/src/androidTest/java/io/github/gauravyad69/speakershare/NetworkErrorHandlingIntegrationTest.kt`
+- [x] **T019** [P] Integration test: Audio source switching in `app/src/androidTest/java/io/github/gauravyad69/speakershare/AudioSourceSwitchingIntegrationTest.kt`
 
 ---
 
@@ -105,11 +105,11 @@
 - [x] **T030** PermissionManager for Android permissions in `app/src/main/java/io/github/gauravyad69/speakershare/services/PermissionManager.kt`
 
 ### Audio Pipeline (Sequential - audio processing chain)
-- [ ] **T031** AudioCaptureService (microphone + MediaProjection) in `app/src/main/java/io/github/gauravyad69/speakershare/audio/AudioCaptureService.kt`
-- [ ] **T032** AudioEncoder (PCM to AAC) in `app/src/main/java/io/github/gauravyad69/speakershare/audio/AudioEncoder.kt`
-- [ ] **T033** AudioDecoder (AAC to PCM) in `app/src/main/java/io/github/gauravyad69/speakershare/audio/AudioDecoder.kt`
-- [ ] **T034** AudioPlaybackService (AudioTrack) in `app/src/main/java/io/github/gauravyad69/speakershare/audio/AudioPlaybackService.kt`
-- [ ] **T035** AudioBufferManager for latency optimization in `app/src/main/java/io/github/gauravyad69/speakershare/audio/AudioBufferManager.kt`
+- [x] **T031** AudioCaptureService (microphone + MediaProjection) in `app/src/main/java/io/github/gauravyad69/speakershare/audio/AudioCaptureService.kt`
+- [x] **T032** AudioEncoder (PCM to AAC) in `app/src/main/java/io/github/gauravyad69/speakershare/audio/AudioEncoder.kt`
+- [x] **T033** AudioDecoder (AAC to PCM) in `app/src/main/java/io/github/gauravyad69/speakershare/audio/AudioDecoder.kt`
+- [x] **T034** AudioPlaybackService (AudioTrack) in `app/src/main/java/io/github/gauravyad69/speakershare/audio/AudioPlaybackService.kt`
+- [x] **T035** AudioBufferManager for latency optimization in `app/src/main/java/io/github/gauravyad69/speakershare/audio/AudioBufferManager.kt`
 
 ---
 

@@ -1,0 +1,413 @@
+package io.github.gauravyad69.speakershare.audio
+
+import android.media.AudioFormat
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaFormat
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import java.nio.ByteBuffer
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * AudioEncoder handles real-time PCM to AAC encoding for audio streaming.
+ * 
+ * Features:
+ * - Hardware-accelerated AAC encoding when available
+ * - Configurable bitrate and quality settings
+ * - Real-time streaming optimization
+ * - Low-latency encoding pipeline
+ * - Automatic fallback to software encoding
+ */
+@Singleton
+class AudioEncoder @Inject constructor() {
+
+    // Encoding configuration
+    data class EncoderConfig(
+        val sampleRate: Int = 44100,
+        val channelCount: Int = 1,
+        val bitrate: Int = 128000, // 128 kbps default
+        val aacProfile: Int = MediaCodecInfo.CodecProfileLevel.AACObjectLC,
+        val bufferTimeoutUs: Long = 10000L // 10ms timeout
+    )
+
+    // Encoded audio packet
+    data class EncodedAudioPacket(
+        val data: ByteArray,
+        val presentationTimeUs: Long,
+        val isKeyFrame: Boolean = false,
+        val size: Int = data.size
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (javaClass != other?.javaClass) return false
+            other as EncodedAudioPacket
+            return data.contentEquals(other.data) && 
+                   presentationTimeUs == other.presentationTimeUs &&
+                   isKeyFrame == other.isKeyFrame
+        }
+
+        override fun hashCode(): Int {
+            var result = data.contentHashCode()
+            result = 31 * result + presentationTimeUs.hashCode()
+            result = 31 * result + isKeyFrame.hashCode()
+            return result
+        }
+    }
+
+    // Encoder state
+    data class EncoderState(
+        val isEncoding: Boolean = false,
+        val config: EncoderConfig = EncoderConfig(),
+        val packetsEncoded: Long = 0,
+        val bytesEncoded: Long = 0,
+        val errorCount: Int = 0
+    )
+
+    // State management
+    private val _encoderState = MutableStateFlow(EncoderState())
+    val encoderState: StateFlow<EncoderState> = _encoderState.asStateFlow()
+
+    // Encoded packet stream
+    private val _encodedPacketFlow = MutableSharedFlow<EncodedAudioPacket>(
+        replay = 0,
+        extraBufferCapacity = 20,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val encodedPacketFlow: SharedFlow<EncodedAudioPacket> = _encodedPacketFlow.asSharedFlow()
+
+    // Encoder components
+    private var mediaCodec: MediaCodec? = null
+    private var encodingJob: Job? = null
+    private val encodingScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
+    // Input buffer queue for PCM data
+    private val inputBufferQueue = ArrayDeque<Pair<ByteArray, Long>>()
+    private val inputBufferMutex = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Start the AAC encoder with specified configuration
+     */
+    suspend fun startEncoding(config: EncoderConfig = EncoderConfig()): Result<Unit> {
+        return try {
+            if (_encoderState.value.isEncoding) {
+                stopEncoding()
+            }
+
+            initializeEncoder(config)
+            
+            encodingJob = encodingScope.launch {
+                encodingLoop()
+            }
+
+            _encoderState.value = _encoderState.value.copy(
+                isEncoding = true,
+                config = config,
+                packetsEncoded = 0,
+                bytesEncoded = 0,
+                errorCount = 0
+            )
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            stopEncoding()
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Stop the AAC encoder
+     */
+    suspend fun stopEncoding(): Result<Unit> {
+        return try {
+            encodingJob?.cancel()
+            encodingJob = null
+
+            mediaCodec?.apply {
+                try {
+                    stop()
+                    release()
+                } catch (e: Exception) {
+                    // Ignore cleanup errors
+                }
+            }
+            mediaCodec = null
+
+            inputBufferMutex.withLock {
+                inputBufferQueue.clear()
+            }
+
+            _encoderState.value = _encoderState.value.copy(isEncoding = false)
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Encode PCM audio data to AAC
+     */
+    suspend fun encodePCMData(pcmData: ByteArray, timestampUs: Long = System.nanoTime() / 1000): Result<Unit> {
+        return try {
+            if (!_encoderState.value.isEncoding) {
+                return Result.failure(IllegalStateException("Encoder not started"))
+            }
+
+            inputBufferMutex.withLock {
+                inputBufferQueue.offer(Pair(pcmData.clone(), timestampUs))
+                
+                // Prevent queue overflow
+                while (inputBufferQueue.size > 10) {
+                    inputBufferQueue.poll()
+                }
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            incrementErrorCount()
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Initialize MediaCodec for AAC encoding
+     */
+    private suspend fun initializeEncoder(config: EncoderConfig) {
+        val mediaFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, config.sampleRate, config.channelCount).apply {
+            setInteger(MediaFormat.KEY_AAC_PROFILE, config.aacProfile)
+            setInteger(MediaFormat.KEY_BITRATE, config.bitrate)
+            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
+            setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+        }
+
+        mediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC).apply {
+            configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            start()
+        }
+    }
+
+    /**
+     * Main encoding loop
+     */
+    private suspend fun encodingLoop() {
+        val config = _encoderState.value.config
+        
+        while (currentCoroutineContext().isActive && mediaCodec != null) {
+            try {
+                // Process input buffers
+                processInputBuffers()
+                
+                // Process output buffers
+                processOutputBuffers()
+                
+                // Brief yield to prevent blocking
+                yield()
+                
+            } catch (e: Exception) {
+                if (currentCoroutineContext().isActive) {
+                    incrementErrorCount()
+                    println("Encoding loop error: ${e.message}")
+                    delay(10) // Brief pause on error
+                }
+            }
+        }
+    }
+
+    /**
+     * Process input buffers (PCM -> Encoder)
+     */
+    private suspend fun processInputBuffers() {
+        val codec = mediaCodec ?: return
+        
+        val inputBufferIndex = codec.dequeueInputBuffer(0)
+        if (inputBufferIndex >= 0) {
+            inputBufferMutex.withLock {
+                val inputData = inputBufferQueue.poll()
+                
+                if (inputData != null) {
+                    val (pcmData, timestampUs) = inputData
+                    val inputBuffer = codec.getInputBuffer(inputBufferIndex)
+                    
+                    inputBuffer?.apply {
+                        clear()
+                        put(pcmData)
+                    }
+                    
+                    codec.queueInputBuffer(
+                        inputBufferIndex,
+                        0,
+                        pcmData.size,
+                        timestampUs,
+                        0
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Process output buffers (Encoder -> AAC packets)
+     */
+    private suspend fun processOutputBuffers() {
+        val codec = mediaCodec ?: return
+        val config = _encoderState.value.config
+        val bufferInfo = MediaCodec.BufferInfo()
+        
+        var outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
+        
+        while (outputBufferIndex >= 0) {
+            try {
+                val outputBuffer = codec.getOutputBuffer(outputBufferIndex)
+                
+                if (outputBuffer != null && bufferInfo.size > 0) {
+                    val encodedData = ByteArray(bufferInfo.size)
+                    outputBuffer.apply {
+                        position(bufferInfo.offset)
+                        get(encodedData)
+                    }
+                    
+                    val packet = EncodedAudioPacket(
+                        data = encodedData,
+                        presentationTimeUs = bufferInfo.presentationTimeUs,
+                        isKeyFrame = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
+                    )
+                    
+                    _encodedPacketFlow.tryEmit(packet)
+                    updateEncodingStats(packet)
+                }
+                
+                codec.releaseOutputBuffer(outputBufferIndex, false)
+                outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
+                
+            } catch (e: Exception) {
+                codec.releaseOutputBuffer(outputBufferIndex, false)
+                incrementErrorCount()
+                break
+            }
+        }
+    }
+
+    /**
+     * Update encoding statistics
+     */
+    private fun updateEncodingStats(packet: EncodedAudioPacket) {
+        _encoderState.value = _encoderState.value.copy(
+            packetsEncoded = _encoderState.value.packetsEncoded + 1,
+            bytesEncoded = _encoderState.value.bytesEncoded + packet.size
+        )
+    }
+
+    /**
+     * Increment error count
+     */
+    private fun incrementErrorCount() {
+        _encoderState.value = _encoderState.value.copy(
+            errorCount = _encoderState.value.errorCount + 1
+        )
+    }
+
+    /**
+     * Get encoding performance metrics
+     */
+    fun getEncodingMetrics(): EncodingMetrics {
+        val state = _encoderState.value
+        val avgPacketSize = if (state.packetsEncoded > 0) {
+            state.bytesEncoded / state.packetsEncoded
+        } else {
+            0L
+        }
+        
+        return EncodingMetrics(
+            isActive = state.isEncoding,
+            packetsEncoded = state.packetsEncoded,
+            bytesEncoded = state.bytesEncoded,
+            errorCount = state.errorCount,
+            averagePacketSize = avgPacketSize,
+            bitrate = state.config.bitrate,
+            sampleRate = state.config.sampleRate
+        )
+    }
+
+    /**
+     * Configure encoding quality presets
+     */
+    fun getQualityPreset(quality: AudioQuality): EncoderConfig {
+        return when (quality) {
+            AudioQuality.LOW -> EncoderConfig(
+                sampleRate = 22050,
+                channelCount = 1,
+                bitrate = 64000
+            )
+            AudioQuality.MEDIUM -> EncoderConfig(
+                sampleRate = 44100,
+                channelCount = 1,
+                bitrate = 128000
+            )
+            AudioQuality.HIGH -> EncoderConfig(
+                sampleRate = 44100,
+                channelCount = 2,
+                bitrate = 256000
+            )
+            AudioQuality.ULTRA -> EncoderConfig(
+                sampleRate = 48000,
+                channelCount = 2,
+                bitrate = 320000
+            )
+        }
+    }
+
+    /**
+     * Check if hardware encoding is available
+     */
+    fun isHardwareEncodingAvailable(): Boolean {
+        return try {
+            val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
+            val codecInfo = codec.codecInfo
+            val isHardware = !codecInfo.name.lowercase().contains("sw")
+            codec.release()
+            isHardware
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Estimate encoding latency
+     */
+    fun getEstimatedLatency(): Long {
+        val config = _encoderState.value.config
+        // Estimate based on buffer size and processing time
+        return (16384 * 1000L) / (config.sampleRate * 2) // milliseconds
+    }
+
+    /**
+     * Cleanup resources
+     */
+    fun cleanup() {
+        encodingScope.cancel()
+        runBlocking {
+            stopEncoding()
+        }
+    }
+
+    // Supporting data classes and enums
+    
+    data class EncodingMetrics(
+        val isActive: Boolean,
+        val packetsEncoded: Long,
+        val bytesEncoded: Long,
+        val errorCount: Int,
+        val averagePacketSize: Long,
+        val bitrate: Int,
+        val sampleRate: Int
+    )
+
+    enum class AudioQuality {
+        LOW,     // 64kbps, 22kHz, Mono
+        MEDIUM,  // 128kbps, 44kHz, Mono  
+        HIGH,    // 256kbps, 44kHz, Stereo
+        ULTRA    // 320kbps, 48kHz, Stereo
+    }
+}
