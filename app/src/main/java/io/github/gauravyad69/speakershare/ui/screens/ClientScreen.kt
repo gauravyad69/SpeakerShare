@@ -1,0 +1,445 @@
+package io.github.gauravyad69.speakershare.ui.screens
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import io.github.gauravyad69.speakershare.network.DiscoveredHost
+import io.github.gauravyad69.speakershare.ui.viewmodels.ClientViewModel
+
+/**
+ * Client Screen for connecting to hosts and controlling playback
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ClientScreen(
+    onNavigateBack: () -> Unit,
+    viewModel: ClientViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        viewModel.startDiscovery()
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("SpeakerShare Client") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { viewModel.refreshDiscovery() },
+                        enabled = !uiState.isDiscovering
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Connection Status Card
+            ConnectionStatusCard(
+                isConnected = uiState.isConnected,
+                connectedHost = uiState.connectedHost,
+                connectionStatus = uiState.connectionStatus,
+                onDisconnect = { viewModel.disconnect() }
+            )
+
+            // Audio Controls (shown when connected)
+            if (uiState.isConnected) {
+                AudioControlsCard(
+                    volume = uiState.volume,
+                    isMuted = uiState.isMuted,
+                    onVolumeChange = { viewModel.setVolume(it) },
+                    onMuteToggle = { viewModel.toggleMute() }
+                )
+            }
+
+            // Discovery Section
+            if (!uiState.isConnected) {
+                DiscoverySection(
+                    isDiscovering = uiState.isDiscovering,
+                    discoveredHosts = uiState.discoveredHosts,
+                    onConnectToHost = { host -> viewModel.connectToHost(host) },
+                    onRefreshDiscovery = { viewModel.refreshDiscovery() }
+                )
+            }
+
+            // Connection Statistics (when connected)
+            if (uiState.isConnected && uiState.connectionStats != null) {
+                ConnectionStatsCard(stats = uiState.connectionStats!!)
+            }
+        }
+    }
+
+    // Handle connection errors
+    uiState.error?.let { error ->
+        LaunchedEffect(error) {
+            // Show error snackbar or dialog
+        }
+    }
+}
+
+@Composable
+private fun ConnectionStatusCard(
+    isConnected: Boolean,
+    connectedHost: DiscoveredHost?,
+    connectionStatus: String,
+    onDisconnect: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Connection Status",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                if (isConnected) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = "Connected",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Cancel,
+                        contentDescription = "Disconnected",
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
+            Text(
+                text = connectionStatus,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (connectedHost != null) {
+                Divider()
+                
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Host: ${connectedHost.hostName}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "IP: ${connectedHost.ipAddress}:${connectedHost.port}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Audio Source: ${connectedHost.audioSource}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Button(
+                    onClick = onDisconnect,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Disconnect")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudioControlsCard(
+    volume: Float,
+    isMuted: Boolean,
+    onVolumeChange: (Float) -> Unit,
+    onMuteToggle: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Audio Controls",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                IconButton(
+                    onClick = onMuteToggle,
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = if (isMuted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surface,
+                        contentColor = if (isMuted) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurface
+                    )
+                ) {
+                    Icon(
+                        if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                        contentDescription = if (isMuted) "Unmute" else "Mute"
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Volume: ${(volume * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    
+                    Slider(
+                        value = volume,
+                        onValueChange = onVolumeChange,
+                        enabled = !isMuted,
+                        valueRange = 0f..1f,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoverySection(
+    isDiscovering: Boolean,
+    discoveredHosts: List<DiscoveredHost>,
+    onConnectToHost: (DiscoveredHost) -> Unit,
+    onRefreshDiscovery: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Available Hosts",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                if (isDiscovering) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
+            }
+
+            if (discoveredHosts.isEmpty() && !isDiscovering) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "No hosts found",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(onClick = onRefreshDiscovery) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Scan Again")
+                    }
+                }
+            } else if (discoveredHosts.isNotEmpty()) {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.heightIn(max = 300.dp)
+                ) {
+                    items(discoveredHosts) { host ->
+                        HostListItem(
+                            host = host,
+                            onConnect = { onConnectToHost(host) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HostListItem(
+    host: DiscoveredHost,
+    onConnect: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = host.hostName,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (host.supportsWebRTC()) {
+                        Icon(
+                            Icons.Default.Wifi,
+                            contentDescription = "WebRTC",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    if (host.supportsUDP()) {
+                        Icon(
+                            Icons.Default.Network,
+                            contentDescription = "UDP",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "${host.ipAddress}:${host.port}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Clients: ${host.connectedClients}/${if (host.maxClients > 0) host.maxClients else "∞"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Button(
+                    onClick = onConnect,
+                    enabled = host.isAcceptingClients,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text("Connect")
+                }
+            }
+
+            if (!host.isAcceptingClients) {
+                Text(
+                    text = "Not accepting new clients",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionStatsCard(
+    stats: Map<String, Any>
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Connection Statistics",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            stats.entries.forEach { (key, value) ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = key,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = value.toString(),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
+    }
+}
