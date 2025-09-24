@@ -6,6 +6,7 @@ import android.net.nsd.NsdServiceInfo
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
+import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -88,7 +89,7 @@ class NetworkDiscoveryService @Inject constructor(
             val serviceInfo = NsdServiceInfo().apply {
                 serviceName = hostName
                 serviceType = SERVICE_TYPE
-                port = port
+                setPort(port)
                 setAttribute(SERVICE_INFO_KEY_USER, userName)
                 setAttribute(SERVICE_INFO_KEY_VERSION, "1.0")
                 setAttribute(SERVICE_INFO_KEY_CLIENTS, currentClients.toString())
@@ -281,22 +282,21 @@ class NetworkDiscoveryService @Inject constructor(
         } ?: 50
         
         val networkInfo = NetworkInfo(
-            hostName = serviceInfo.serviceName,
-            ipAddress = serviceInfo.host.hostAddress ?: "",
+            localIpAddress = serviceInfo.host.hostAddress ?: "",
             port = serviceInfo.port,
-            userName = userName,
-            isHost = true,
-            currentClients = currentClients,
-            maxClients = maxClients
+            networkInterface = "wlan0", // Default Wi-Fi interface
+            isHotspot = false,
+            discoveryMethod = DiscoveryMethod.MDNS,
+            serviceName = serviceInfo.serviceName
         )
         
-        Log.d(TAG, "Adding discovered host: ${networkInfo.hostName} at ${networkInfo.ipAddress}:${networkInfo.port}")
+        Log.d(TAG, "Adding discovered host: ${networkInfo.serviceName} at ${networkInfo.localIpAddress}:${networkInfo.port}")
         
         val currentHosts = _discoveredHosts.value.toMutableList()
         
         // Remove any existing entry with the same name or IP
         currentHosts.removeAll { 
-            it.hostName == networkInfo.hostName || it.ipAddress == networkInfo.ipAddress 
+            it.serviceName == networkInfo.serviceName || it.localIpAddress == networkInfo.localIpAddress 
         }
         
         // Add the new entry
@@ -311,7 +311,7 @@ class NetworkDiscoveryService @Inject constructor(
         Log.d(TAG, "Removing discovered host: $serviceName")
         
         val currentHosts = _discoveredHosts.value.toMutableList()
-        currentHosts.removeAll { it.hostName == serviceName }
+        currentHosts.removeAll { it.serviceName == serviceName }
         _discoveredHosts.value = currentHosts
     }
     
@@ -382,7 +382,7 @@ class NetworkDiscoveryService @Inject constructor(
                     Log.v(TAG, "UDP discovery received: $message")
                     
                     parseBroadcastMessage(message, packet.address.hostAddress)?.let { networkInfo ->
-                        addDiscoveredHost(networkInfo)
+                        addDiscoveredHostUdp(networkInfo)
                     }
                 }
                 
@@ -424,13 +424,12 @@ class NetworkDiscoveryService @Inject constructor(
             val parts = message.split("|")
             if (parts.size >= 6 && parts[0] == "SPEAKERSHARE_HOST") {
                 NetworkInfo(
-                    hostName = parts[1],
-                    ipAddress = ipAddress ?: "",
+                    localIpAddress = ipAddress ?: "",
                     port = parts[2].toInt(),
-                    userName = parts[3],
-                    isHost = true,
-                    currentClients = parts[4].toIntOrNull() ?: 0,
-                    maxClients = parts[5].toIntOrNull() ?: 50
+                    networkInterface = "wlan0", // Default interface
+                    isHotspot = false,
+                    discoveryMethod = DiscoveryMethod.UDP_BROADCAST,
+                    serviceName = parts[1]
                 )
             } else null
         } catch (e: Exception) {
@@ -440,16 +439,16 @@ class NetworkDiscoveryService @Inject constructor(
     }
     
     /**
-     * Add discovered host from UDP (with NsdServiceInfo-like interface)
+     * Add discovered host from UDP (with NetworkInfo interface)
      */
-    private fun addDiscoveredHost(networkInfo: NetworkInfo) {
-        Log.d(TAG, "Adding UDP discovered host: ${networkInfo.hostName} at ${networkInfo.ipAddress}:${networkInfo.port}")
+    private fun addDiscoveredHostUdp(networkInfo: NetworkInfo) {
+        Log.d(TAG, "Adding UDP discovered host: ${networkInfo.serviceName} at ${networkInfo.localIpAddress}:${networkInfo.port}")
         
         val currentHosts = _discoveredHosts.value.toMutableList()
         
         // Remove any existing entry with the same name or IP
         currentHosts.removeAll { 
-            it.hostName == networkInfo.hostName || it.ipAddress == networkInfo.ipAddress 
+            it.serviceName == networkInfo.serviceName || it.localIpAddress == networkInfo.localIpAddress 
         }
         
         // Add the new entry

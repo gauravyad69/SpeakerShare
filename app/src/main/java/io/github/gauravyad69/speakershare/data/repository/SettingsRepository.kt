@@ -88,17 +88,13 @@ class SettingsRepository @Inject constructor(
         )
         
         return UserSettings(
-            userName = sharedPreferences.getString(KEY_USER_NAME, DEFAULT_USER_NAME)!!,
+            displayName = sharedPreferences.getString(KEY_USER_NAME, DEFAULT_USER_NAME)!!,
             defaultAudioSource = audioSource,
             defaultQuality = audioQuality,
-            defaultVolume = sharedPreferences.getFloat(KEY_DEFAULT_VOLUME, DEFAULT_VOLUME),
-            autoConnect = sharedPreferences.getBoolean(KEY_AUTO_CONNECT, false),
-            showNotifications = sharedPreferences.getBoolean(KEY_SHOW_NOTIFICATIONS, true),
+            autoStartHost = sharedPreferences.getBoolean(KEY_AUTO_CONNECT, false),
             keepScreenOn = sharedPreferences.getBoolean(KEY_KEEP_SCREEN_ON, true),
-            useDarkTheme = sharedPreferences.getBoolean(KEY_USE_DARK_THEME, false),
-            maxClients = sharedPreferences.getInt(KEY_MAX_CLIENTS, DEFAULT_MAX_CLIENTS),
-            connectionTimeout = sharedPreferences.getLong(KEY_CONNECTION_TIMEOUT, DEFAULT_CONNECTION_TIMEOUT),
-            discoveryTimeout = sharedPreferences.getLong(KEY_DISCOVERY_TIMEOUT, DEFAULT_DISCOVERY_TIMEOUT)
+            showNetworkMetrics = sharedPreferences.getBoolean(KEY_SHOW_NOTIFICATIONS, true),
+            maxClients = sharedPreferences.getInt(KEY_MAX_CLIENTS, DEFAULT_MAX_CLIENTS)
         )
     }
     
@@ -109,19 +105,15 @@ class SettingsRepository @Inject constructor(
         Log.d(TAG, "Saving user settings to SharedPreferences")
         
         sharedPreferences.edit().apply {
-            putString(KEY_USER_NAME, settings.userName)
+            putString(KEY_USER_NAME, settings.displayName)
             putString(KEY_DEFAULT_AUDIO_SOURCE, settings.defaultAudioSource.name)
             putInt(KEY_AUDIO_BITRATE, settings.defaultQuality.bitrate)
             putInt(KEY_AUDIO_SAMPLE_RATE, settings.defaultQuality.sampleRate)
             putString(KEY_AUDIO_ENCODING, settings.defaultQuality.encoding.name)
-            putFloat(KEY_DEFAULT_VOLUME, settings.defaultVolume)
-            putBoolean(KEY_AUTO_CONNECT, settings.autoConnect)
-            putBoolean(KEY_SHOW_NOTIFICATIONS, settings.showNotifications)
+            putBoolean(KEY_AUTO_CONNECT, settings.autoStartHost)
+            putBoolean(KEY_SHOW_NOTIFICATIONS, settings.showNetworkMetrics)
             putBoolean(KEY_KEEP_SCREEN_ON, settings.keepScreenOn)
-            putBoolean(KEY_USE_DARK_THEME, settings.useDarkTheme)
             putInt(KEY_MAX_CLIENTS, settings.maxClients)
-            putLong(KEY_CONNECTION_TIMEOUT, settings.connectionTimeout)
-            putLong(KEY_DISCOVERY_TIMEOUT, settings.discoveryTimeout)
             apply()
         }
     }
@@ -140,7 +132,7 @@ class SettingsRepository @Inject constructor(
      */
     suspend fun updateUserName(userName: String) {
         val currentSettings = _userSettings.value
-        val updatedSettings = currentSettings.copy(userName = userName)
+        val updatedSettings = currentSettings.copy(displayName = userName)
         updateSettings(updatedSettings)
     }
     
@@ -165,37 +157,22 @@ class SettingsRepository @Inject constructor(
     }
     
     /**
-     * Update default volume
+     * Update auto-start host setting
      */
-    suspend fun updateDefaultVolume(volume: Float) {
-        if (volume < 0.0f || volume > 1.0f) {
-            Log.w(TAG, "Invalid volume value: $volume, must be between 0.0 and 1.0")
-            return
-        }
-        
-        Log.d(TAG, "Updating default volume to $volume")
+    suspend fun updateAutoStartHost(autoStartHost: Boolean) {
+        Log.d(TAG, "Updating auto-start host to $autoStartHost")
         val currentSettings = _userSettings.value
-        val updatedSettings = currentSettings.copy(defaultVolume = volume)
+        val updatedSettings = currentSettings.copy(autoStartHost = autoStartHost)
         updateSettings(updatedSettings)
     }
     
     /**
-     * Update auto-connect setting
+     * Update network metrics display setting
      */
-    suspend fun updateAutoConnect(autoConnect: Boolean) {
-        Log.d(TAG, "Updating auto-connect to $autoConnect")
+    suspend fun updateShowNetworkMetrics(showNetworkMetrics: Boolean) {
+        Log.d(TAG, "Updating show network metrics to $showNetworkMetrics")
         val currentSettings = _userSettings.value
-        val updatedSettings = currentSettings.copy(autoConnect = autoConnect)
-        updateSettings(updatedSettings)
-    }
-    
-    /**
-     * Update notification settings
-     */
-    suspend fun updateShowNotifications(showNotifications: Boolean) {
-        Log.d(TAG, "Updating show notifications to $showNotifications")
-        val currentSettings = _userSettings.value
-        val updatedSettings = currentSettings.copy(showNotifications = showNotifications)
+        val updatedSettings = currentSettings.copy(showNetworkMetrics = showNetworkMetrics)
         updateSettings(updatedSettings)
     }
     
@@ -206,16 +183,6 @@ class SettingsRepository @Inject constructor(
         Log.d(TAG, "Updating keep screen on to $keepScreenOn")
         val currentSettings = _userSettings.value
         val updatedSettings = currentSettings.copy(keepScreenOn = keepScreenOn)
-        updateSettings(updatedSettings)
-    }
-    
-    /**
-     * Update dark theme setting
-     */
-    suspend fun updateDarkTheme(useDarkTheme: Boolean) {
-        Log.d(TAG, "Updating dark theme to $useDarkTheme")
-        val currentSettings = _userSettings.value
-        val updatedSettings = currentSettings.copy(useDarkTheme = useDarkTheme)
         updateSettings(updatedSettings)
     }
     
@@ -234,35 +201,7 @@ class SettingsRepository @Inject constructor(
         updateSettings(updatedSettings)
     }
     
-    /**
-     * Update connection timeout
-     */
-    suspend fun updateConnectionTimeout(timeoutMs: Long) {
-        if (timeoutMs <= 0) {
-            Log.w(TAG, "Invalid connection timeout: $timeoutMs, must be positive")
-            return
-        }
-        
-        Log.d(TAG, "Updating connection timeout to ${timeoutMs}ms")
-        val currentSettings = _userSettings.value
-        val updatedSettings = currentSettings.copy(connectionTimeout = timeoutMs)
-        updateSettings(updatedSettings)
-    }
-    
-    /**
-     * Update discovery timeout
-     */
-    suspend fun updateDiscoveryTimeout(timeoutMs: Long) {
-        if (timeoutMs <= 0) {
-            Log.w(TAG, "Invalid discovery timeout: $timeoutMs, must be positive")
-            return
-        }
-        
-        Log.d(TAG, "Updating discovery timeout to ${timeoutMs}ms")
-        val currentSettings = _userSettings.value
-        val updatedSettings = currentSettings.copy(discoveryTimeout = timeoutMs)
-        updateSettings(updatedSettings)
-    }
+
     
     /**
      * Reset settings to defaults
@@ -278,7 +217,7 @@ class SettingsRepository @Inject constructor(
      * Get current user name
      */
     fun getCurrentUserName(): String {
-        return _userSettings.value.userName
+        return _userSettings.value.displayName
     }
     
     /**
@@ -289,24 +228,24 @@ class SettingsRepository @Inject constructor(
     }
     
     /**
-     * Check if auto-connect is enabled
+     * Check if auto-start host is enabled
      */
-    fun isAutoConnectEnabled(): Boolean {
-        return _userSettings.value.autoConnect
+    fun isAutoStartHostEnabled(): Boolean {
+        return _userSettings.value.autoStartHost
     }
     
     /**
-     * Check if notifications are enabled
+     * Check if network metrics are enabled
      */
-    fun areNotificationsEnabled(): Boolean {
-        return _userSettings.value.showNotifications
+    fun areNetworkMetricsEnabled(): Boolean {
+        return _userSettings.value.showNetworkMetrics
     }
     
     /**
-     * Check if dark theme is enabled
+     * Check if keep screen on is enabled
      */
-    fun isDarkThemeEnabled(): Boolean {
-        return _userSettings.value.useDarkTheme
+    fun isKeepScreenOnEnabled(): Boolean {
+        return _userSettings.value.keepScreenOn
     }
     
     /**

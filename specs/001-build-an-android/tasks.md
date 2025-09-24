@@ -100,9 +100,9 @@
 - [x] **T025** AudioStreamManager service in `app/src/main/java/io/github/gauravyad69/speakershare/services/AudioStreamManager.kt`
 - [x] **T026** HostService for session management in `app/src/main/java/io/github/gauravyad69/speakershare/services/HostService.kt`
 - [x] **T027** ClientManager for connection handling in `app/src/main/java/io/github/gauravyad69/speakershare/services/ClientManager.kt`
-- [ ] **T028** NetworkDiscoveryService (mDNS + UDP broadcast) in `app/src/main/java/io/github/gauravyad69/speakershare/services/NetworkDiscoveryService.kt`
-- [ ] **T029** SettingsRepository for SharedPreferences in `app/src/main/java/io/github/gauravyad69/speakershare/data/repositories/SettingsRepository.kt`
-- [ ] **T030** PermissionManager for Android permissions in `app/src/main/java/io/github/gauravyad69/speakershare/services/PermissionManager.kt`
+- [x] **T028** NetworkDiscoveryService (mDNS + UDP broadcast) in `app/src/main/java/io/github/gauravyad69/speakershare/services/NetworkDiscoveryService.kt`
+- [x] **T029** SettingsRepository for SharedPreferences in `app/src/main/java/io/github/gauravyad69/speakershare/data/repositories/SettingsRepository.kt`
+- [x] **T030** PermissionManager for Android permissions in `app/src/main/java/io/github/gauravyad69/speakershare/services/PermissionManager.kt`
 
 ### Audio Pipeline (Sequential - audio processing chain)
 - [ ] **T031** AudioCaptureService (microphone + MediaProjection) in `app/src/main/java/io/github/gauravyad69/speakershare/audio/AudioCaptureService.kt`
