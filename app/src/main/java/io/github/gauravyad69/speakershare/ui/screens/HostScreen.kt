@@ -1,10 +1,12 @@
 package io.github.gauravyad69.speakershare.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import compose.icons.TablerIcons
-import compose.icons.tablericons.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -57,7 +59,7 @@ fun HostScreen(
             ) {
                 IconButton(onClick = onNavigateBack) {
                     Icon(
-                        TablerIcons.ArrowLeft, 
+                        Icons.Default.ArrowBack, 
                         contentDescription = "Back",
                         tint = MaterialTheme.colorScheme.onPrimary
                     )
@@ -72,7 +74,7 @@ fun HostScreen(
                 
                 IconButton(onClick = onNavigateToClients) {
                     Icon(
-                        TablerIcons.Users, 
+                        Icons.Default.People, 
                         contentDescription = "View Clients",
                         tint = MaterialTheme.colorScheme.onPrimary
                     )
@@ -101,7 +103,7 @@ fun HostScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        if (uiState.isHosting) Icons.Default.CheckCircle else Icons.Default.Circle,
+                        if (uiState.isHosting) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
                         contentDescription = "Status",
                         tint = if (uiState.isHosting) Color.Green else Color.Gray,
                         modifier = Modifier.size(24.dp)
@@ -153,7 +155,7 @@ fun HostScreen(
                 )
             ) {
                 Icon(
-                    if (uiState.isHosting) TablerIcons.PlayerStop else TablerIcons.PlayerPlay,
+                    if (uiState.isHosting) Icons.Default.Stop else Icons.Default.PlayArrow,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp)
                 )
@@ -178,7 +180,7 @@ fun HostScreen(
                 enabled = uiState.isHosting
             ) {
                 Icon(
-                    if (uiState.isMuted) TablerIcons.MicrophoneOff else TablerIcons.Microphone,
+                    if (uiState.isMuted) Icons.Default.MicOff else Icons.Default.Mic,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp)
                 )
@@ -217,7 +219,7 @@ fun HostScreen(
                         selected = uiState.audioSource == AudioSource.MICROPHONE,
                         leadingIcon = {
                             Icon(
-                                TablerIcons.Microphone,
+                                Icons.Default.Mic,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -231,7 +233,7 @@ fun HostScreen(
                         selected = uiState.audioSource == AudioSource.SYSTEM_AUDIO,
                         leadingIcon = {
                             Icon(
-                                TablerIcons.DeviceDesktop,
+                                Icons.Default.Computer,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -327,7 +329,7 @@ fun HostScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                TablerIcons.User,
+                                Icons.Default.Person,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.primary

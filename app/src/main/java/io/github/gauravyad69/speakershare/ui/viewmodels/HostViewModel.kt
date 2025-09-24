@@ -340,18 +340,16 @@ class HostViewModel @Inject constructor(
         connectedClients,
         audioSource,
         isMuted,
-        isLoading,
-        error,
-        hostSession
-    ) { isBroadcasting, connectedClients, audioSource, isMuted, isLoading, error, hostSession ->
+        isLoading
+    ) { isBroadcasting, connectedClients, audioSource, isMuted, isLoading ->
         HostUiState(
             isHosting = isBroadcasting,
             connectedClients = connectedClients,
             audioSource = audioSource,
             isMuted = isMuted,
             isLoading = isLoading,
-            error = error,
-            networkInfo = hostSession?.networkInfo
+            error = _error.value,
+            networkInfo = _hostSession.value?.networkInfo
         )
     }.stateIn(
         scope = viewModelScope,

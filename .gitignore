@@ -64,3 +64,4 @@ out/
 *.aac
 .kotlin/sessions/*
 .kotlin/*
+.idea/*
