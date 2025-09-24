@@ -75,8 +75,8 @@
 ### UDP Protocol Tests
 - [x] **T011** [P] UDP packet format validation test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpPacketFormatTest.kt`
 - [x] **T012** [P] UDP control commands test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpControlCommandsTest.kt`
-- [ ] **T013** [P] UDP discovery protocol test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpDiscoveryTest.kt`
-- [ ] **T014** [P] UDP audio streaming flow test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpStreamingTest.kt`
+- [x] **T013** [P] UDP discovery protocol test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpDiscoveryTest.kt`
+- [x] **T014** [P] UDP audio streaming flow test in `app/src/test/java/io/github/gauravyad69/speakershare/network/UdpStreamingTest.kt`
 
 ### Integration Tests (User Scenarios)
 - [ ] **T015** [P] Integration test: Basic host-client connection in `app/src/androidTest/java/io/github/gauravyad69/speakershare/BasicConnectionIntegrationTest.kt`
