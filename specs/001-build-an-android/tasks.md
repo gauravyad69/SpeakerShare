@@ -138,19 +138,19 @@
 - [x] **T045** [P] MainActivity and navigation setup in `app/src/main/java/io/github/gauravyad69/speakershare/MainActivity.kt`
 - [x] **T046** [P] Mode selection screen (Host/Client) in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/ModeSelectionScreen.kt`
 - [x] **T047** [P] Host screen with controls in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/HostScreen.kt`
-- [ ] **T048** [P] Client screen with volume controls in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/ClientScreen.kt`
-- [ ] **T049** [P] Host discovery list screen in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/DiscoveryScreen.kt`
-- [ ] **T050** [P] Settings screen in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/SettingsScreen.kt`
-- [ ] **T051** [P] Connected clients management screen in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/ClientsScreen.kt`
-- [ ] **T052** [P] Permission request dialogs in `app/src/main/java/io/github/gauravyad69/speakershare/ui/components/PermissionDialogs.kt`
+- [x] **T048** [P] Client screen with volume controls in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/ClientScreen.kt`
+- [x] **T049** [P] Host discovery list screen in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/DiscoveryScreen.kt`
+- [x] **T050** [P] Settings screen in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/SettingsScreen.kt`
+- [x] **T051** [P] Connected clients management screen in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/ClientsScreen.kt`
+- [x] **T052** [P] Permission request dialogs in `app/src/main/java/io/github/gauravyad69/speakershare/ui/screens/PermissionDialogs.kt`
 
 ---
 
 ## Phase 3.6: Background Services & Polish
 
 ### Background Operation
-- [ ] **T053** Foreground service for background audio in `app/src/main/java/io/github/gauravyad69/speakershare/services/AudioForegroundService.kt`
-- [ ] **T054** Notification controls for playback in `app/src/main/java/io/github/gauravyad69/speakershare/services/AudioNotificationManager.kt`
+- [x] **T053** Foreground service for background audio in `app/src/main/java/io/github/gauravyad69/speakershare/services/AudioForegroundService.kt`
+- [x] **T054** Notification controls for playback in `app/src/main/java/io/github/gauravyad69/speakershare/services/AudioNotificationManager.kt`
 
 ---
 
