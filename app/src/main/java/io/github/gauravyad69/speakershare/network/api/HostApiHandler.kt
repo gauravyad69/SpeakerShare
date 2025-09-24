@@ -21,6 +21,12 @@ interface HostApiHandler {
     suspend fun disconnectClient(clientId: String): ClientDisconnectResponse
     
     /**
+     * Kick a client
+     * POST /clients/{clientId}/kick
+     */
+    suspend fun kickClient(clientId: String): ClientDisconnectResponse
+    
+    /**
      * Get list of connected clients
      * GET /clients/list
      */
@@ -31,6 +37,18 @@ interface HostApiHandler {
      * GET /discovery/info
      */
     suspend fun getDiscoveryInfo(): HostDiscoveryInfo
+    
+    /**
+     * Update host settings
+     * PUT /host/settings
+     */
+    suspend fun updateHostSettings(settings: HostSettingsRequest): HostSettingsResponse
+    
+    /**
+     * Get session status
+     * GET /session/status
+     */
+    suspend fun getSessionStatus(): SessionStatusResponse
 }
 
 // Data classes for API requests/responses
@@ -99,6 +117,32 @@ data class HostDiscoveryInfo(
     val connectedClients: Int,
     val maxClients: Int,
     val transport: List<String>
+)
+
+data class HostSettingsRequest(
+    val hostName: String? = null,
+    val audioSource: String? = null,
+    val quality: QualityInfo? = null,
+    val maxClients: Int? = null,
+    val isAcceptingClients: Boolean? = null
+)
+
+data class HostSettingsResponse(
+    val status: String,
+    val message: String? = null,
+    val updatedSettings: HostSettingsRequest? = null
+)
+
+data class SessionStatusResponse(
+    val sessionId: String,
+    val isActive: Boolean,
+    val startTime: Long,
+    val uptime: Long,
+    val connectedClients: Int,
+    val audioSource: String,
+    val quality: QualityInfo,
+    val bytesTransferred: Long,
+    val averageLatency: Int
 )
 
 // Exception classes

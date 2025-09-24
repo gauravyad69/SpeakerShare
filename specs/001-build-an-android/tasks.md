@@ -116,19 +116,19 @@
 ## Phase 3.4: Network & Transport Integration
 
 ### WebRTC Implementation
-- [ ] **T036** WebRTCManager setup and configuration in `app/src/main/java/io/github/gauravyad69/speakershare/network/WebRTCManager.kt`
-- [ ] **T037** WebRTC signaling server (WebSocket) in `app/src/main/java/io/github/gauravyad69/speakershare/network/SignalingServer.kt`
-- [ ] **T038** WebRTC client connection handler in `Theseapp/src/main/java/io/github/gauravyad69/speakershare/network/WebRTCClient.kt`
+- [x] **T036** WebRTCManager setup and configuration in `app/src/main/java/io/github/gauravyad69/speakershare/network/WebRTCManager.kt`
+- [x] **T037** WebRTC signaling server (WebSocket) in `app/src/main/java/io/github/gauravyad69/speakershare/network/SignalingServer.kt`
+- [x] **T038** WebRTC client connection handler in `app/src/main/java/io/github/gauravyad69/speakershare/network/WebRTCClient.kt`
 
 ### UDP Fallback Implementation  
-- [ ] **T039** UDP server for audio streaming in `app/src/main/java/io/github/gauravyad69/speakershare/network/UdpAudioServer.kt`
-- [ ] **T040** UDP client for audio receiving in `app/src/main/java/io/github/gauravyad69/speakershare/network/UdpAudioClient.kt`
-- [ ] **T041** UDP packet encoder/decoder in `app/src/main/java/io/github/gauravyad69/speakershare/network/UdpPacketHandler.kt`
+- [x] **T039** UDP server for audio streaming in `app/src/main/java/io/github/gauravyad69/speakershare/network/UdpAudioServer.kt`
+- [x] **T040** UDP client for audio receiving in `app/src/main/java/io/github/gauravyad69/speakershare/network/UdpAudioClient.kt`
+- [x] **T041** UDP packet encoder/decoder in `app/src/main/java/io/github/gauravyad69/speakershare/network/UdpPacketHandler.kt`
 
 ### HTTP API Implementation
-- [ ] **T042** Ktor HTTP server setup in `app/src/main/java/io/github/gauravyad69/speakershare/network/HttpApiServer.kt`
-- [ ] **T043** Host API endpoints implementation in `app/src/main/java/io/github/gauravyad69/speakershare/network/HostApiHandler.kt`
-- [ ] **T044** HTTP client for discovery in `app/src/main/java/io/github/gauravyad69/speakershare/network/DiscoveryClient.kt`
+- [x] **T042** Ktor HTTP server setup in `app/src/main/java/io/github/gauravyad69/speakershare/network/HttpApiServer.kt`
+- [x] **T043** Host API endpoints implementation in `app/src/main/java/io/github/gauravyad69/speakershare/network/HostApiHandler.kt`
+- [x] **T044** HTTP client for discovery in `app/src/main/java/io/github/gauravyad69/speakershare/network/DiscoveryClient.kt`
 
 ---
 
