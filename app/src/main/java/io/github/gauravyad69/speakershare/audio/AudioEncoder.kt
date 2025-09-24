@@ -159,11 +159,11 @@ class AudioEncoder @Inject constructor() {
             }
 
             inputBufferMutex.withLock {
-                inputBufferQueue.offer(Pair(pcmData.clone(), timestampUs))
+                inputBufferQueue.addLast(Pair(pcmData.clone(), timestampUs))
                 
                 // Prevent queue overflow
                 while (inputBufferQueue.size > 10) {
-                    inputBufferQueue.poll()
+                    inputBufferQueue.removeFirstOrNull()
                 }
             }
 

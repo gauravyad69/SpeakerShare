@@ -6,6 +6,8 @@ import androidx.annotation.RequiresPermission
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -133,11 +135,11 @@ class AudioPlaybackService @Inject constructor(
             }
 
             playbackBufferMutex.withLock {
-                playbackBufferQueue.offer(pcmData.clone())
+                playbackBufferQueue.addLast(pcmData.clone())
                 
                 // Prevent buffer overflow
                 while (playbackBufferQueue.size > 20) {
-                    playbackBufferQueue.poll()
+                    playbackBufferQueue.removeFirstOrNull()
                 }
             }
 
@@ -224,7 +226,7 @@ class AudioPlaybackService @Inject constructor(
             try {
                 // Get audio data from buffer
                 val audioData = playbackBufferMutex.withLock {
-                    playbackBufferQueue.poll()
+                    playbackBufferQueue.removeFirstOrNull()
                 }
 
                 if (audioData != null) {
@@ -249,9 +251,9 @@ class AudioPlaybackService @Inject constructor(
                         }
                     } else if (bytesWritten < audioData.size) {
                         // Partial write - queue remaining data
-                        val remainingData = audioData.copyOfRange(bytesWritten, audioData.size)
+                        val remainingData = audioData.sliceArray(bytesWritten until audioData.size)
                         playbackBufferMutex.withLock {
-                            playbackBufferQueue.offerFirst(remainingData)
+                            playbackBufferQueue.addFirst(remainingData)
                         }
                     }
                 } else {

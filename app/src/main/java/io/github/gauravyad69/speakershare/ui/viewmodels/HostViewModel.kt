@@ -334,7 +334,42 @@ class HostViewModel @Inject constructor(
         _error.value = null
     }
 
+    // Combined UI State
+    val uiState: StateFlow<HostUiState> = combine(
+        isBroadcasting,
+        connectedClients,
+        audioSource,
+        isMuted,
+        isLoading,
+        error,
+        hostSession
+    ) { isBroadcasting, connectedClients, audioSource, isMuted, isLoading, error, hostSession ->
+        HostUiState(
+            isHosting = isBroadcasting,
+            connectedClients = connectedClients,
+            audioSource = audioSource,
+            isMuted = isMuted,
+            isLoading = isLoading,
+            error = error,
+            networkInfo = hostSession?.networkInfo
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = HostUiState()
+    )
+
     // Helper functions
     private fun generateSessionId(): String = java.util.UUID.randomUUID().toString()
     private fun getDeviceName(): String = android.os.Build.MODEL
 }
+
+data class HostUiState(
+    val isHosting: Boolean = false,
+    val connectedClients: List<ClientConnection> = emptyList(),
+    val audioSource: AudioSource = AudioSource.MICROPHONE,
+    val isMuted: Boolean = false,
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val networkInfo: NetworkInfo? = null
+)
