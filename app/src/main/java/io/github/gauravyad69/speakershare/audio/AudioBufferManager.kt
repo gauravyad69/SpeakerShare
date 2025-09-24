@@ -1,6 +1,7 @@
 package io.github.gauravyad69.speakershare.audio
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -254,9 +255,9 @@ class AudioBufferManager @Inject constructor() {
         val actualTime = System.currentTimeMillis()
         val jitter = kotlin.math.abs(actualTime - expectedTime).toFloat()
         
-        jitterHistory.offer(jitter)
+        jitterHistory.addLast(jitter)
         if (jitterHistory.size > maxJitterHistorySize) {
-            jitterHistory.poll()
+            jitterHistory.removeFirst()
         }
     }
 

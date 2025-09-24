@@ -5,7 +5,10 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.nio.ByteBuffer
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -177,7 +180,7 @@ class AudioEncoder @Inject constructor() {
     private suspend fun initializeEncoder(config: EncoderConfig) {
         val mediaFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, config.sampleRate, config.channelCount).apply {
             setInteger(MediaFormat.KEY_AAC_PROFILE, config.aacProfile)
-            setInteger(MediaFormat.KEY_BITRATE, config.bitrate)
+            setInteger(MediaFormat.KEY_BIT_RATE, config.bitrate)
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
             setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
         }
@@ -224,7 +227,7 @@ class AudioEncoder @Inject constructor() {
         val inputBufferIndex = codec.dequeueInputBuffer(0)
         if (inputBufferIndex >= 0) {
             inputBufferMutex.withLock {
-                val inputData = inputBufferQueue.poll()
+                val inputData = inputBufferQueue.removeFirstOrNull()
                 
                 if (inputData != null) {
                     val (pcmData, timestampUs) = inputData

@@ -4,7 +4,10 @@ import android.media.AudioFormat
 import android.media.MediaCodec
 import android.media.MediaFormat
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.nio.ByteBuffer
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -159,11 +162,11 @@ class AudioDecoder @Inject constructor() {
             }
 
             inputPacketMutex.withLock {
-                inputPacketQueue.offer(packet)
+                inputPacketQueue.addLast(packet)
                 
                 // Prevent queue overflow
                 while (inputPacketQueue.size > 15) {
-                    inputPacketQueue.poll()
+                    inputPacketQueue.removeFirst()
                     incrementBufferUnderrun()
                 }
             }
@@ -226,21 +229,21 @@ class AudioDecoder @Inject constructor() {
         val inputBufferIndex = codec.dequeueInputBuffer(0)
         if (inputBufferIndex >= 0) {
             inputPacketMutex.withLock {
-                val inputPacket = inputPacketQueue.poll()
+                val inputPacket = inputPacketQueue.removeFirstOrNull()
                 
-                if (inputPacket != null) {
+                inputPacket?.let { packet ->
                     val inputBuffer = codec.getInputBuffer(inputBufferIndex)
                     
                     inputBuffer?.apply {
                         clear()
-                        put(inputPacket.data)
+                        put(packet.data)
                     }
                     
                     codec.queueInputBuffer(
                         inputBufferIndex,
                         0,
-                        inputPacket.data.size,
-                        inputPacket.presentationTimeUs,
+                        packet.data.size,
+                        packet.presentationTimeUs,
                         0
                     )
                 }
