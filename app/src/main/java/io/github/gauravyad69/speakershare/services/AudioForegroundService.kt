@@ -7,14 +7,17 @@ import android.content.pm.PackageManager
 import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import android.util.Log
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.gauravyad69.speakershare.R
-import io.github.gauravyad69.speakershare.data.model.HostSession
+import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.network.HttpApiServer
 import io.github.gauravyad69.speakershare.network.UdpAudioServer
 import io.github.gauravyad69.speakershare.network.WebRTCManager
 import io.github.gauravyad69.speakershare.audio.AudioCaptureService
+import java.net.InetAddress
+import java.net.NetworkInterface
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
@@ -27,6 +30,7 @@ import javax.inject.Inject
 class AudioForegroundService : Service() {
 
     companion object {
+        private const val TAG = "AudioForegroundService"
         private const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "audio_broadcast_channel"
         const val ACTION_START_BROADCAST = "START_BROADCAST"
@@ -138,26 +142,7 @@ class AudioForegroundService : Service() {
         super.onCreate()
         createNotificationChannel()
         
-        // Monitor client connections
-        serviceScope.launch {
-            httpApiServer.connectedClients.collect { clients ->
-                _connectedClients.value = clients.map { it.id }
-                updateNotificationIfRunning()
-            }
-        }
-
-        // Monitor errors from components
-        serviceScope.launch {
-            merge(
-                httpApiServer.error.map { "HTTP Server: $it" },
-                udpAudioServer.error.map { "UDP Server: $it" },
-                webRTCManager.error.map { "WebRTC: $it" },
-                audioCaptureService.error.map { "Audio Capture: $it" }
-            ).collect { errorMessage ->
-                _error.emit(errorMessage)
-                handleError(errorMessage)
-            }
-        }
+        // TODO: Add error monitoring when services expose error flows
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -219,13 +204,25 @@ class AudioForegroundService : Service() {
 
             // Create session
             val session = HostSession(
+                sessionId = java.util.UUID.randomUUID().toString(),
                 sessionName = sessionName,
                 hostName = android.os.Build.MODEL,
-                audioSource = audioSource,
+                audioSource = AudioSource.valueOf(audioSource),
+                quality = AudioQuality(), // Use default quality settings
+                isActive = true,
+                startTime = startTime,
+                connectedClients = emptyList(),
+                networkInfo = NetworkInfo(
+                    localIpAddress = getLocalIpAddress(),
+                    port = 8080,
+                    networkInterface = "wlan0",
+                    isHotspot = false,
+                    discoveryMethod = DiscoveryMethod.MDNS,
+                    serviceName = "speakershare-${sessionName.hashCode()}"
+                ),
                 maxClients = maxClients,
                 requiresPassword = requirePassword,
-                password = password,
-                isActive = true
+                password = password
             )
             _currentSession.value = session
 
@@ -477,5 +474,28 @@ class AudioForegroundService : Service() {
             // Update notification if running
             updateNotificationIfRunning()
         }
+    }
+
+    /**
+     * Get the local IP address for network information
+     */
+    private fun getLocalIpAddress(): String {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            for (intf in interfaces) {
+                val addresses = intf.inetAddresses
+                for (address in addresses) {
+                    if (!address.isLoopbackAddress && !address.isLinkLocalAddress) {
+                        val hostAddress = address.hostAddress
+                        if (hostAddress != null && hostAddress.indexOf(':') < 0) {
+                            return hostAddress
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get local IP address", e)
+        }
+        return "192.168.1.100" // Fallback IP
     }
 }

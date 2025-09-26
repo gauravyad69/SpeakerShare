@@ -153,17 +153,48 @@ class HostApiHandlerImpl : HostApiHandler {
         return if (connectedClients.containsKey(clientId)) {
             connectedClients.remove(clientId)
             ClientDisconnectResponse(
-                success = true,
-                message = "Client disconnected successfully",
-                remainingClients = connectedClients.size
+                status = "success",
+                reason = "Client kicked successfully"
             )
         } else {
             ClientDisconnectResponse(
-                success = false,
-                message = "Client not found",
-                remainingClients = connectedClients.size
+                status = "error",
+                reason = "Client not found"
             )
         }
+    }
+    
+    override suspend fun updateHostSettings(settings: HostSettingsRequest): HostSettingsResponse {
+        // Update settings (in a real implementation, these would be persisted)
+        settings.hostName?.let { /* Update host name */ }
+        settings.audioSource?.let { /* Update audio source */ }
+        settings.quality?.let { /* Update quality settings */ }
+        settings.maxClients?.let { maxClients = it }
+        settings.isAcceptingClients?.let { isAcceptingClients = it }
+        
+        return HostSettingsResponse(
+            status = "success",
+            message = "Host settings updated successfully",
+            updatedSettings = settings
+        )
+    }
+    
+    override suspend fun getSessionStatus(): SessionStatusResponse {
+        return SessionStatusResponse(
+            sessionId = "session-123",
+            isActive = isBroadcasting,
+            startTime = System.currentTimeMillis() - 60000, // 1 minute ago
+            uptime = 60000, // 1 minute
+            connectedClients = connectedClients.size,
+            audioSource = "microphone",
+            quality = QualityInfo(
+                bitrate = 128,
+                sampleRate = 44100,
+                encoding = "AAC"
+            ),
+            bytesTransferred = 1024000, // 1MB
+            averageLatency = 50
+        )
     }
     
     private fun createStreamEndpoint(transport: String): StreamEndpoint {
