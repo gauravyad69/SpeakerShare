@@ -353,16 +353,13 @@ class AudioForegroundService : Service() {
     }
 
     private suspend fun startHttpServer(session: HostSession) {
-        httpApiServer.start(
-            port = 8080,
-            session = session
-        )
+        httpApiServer.startServer(8080)
     }
 
     private suspend fun startUdpServer(session: HostSession) {
-        udpAudioServer.start(
+        udpAudioServer.startServer(
             port = 9090,
-            session = session
+            hostSession = session
         )
     }
 
