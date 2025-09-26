@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package io.github.gauravyad69.speakershare.network
 
 import android.content.Context
@@ -9,7 +11,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.webrtc.*
+import kotlin.coroutines.resume
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -187,16 +191,16 @@ class WebRTCManager @Inject constructor(
         val factory = peerConnectionFactory ?: throw IllegalStateException("PeerConnectionFactory not initialized")
         
         val observer = object : PeerConnection.Observer {
-            override fun onIceCandidate(candidate: IceCandidate) {
+            override fun onIceCandidate(candidate: org.webrtc.IceCandidate) {
                 scope.launch {
                     _connectionEvents.emit(WebRTCEvent.IceCandidate(clientId, candidate))
                 }
             }
-            
-            override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {
+
+            override fun onIceCandidatesRemoved(candidates: Array<out org.webrtc.IceCandidate>) {
                 // Handle removed ICE candidates
             }
-            
+
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
                 Log.d(TAG, "ICE connection state changed for $clientId: $state")
                 scope.launch {
@@ -242,6 +246,9 @@ class WebRTCManager @Inject constructor(
      */
     suspend fun createOffer(clientId: String): SessionDescription? {
         return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { 
+                Log.w(TAG, "createOffer for $clientId was cancelled")
+            }
             peerConnections[clientId]?.let { peerConnection ->
                 try {
                     val constraints = MediaConstraints().apply {
@@ -290,6 +297,9 @@ class WebRTCManager @Inject constructor(
      */
     suspend fun setRemoteDescription(clientId: String, answer: SessionDescription): Boolean {
         return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { 
+                Log.w(TAG, "setRemoteDescription for $clientId was cancelled")
+            }
             peerConnections[clientId]?.let { peerConnection ->
                 try {
                     peerConnection.setRemoteDescription(object : SdpObserver {
@@ -318,17 +328,8 @@ class WebRTCManager @Inject constructor(
     /**
      * Add ICE candidate from client
      */
-    fun addIceCandidate(clientId: String, candidate: IceCandidate): Boolean {
-        return peerConnections[clientId]?.let { peerConnection ->
-            try {
-                peerConnection.addIceCandidate(candidate)
-                Log.d(TAG, "Added ICE candidate for client: $clientId")
-                true
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to add ICE candidate for client: $clientId", e)
-                false
-            }
-        } ?: false
+    fun addIceCandidate(clientId: String, iceCandidate: org.webrtc.IceCandidate) {
+        peerConnections[clientId]?.addIceCandidate(iceCandidate)
     }
     
     /**
@@ -353,7 +354,7 @@ class WebRTCManager @Inject constructor(
 sealed class WebRTCEvent {
     data class PeerConnected(val clientId: String) : WebRTCEvent()
     data class PeerDisconnected(val clientId: String) : WebRTCEvent()
-    data class IceCandidate(val clientId: String, val candidate: IceCandidate) : WebRTCEvent()
+    data class IceCandidate(val clientId: String, val candidate: org.webrtc.IceCandidate) : WebRTCEvent()
     data class ConnectionStateChanged(val clientId: String, val state: PeerConnection.IceConnectionState) : WebRTCEvent()
     data class Error(val message: String, val exception: Exception? = null) : WebRTCEvent()
 }
