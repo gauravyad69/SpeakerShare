@@ -26,7 +26,10 @@ fun DiscoveryScreen(
     onHostSelected: (DiscoveredHost) -> Unit,
     viewModel: DiscoveryViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val isScanning by viewModel.isDiscovering.collectAsState()
+    val discoveredHosts by viewModel.availableHosts.collectAsState()
+    val lastScanTime by viewModel.lastDiscoveryTime.collectAsState()
+    val error by viewModel.error.collectAsState()
     var showManualConnect by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -45,7 +48,7 @@ fun DiscoveryScreen(
                 actions = {
                     IconButton(
                         onClick = { viewModel.refreshDiscovery() },
-                        enabled = !uiState.isScanning
+                        enabled = !isScanning
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
@@ -60,7 +63,7 @@ fun DiscoveryScreen(
             ExtendedFloatingActionButton(
                 onClick = { viewModel.refreshDiscovery() },
                 icon = { 
-                    if (uiState.isScanning) {
+                    if (isScanning) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
@@ -70,7 +73,7 @@ fun DiscoveryScreen(
                         Icon(Icons.Default.Search, contentDescription = null)
                     }
                 },
-                text = { Text(if (uiState.isScanning) "Scanning..." else "Scan Network") }
+                text = { Text(if (isScanning) "Scanning..." else "Scan Network") }
             )
         }
     ) { paddingValues ->
@@ -83,31 +86,31 @@ fun DiscoveryScreen(
         ) {
             // Discovery Status Card
             DiscoveryStatusCard(
-                isScanning = uiState.isScanning,
-                scanProgress = uiState.scanProgress,
-                hostsFound = uiState.discoveredHosts.size,
-                lastScanTime = uiState.lastScanTime
+                isScanning = isScanning,
+                scanProgress = 0.0f, // TODO: Add progress tracking
+                hostsFound = discoveredHosts.size,
+                lastScanTime = lastScanTime
             )
 
             // Filter and Sort Options
             DiscoveryFilters(
-                sortBy = uiState.sortBy,
-                filterByTransport = uiState.filterByTransport,
-                onSortChange = { viewModel.setSortBy(it) },
-                onFilterChange = { viewModel.setTransportFilter(it) }
+                sortBy = "name", // TODO: Add sort state to ViewModel
+                filterByTransport = "all", // TODO: Add filter state to ViewModel
+                onSortChange = { /* TODO: Implement sorting */ },
+                onFilterChange = { /* TODO: Implement filtering */ }
             )
 
             // Discovered Hosts List
-            if (uiState.discoveredHosts.isEmpty() && !uiState.isScanning) {
+            if (discoveredHosts.isEmpty() && !isScanning) {
                 EmptyStateCard(
                     onScanAgain = { viewModel.refreshDiscovery() },
                     onManualConnect = { showManualConnect = true }
                 )
             } else {
                 DiscoveredHostsList(
-                    hosts = uiState.filteredAndSortedHosts,
+                    hosts = discoveredHosts, // Use directly since filtering/sorting is TODO
                     onHostSelected = onHostSelected,
-                    onRefreshHost = { host -> viewModel.refreshHost(host) }
+                    onRefreshHost = { /* TODO: Implement host refresh */ }
                 )
             }
         }
@@ -118,18 +121,20 @@ fun DiscoveryScreen(
         ManualConnectDialog(
             onDismiss = { showManualConnect = false },
             onConnect = { ip, port ->
-                viewModel.connectToManualHost(ip, port)
+                // TODO: Set manual address in ViewModel and then connect
+                // viewModel.setManualHostAddress("$ip:$port")
+                // viewModel.connectToManualHost()
                 showManualConnect = false
             }
         )
     }
 
     // Error handling
-    uiState.error?.let { error ->
-        LaunchedEffect(error) {
+    error?.let { errorMessage ->
+        LaunchedEffect(errorMessage) {
             // Show error message
             delay(3000)
-            viewModel.clearError()
+            // TODO: Add clearError method to ViewModel
         }
     }
 }
@@ -322,7 +327,7 @@ private fun DiscoveredHostsList(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        items(hosts, key = { it.sessionId }) { host ->
+        items(hosts, key = { it.hostId }) { host ->
             DiscoveredHostCard(
                 host = host,
                 onSelect = { onHostSelected(host) },
@@ -374,7 +379,7 @@ private fun DiscoveredHostCard(
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (host.supportsWebRTC()) {
+                    if (host.discoveryMethod.contains("WEBRTC", ignoreCase = true)) {
                         AssistChip(
                             onClick = {},
                             label = { Text("WebRTC", style = MaterialTheme.typography.labelSmall) },
@@ -383,7 +388,7 @@ private fun DiscoveredHostCard(
                             )
                         )
                     }
-                    if (host.supportsUDP()) {
+                    if (host.discoveryMethod.contains("UDP", ignoreCase = true)) {
                         AssistChip(
                             onClick = {},
                             label = { Text("UDP", style = MaterialTheme.typography.labelSmall) },
@@ -407,7 +412,7 @@ private fun DiscoveredHostCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "Quality: ${host.quality.bitrate}kbps, ${host.quality.encoding}",
+                        text = "Quality: ${host.quality}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -423,7 +428,7 @@ private fun DiscoveredHostCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "Age: ${formatAge(host.getAge())}",
+                        text = "Age: ${formatAge(System.currentTimeMillis() - host.lastSeen)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

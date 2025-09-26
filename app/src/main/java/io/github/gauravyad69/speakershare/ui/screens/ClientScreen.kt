@@ -26,11 +26,14 @@ fun ClientScreen(
     viewModel: ClientViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState()
+    val connectedHost by viewModel.connectedHost.collectAsState()
+    val volume by viewModel.volume.collectAsState()
+    val isMuted by viewModel.isMuted.collectAsState()
     val context = LocalContext.current
 
-    LaunchedEffect(Unit) {
-        viewModel.startDiscovery()
-    }
+    // For now, we'll create a simple discovery mechanism or disable it
+    // TODO: Integrate with DiscoveryViewModel properly
 
     Scaffold(
         topBar = {
@@ -43,8 +46,8 @@ fun ClientScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { viewModel.refreshDiscovery() },
-                        enabled = !uiState.isDiscovering
+                        onClick = { /* TODO: Implement refresh discovery */ },
+                        enabled = !uiState.isLoading
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
@@ -61,36 +64,37 @@ fun ClientScreen(
         ) {
             // Connection Status Card
             ConnectionStatusCard(
-                isConnected = uiState.isConnected,
-                connectedHost = uiState.connectedHost,
-                connectionStatus = uiState.connectionStatus,
+                isConnected = connectionState == io.github.gauravyad69.speakershare.data.model.ConnectionStatus.CONNECTED,
+                connectedHost = connectedHost,
+                connectionStatus = connectionState.toString(),
                 onDisconnect = { viewModel.disconnect() }
             )
 
             // Audio Controls (shown when connected)
-            if (uiState.isConnected) {
+            if (connectionState == io.github.gauravyad69.speakershare.data.model.ConnectionStatus.CONNECTED) {
                 AudioControlsCard(
-                    volume = uiState.volume,
-                    isMuted = uiState.isMuted,
+                    volume = volume,
+                    isMuted = isMuted,
                     onVolumeChange = { viewModel.setVolume(it) },
                     onMuteToggle = { viewModel.toggleMute() }
                 )
             }
 
             // Discovery Section
-            if (!uiState.isConnected) {
+            if (connectionState != io.github.gauravyad69.speakershare.data.model.ConnectionStatus.CONNECTED) {
                 DiscoverySection(
-                    isDiscovering = uiState.isDiscovering,
-                    discoveredHosts = uiState.discoveredHosts,
+                    isDiscovering = uiState.isLoading,
+                    discoveredHosts = emptyList(), // TODO: Integrate with DiscoveryViewModel
                     onConnectToHost = { host -> viewModel.connectToHost(host) },
-                    onRefreshDiscovery = { viewModel.refreshDiscovery() }
+                    onRefreshDiscovery = { /* TODO: Implement refresh discovery */ }
                 )
             }
 
             // Connection Statistics (when connected)
-            if (uiState.isConnected && uiState.connectionStats != null) {
-                ConnectionStatsCard(stats = uiState.connectionStats!!)
-            }
+            // TODO: Add connection statistics when available
+            // if (connectionState == io.github.gauravyad69.speakershare.data.model.ConnectionStatus.CONNECTED) {
+            //     ConnectionStatsCard(stats = connectionStats)
+            // }
         }
     }
 
@@ -350,7 +354,7 @@ private fun HostListItem(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (host.supportsWebRTC()) {
+                    if (host.discoveryMethod.contains("WEBRTC", ignoreCase = true)) {
                         Icon(
                             Icons.Default.Wifi,
                             contentDescription = "WebRTC",
@@ -358,9 +362,9 @@ private fun HostListItem(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
-                    if (host.supportsUDP()) {
+                    if (host.discoveryMethod.contains("UDP", ignoreCase = true)) {
                         Icon(
-                            Icons.Default.Network,
+                            Icons.Default.Router,
                             contentDescription = "UDP",
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.secondary
