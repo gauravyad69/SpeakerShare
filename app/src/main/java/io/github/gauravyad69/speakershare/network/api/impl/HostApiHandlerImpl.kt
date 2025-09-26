@@ -149,6 +149,23 @@ class HostApiHandlerImpl : HostApiHandler {
         connectedClients[clientId] = client
     }
     
+    override suspend fun kickClient(clientId: String): ClientDisconnectResponse {
+        return if (connectedClients.containsKey(clientId)) {
+            connectedClients.remove(clientId)
+            ClientDisconnectResponse(
+                success = true,
+                message = "Client disconnected successfully",
+                remainingClients = connectedClients.size
+            )
+        } else {
+            ClientDisconnectResponse(
+                success = false,
+                message = "Client not found",
+                remainingClients = connectedClients.size
+            )
+        }
+    }
+    
     private fun createStreamEndpoint(transport: String): StreamEndpoint {
         return when (transport) {
             "WEBRTC" -> StreamEndpoint(

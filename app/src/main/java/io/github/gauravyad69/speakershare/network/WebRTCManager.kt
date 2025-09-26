@@ -4,9 +4,7 @@ import android.content.Context
 import android.util.Log
 import io.github.gauravyad69.speakershare.data.model.ClientConnection
 import io.getstream.webrtc.android.compose.*
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -282,7 +280,8 @@ class WebRTCManager @Inject constructor(
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to create offer for client: $clientId", e)
                     continuation.resume(null)
-            }
+                }
+            } ?: continuation.resume(null)
         }
     }
     
@@ -290,16 +289,30 @@ class WebRTCManager @Inject constructor(
      * Set remote description (answer) from client
      */
     suspend fun setRemoteDescription(clientId: String, answer: SessionDescription): Boolean {
-        return peerConnections[clientId]?.let { peerConnection ->
-            try {
-                peerConnection.setRemoteDescription(answer)
-                Log.d(TAG, "Set remote description for client: $clientId")
-                true
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to set remote description for client: $clientId", e)
-                false
-            }
-        } ?: false
+        return suspendCancellableCoroutine { continuation ->
+            peerConnections[clientId]?.let { peerConnection ->
+                try {
+                    peerConnection.setRemoteDescription(object : SdpObserver {
+                        override fun onCreateSuccess(sessionDescription: SessionDescription?) {}
+                        override fun onSetSuccess() {
+                            Log.d(TAG, "Set remote description for client: $clientId")
+                            continuation.resume(true)
+                        }
+                        override fun onCreateFailure(error: String?) {
+                            Log.e(TAG, "Set remote description failed: $error")
+                            continuation.resume(false)
+                        }
+                        override fun onSetFailure(error: String?) {
+                            Log.e(TAG, "Set remote description failed: $error")
+                            continuation.resume(false)
+                        }
+                    }, answer)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to set remote description for client: $clientId", e)
+                    continuation.resume(false)
+                }
+            } ?: continuation.resume(false)
+        }
     }
     
     /**
