@@ -181,7 +181,7 @@ class AudioNotificationManager @Inject constructor(
         val icon = when {
             error != null -> R.drawable.ic_error
             isConnected -> R.drawable.ic_cast_connected
-            else -> R.drawable.ic_cast_disconnected
+            else -> R.drawable.ic_cast
         }
 
         return NotificationCompat.Builder(context, AudioForegroundService.CHANNEL_ID)
@@ -256,7 +256,7 @@ class AudioNotificationManager @Inject constructor(
         val builder = NotificationCompat.Builder(context, AudioForegroundService.CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(R.drawable.ic_search)
+            .setSmallIcon(R.drawable.ic_sync)
             .setContentIntent(mainPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -306,7 +306,7 @@ class AudioNotificationManager @Inject constructor(
 
     private fun getNotificationIcon(isPaused: Boolean, isAudioMuted: Boolean): Int {
         return when {
-            isPaused -> R.drawable.ic_pause_circle
+            isPaused -> R.drawable.ic_pause
             isAudioMuted -> R.drawable.ic_volume_off
             else -> R.drawable.ic_cast_connected
         }
@@ -364,13 +364,10 @@ class AudioNotificationManager @Inject constructor(
         )
     }
 
-    private fun formatAudioSource(source: String): String {
-        return when (source.uppercase()) {
-            "MICROPHONE" -> "Microphone"
-            "SYSTEM" -> "System Audio"
-            "LINE_IN" -> "Line Input"
-            "BLUETOOTH" -> "Bluetooth"
-            else -> source
+    private fun formatAudioSource(source: io.github.gauravyad69.speakershare.data.model.AudioSource): String {
+        return when (source) {
+            io.github.gauravyad69.speakershare.data.model.AudioSource.MICROPHONE -> "Microphone"
+            io.github.gauravyad69.speakershare.data.model.AudioSource.SYSTEM_AUDIO -> "System Audio"
         }
     }
 

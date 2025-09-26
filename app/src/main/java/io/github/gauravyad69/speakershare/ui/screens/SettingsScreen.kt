@@ -2,6 +2,7 @@ package io.github.gauravyad69.speakershare.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
@@ -14,7 +15,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.github.gauravyad69.speakershare.data.models.AppSettings
+import io.github.gauravyad69.speakershare.data.model.UserSettings
 import io.github.gauravyad69.speakershare.ui.viewmodels.SettingsViewModel
 
 /**
@@ -26,7 +27,7 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val settings by viewModel.settings.collectAsState()
+    val settings by viewModel.userSettings.collectAsState()
     var showAdvancedSettings by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -59,23 +60,21 @@ fun SettingsScreen(
                     title = "Audio Settings",
                     icon = Icons.Default.AudioFile
                 ) {
+                    // TODO: Implement audio quality settings
+                    // AudioQualitySettings based on available UserSettings properties
+                    
+                    Text("Audio quality settings - Coming soon")
+                    
+                    /* TODO: Add back when ViewModel methods are available
                     AudioQualitySettings(
-                        bitrate = settings.audioBitrate,
-                        encoding = settings.audioEncoding,
-                        sampleRate = settings.audioSampleRate,
-                        onBitrateChange = { viewModel.updateAudioBitrate(it) },
-                        onEncodingChange = { viewModel.updateAudioEncoding(it) },
-                        onSampleRateChange = { viewModel.updateAudioSampleRate(it) }
+                        bitrate = settings?.defaultQuality?.bitrate ?: 128,
+                        encoding = settings?.defaultQuality?.encoding ?: AudioEncoding.AAC,
+                        sampleRate = settings?.defaultQuality?.sampleRate ?: 44100,
+                        onBitrateChange = { /* TODO */ },
+                        onEncodingChange = { /* TODO */ },
+                        onSampleRateChange = { /* TODO */ }
                     )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    BufferSettings(
-                        bufferSize = settings.audioBufferSize,
-                        latencyMode = settings.latencyMode,
-                        onBufferSizeChange = { viewModel.updateAudioBufferSize(it) },
-                        onLatencyModeChange = { viewModel.updateLatencyMode(it) }
-                    )
+                    */
                 }
             }
 
@@ -85,21 +84,8 @@ fun SettingsScreen(
                     title = "Network Settings",
                     icon = Icons.Default.NetworkWifi
                 ) {
-                    NetworkTransportSettings(
-                        preferredTransport = settings.preferredTransport,
-                        fallbackEnabled = settings.enableTransportFallback,
-                        onTransportChange = { viewModel.updatePreferredTransport(it) },
-                        onFallbackChange = { viewModel.updateTransportFallback(it) }
-                    )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    NetworkTimeoutSettings(
-                        connectionTimeout = settings.connectionTimeoutMs,
-                        discoveryTimeout = settings.discoveryTimeoutMs,
-                        onConnectionTimeoutChange = { viewModel.updateConnectionTimeout(it) },
-                        onDiscoveryTimeoutChange = { viewModel.updateDiscoveryTimeout(it) }
-                    )
+                    Text("Network settings - Coming soon")
+                    // TODO: Implement network settings when available in UserSettings
                 }
             }
 
@@ -109,23 +95,12 @@ fun SettingsScreen(
                     title = "Host Settings",
                     icon = Icons.Default.Router
                 ) {
-                    HostLimitsSettings(
-                        maxClients = settings.maxClients,
-                        requiresPassword = settings.requiresPassword,
-                        onMaxClientsChange = { viewModel.updateMaxClients(it) },
-                        onPasswordRequiredChange = { viewModel.updatePasswordRequired(it) }
-                    )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    PortSettings(
-                        httpPort = settings.httpPort,
-                        udpPort = settings.udpPort,
-                        webrtcPort = settings.webrtcPort,
-                        onHttpPortChange = { viewModel.updateHttpPort(it) },
-                        onUdpPortChange = { viewModel.updateUdpPort(it) },
-                        onWebrtcPortChange = { viewModel.updateWebrtcPort(it) }
-                    )
+                    // Basic settings that are available
+                    if (settings != null) {
+                        Text("Max Clients: ${if (settings.maxClients == 0) "Unlimited" else settings.maxClients.toString()}")
+                        Text("Auto Start Host: ${if (settings.autoStartHost) "Yes" else "No"}")
+                    }
+                    // TODO: Add controls when ViewModel methods are available
                 }
             }
 
@@ -135,23 +110,12 @@ fun SettingsScreen(
                     title = "Interface & Behavior",
                     icon = Icons.Default.Tune
                 ) {
-                    UISettings(
-                        keepScreenOn = settings.keepScreenOn,
-                        showNotifications = settings.showNotifications,
-                        vibrateOnEvents = settings.vibrateOnEvents,
-                        onKeepScreenOnChange = { viewModel.updateKeepScreenOn(it) },
-                        onShowNotificationsChange = { viewModel.updateShowNotifications(it) },
-                        onVibrateOnEventsChange = { viewModel.updateVibrateOnEvents(it) }
-                    )
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    AutoBehaviorSettings(
-                        autoReconnect = settings.autoReconnect,
-                        startInBackground = settings.startInBackground,
-                        onAutoReconnectChange = { viewModel.updateAutoReconnect(it) },
-                        onStartInBackgroundChange = { viewModel.updateStartInBackground(it) }
-                    )
+                    // Available UI settings
+                    if (settings != null) {
+                        Text("Keep Screen On: ${if (settings.keepScreenOn) "Yes" else "No"}")
+                        Text("Show Network Metrics: ${if (settings.showNetworkMetrics) "Yes" else "No"}")
+                    }
+                    // TODO: Add controls when ViewModel methods are available
                 }
             }
 
@@ -468,7 +432,7 @@ private fun AutoBehaviorSettings(
 private fun AdvancedSettingsSection(
     isExpanded: Boolean,
     onToggleExpanded: () -> Unit,
-    settings: AppSettings,
+    settings: UserSettings?,
     viewModel: SettingsViewModel
 ) {
     Card(
@@ -509,37 +473,16 @@ private fun AdvancedSettingsSection(
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Debug and Advanced Settings - Coming soon")
+                    // TODO: Add debug settings when properties are available in UserSettings
+                    /*
                     SwitchSetting(
                         title = "Enable Debug Logging",
                         subtitle = "Log detailed network and audio information",
-                        checked = settings.enableDebugLogging,
-                        onCheckedChange = { viewModel.updateDebugLogging(it) }
+                        checked = false, // TODO: Add to UserSettings
+                        onCheckedChange = { /* TODO: Add ViewModel method */ }
                     )
-                    
-                    SwitchSetting(
-                        title = "Force Software Encoding",
-                        subtitle = "Use software encoder instead of hardware",
-                        checked = settings.forceSoftwareEncoding,
-                        onCheckedChange = { viewModel.updateForceSoftwareEncoding(it) }
-                    )
-                    
-                    NumberInputSetting(
-                        title = "WebRTC ICE Timeout (ms)",
-                        value = settings.webrtcIceTimeoutMs.toInt(),
-                        range = 1000..30000,
-                        onValueChange = { viewModel.updateWebrtcIceTimeout(it.toLong()) }
-                    )
-                    
-                    SliderSetting(
-                        title = "Discovery Scan Interval",
-                        value = (settings.discoveryScanIntervalMs / 1000).toFloat(),
-                        valueRange = 1f..10f,
-                        steps = 8,
-                        valueText = "${settings.discoveryScanIntervalMs / 1000}s",
-                        onValueChange = { 
-                            viewModel.updateDiscoveryScanInterval((it * 1000).toLong()) 
-                        }
-                    )
+                    */
                 }
             }
         }

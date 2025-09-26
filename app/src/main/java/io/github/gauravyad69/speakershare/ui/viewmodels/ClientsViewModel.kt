@@ -1,8 +1,10 @@
 package io.github.gauravyad69.speakershare.ui.viewmodels
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.data.model.ClientConnection
 import io.github.gauravyad69.speakershare.data.model.HostSession
 import io.github.gauravyad69.speakershare.services.AudioForegroundService
@@ -16,7 +18,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class ClientsViewModel @Inject constructor(
-    private val audioService: AudioForegroundService
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     /**
@@ -79,7 +81,9 @@ class ClientsViewModel @Inject constructor(
     fun stopSession() {
         viewModelScope.launch {
             try {
-                audioService.stopBroadcast()
+                // Send stop broadcast intent to the service
+                val stopIntent = AudioForegroundService.stopBroadcast(context)
+                context.startService(stopIntent)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     error = "Failed to stop session: ${e.message}"

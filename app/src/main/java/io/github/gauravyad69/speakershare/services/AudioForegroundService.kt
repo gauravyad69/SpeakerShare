@@ -92,6 +92,9 @@ class AudioForegroundService : Service() {
     lateinit var httpApiServer: HttpApiServer
 
     @Inject
+    lateinit var hostApiHandler: io.github.gauravyad69.speakershare.network.api.HostApiHandler
+
+    @Inject
     lateinit var udpAudioServer: UdpAudioServer
 
     @Inject
@@ -236,8 +239,12 @@ class AudioForegroundService : Service() {
             currentNotification = notification
             startForeground(NOTIFICATION_ID, notification)
 
-            // Initialize audio capture
-            audioCaptureService.initialize(audioSource)
+            // Convert string to AudioSource enum
+            val audioSourceEnum = when (audioSource) {
+                "MICROPHONE" -> io.github.gauravyad69.speakershare.data.model.AudioSource.MICROPHONE
+                "SYSTEM_AUDIO", "SYSTEM" -> io.github.gauravyad69.speakershare.data.model.AudioSource.SYSTEM_AUDIO
+                else -> io.github.gauravyad69.speakershare.data.model.AudioSource.MICROPHONE
+            }
             
             // Start servers
             startHttpServer(session)
@@ -245,7 +252,7 @@ class AudioForegroundService : Service() {
             startWebRTCManager(session)
 
             // Start audio capture
-            audioCaptureService.startCapture()
+            audioCaptureService.startCapture(audioSourceEnum)
 
             _serviceState.value = ServiceState.RUNNING
             
@@ -268,9 +275,9 @@ class AudioForegroundService : Service() {
             audioCaptureService.stopCapture()
 
             // Stop servers
-            httpApiServer.stop()
-            udpAudioServer.stop()
-            webRTCManager.cleanup()
+            httpApiServer.stopServer()
+            udpAudioServer.stopServer()
+            webRTCManager.stopBroadcasting()
 
             // Clear state
             _currentSession.value = null
@@ -315,8 +322,11 @@ class AudioForegroundService : Service() {
         }
 
         try {
-            // Resume audio capture
-            audioCaptureService.startCapture()
+            // Resume audio capture with the current session's audio source
+            val currentSession = _currentSession.value
+            if (currentSession != null) {
+                audioCaptureService.startCapture(currentSession.audioSource)
+            }
             
             // Mark session as active
             _currentSession.value = _currentSession.value?.copy(isActive = true)
@@ -334,32 +344,27 @@ class AudioForegroundService : Service() {
             val wasMuted = _isAudioMuted.value
             _isAudioMuted.value = !wasMuted
             
-            if (_isAudioMuted.value) {
-                audioCaptureService.mute()
-            } else {
-                audioCaptureService.unmute()
-            }
+            // TODO: Implement actual mute/unmute functionality
+            // This could be done by pausing/resuming audio capture or setting volume to 0
+            // For now, we just track the mute state
             
             updateNotificationIfRunning()
         }
     }
 
     private suspend fun startHttpServer(session: HostSession) {
-        httpApiServer.start(
-            port = 8080,
-            session = session
-        )
+        httpApiServer.startServer(8080)
     }
 
     private suspend fun startUdpServer(session: HostSession) {
-        udpAudioServer.start(
+        udpAudioServer.startServer(
             port = 9090,
-            session = session
+            hostSession = session
         )
     }
 
     private suspend fun startWebRTCManager(session: HostSession) {
-        webRTCManager.initializeAsHost(session)
+        webRTCManager.startBroadcasting()
     }
 
     private fun hasRequiredPermissions(): Boolean {
@@ -435,7 +440,7 @@ class AudioForegroundService : Service() {
     fun getServiceUptime(): Long = if (startTime > 0) System.currentTimeMillis() - startTime else 0
 
     suspend fun kickClient(clientId: String) {
-        httpApiServer.kickClient(clientId)
+        hostApiHandler.kickClient(clientId)
     }
 
     suspend fun muteClient(clientId: String) {

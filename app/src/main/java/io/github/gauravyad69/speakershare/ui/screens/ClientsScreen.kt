@@ -438,22 +438,20 @@ private fun ClientCard(
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // Connection quality indicator
-                    ConnectionQualityIndicator(client.connectionQuality)
+                    // Connection quality indicator (simplified)
+                    // TODO: Implement ConnectionQualityIndicator based on networkMetrics
                     
                     // Transport protocol chip
                     AssistChip(
                         onClick = {},
                         label = { 
                             Text(
-                                client.transport,
+                                "Unknown", // TODO: Add transport info to ClientConnection
                                 style = MaterialTheme.typography.labelSmall
                             )
                         },
                         colors = AssistChipDefaults.assistChipColors(
-                            containerColor = if (client.transport == "WEBRTC") {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
                                 MaterialTheme.colorScheme.secondaryContainer
                             }
                         )
@@ -469,17 +467,17 @@ private fun ClientCard(
                 ClientStat(
                     icon = Icons.Default.AccessTime,
                     label = "Connected",
-                    value = formatDuration(client.getConnectedDuration())
+                    value = formatDuration(System.currentTimeMillis() - client.connectionTime)
                 )
                 ClientStat(
                     icon = Icons.Default.NetworkCheck,
                     label = "Bandwidth",
-                    value = "${String.format("%.1f", client.bandwidthKbps / 1000f)} Mbps"
+                    value = "${String.format("%.1f", client.networkMetrics.bandwidth / 1000f)} KB/s"
                 )
                 ClientStat(
                     icon = Icons.Default.SignalWifi4Bar,
                     label = "Latency",
-                    value = "${client.latencyMs}ms"
+                    value = "${client.networkMetrics.latency}ms"
                 )
                 ClientStat(
                     icon = if (client.audioSettings.isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
@@ -555,11 +553,11 @@ private fun ClientStat(
 @Composable
 private fun ConnectionQualityIndicator(quality: String) {
     val (icon, color) = when (quality.uppercase()) {
-        "EXCELLENT" -> Icons.Default.SignalWifi4Bar to MaterialTheme.colorScheme.primary
-        "GOOD" -> Icons.Default.SignalWifi3Bar to MaterialTheme.colorScheme.primary
-        "FAIR" -> Icons.Default.SignalWifi2Bar to MaterialTheme.colorScheme.tertiary
-        "POOR" -> Icons.Default.SignalWifi1Bar to MaterialTheme.colorScheme.error
-        else -> Icons.Default.SignalWifiOff to MaterialTheme.colorScheme.error
+        "EXCELLENT" -> Pair(Icons.Default.SignalWifi4Bar, MaterialTheme.colorScheme.primary)
+        "GOOD" -> Pair(Icons.Default.Wifi, MaterialTheme.colorScheme.primary)
+        "FAIR" -> Pair(Icons.Default.SignalWifiStatusbar4Bar, MaterialTheme.colorScheme.tertiary)
+        "POOR" -> Pair(Icons.Default.WifiOff, MaterialTheme.colorScheme.error)
+        else -> Pair(Icons.Default.SignalWifiOff, MaterialTheme.colorScheme.error)
     }
     
     Icon(

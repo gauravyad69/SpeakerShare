@@ -67,6 +67,7 @@ class HostService @Inject constructor(
             
             val hostSession = HostSession(
                 sessionId = sessionId,
+                sessionName = hostName, // Use hostName as sessionName for now
                 hostName = hostName,
                 audioSource = audioSource,
                 quality = quality,
