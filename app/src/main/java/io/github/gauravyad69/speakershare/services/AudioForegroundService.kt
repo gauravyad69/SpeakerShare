@@ -10,12 +10,11 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.gauravyad69.speakershare.R
-import io.github.gauravyad69.speakershare.data.models.HostSession
+import io.github.gauravyad69.speakershare.data.model.HostSession
 import io.github.gauravyad69.speakershare.network.HttpApiServer
 import io.github.gauravyad69.speakershare.network.UdpAudioServer
 import io.github.gauravyad69.speakershare.network.WebRTCManager
 import io.github.gauravyad69.speakershare.audio.AudioCaptureService
-import io.github.gauravyad69.speakershare.ui.MainActivity
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
@@ -475,8 +474,7 @@ class AudioForegroundService : Service() {
             )
             _currentSession.value = updatedSession
             
-            // Update servers with new settings
-            httpApiServer.updateSession(updatedSession)
+            // Update notification if running
             updateNotificationIfRunning()
         }
     }

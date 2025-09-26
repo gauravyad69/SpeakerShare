@@ -1,20 +1,24 @@
 package io.github.gauravyad69.speakershare.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import io.github.gauravyad69.speakershare.data.model.ClientConnection
+import io.github.gauravyad69.speakershare.ui.viewmodels.ClientsViewModel
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import io.github.gauravyad69.speakershare.data.models.ClientConnection
-import io.github.gauravyad69.speakershare.ui.viewmodels.ClientsViewModel
 import kotlinx.coroutines.delay
 
 /**
@@ -123,8 +127,8 @@ fun ClientsScreen(
                         }
                     },
                     onKickClient = { client -> showKickDialog = client },
-                    onMuteClient = { viewModel.muteClient(it.id) },
-                    onUnmuteClient = { viewModel.unmuteClient(it.id) }
+                    onMuteClient = { viewModel.muteClient(it.clientId) },
+                    onUnmuteClient = { viewModel.unmuteClient(it.clientId) }
                 )
             }
         }
@@ -135,7 +139,7 @@ fun ClientsScreen(
         KickClientDialog(
             client = client,
             onConfirm = {
-                viewModel.kickClient(client.id)
+                viewModel.kickClient(client.clientId)
                 showKickDialog = null
             },
             onDismiss = { showKickDialog = null }
@@ -349,12 +353,12 @@ private fun ClientsList(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        items(clients, key = { it.id }) { client ->
+        items(clients, key = { it.clientId }) { client ->
             ClientCard(
                 client = client,
                 isSelectionMode = isSelectionMode,
-                isSelected = selectedClients.contains(client.id),
-                onSelected = { onClientSelected(client.id) },
+                isSelected = selectedClients.contains(client.clientId),
+                onSelected = { onClientSelected(client.clientId) },
                 onKick = { onKickClient(client) },
                 onMute = { onMuteClient(client) },
                 onUnmute = { onUnmuteClient(client) }
@@ -417,7 +421,7 @@ private fun ClientCard(
 
                     Column {
                         Text(
-                            text = client.deviceName,
+                            text = client.ipAddress,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -478,9 +482,9 @@ private fun ClientCard(
                     value = "${client.latencyMs}ms"
                 )
                 ClientStat(
-                    icon = if (client.isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                    icon = if (client.audioSettings.isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
                     label = "Audio",
-                    value = if (client.isMuted) "Muted" else "Active"
+                    value = if (client.audioSettings.isMuted) "Muted" else "Active"
                 )
             }
 
@@ -491,15 +495,15 @@ private fun ClientCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
-                        onClick = if (client.isMuted) onUnmute else onMute,
+                        onClick = if (client.audioSettings.isMuted) onUnmute else onMute,
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(
-                            if (client.isMuted) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                            if (client.audioSettings.isMuted) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
                             contentDescription = null
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (client.isMuted) "Unmute" else "Mute")
+                        Text(if (client.audioSettings.isMuted) "Unmute" else "Mute")
                     }
                     
                     Button(
@@ -610,7 +614,7 @@ private fun KickClientDialog(
         onDismissRequest = onDismiss,
         title = { Text("Kick Client") },
         text = {
-            Text("Are you sure you want to kick \"${client.deviceName}\" from the session?")
+            Text("Are you sure you want to kick \"${client.ipAddress}\" from the session?")
         },
         confirmButton = {
             TextButton(

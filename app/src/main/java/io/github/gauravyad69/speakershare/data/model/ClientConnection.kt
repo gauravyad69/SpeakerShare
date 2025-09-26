@@ -41,3 +41,10 @@ data class NetworkMetrics(
     val packetLoss: Float,           // percentage
     val bandwidth: Long              // bytes/sec
 )
+
+/**
+ * Extension property to provide id alias for clientId
+ * This enables UI code to use client.id consistently
+ */
+val ClientConnection.id: String
+    get() = clientId

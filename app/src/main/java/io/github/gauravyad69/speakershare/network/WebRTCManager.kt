@@ -80,7 +80,6 @@ class WebRTCManager @Inject constructor(
         peerConnectionFactory = PeerConnectionFactory.builder()
             .setVideoEncoderFactory(encoderFactory)
             .setVideoDecoderFactory(decoderFactory)
-            .setAudioDeviceModule(JavaAudioDeviceModule.builder(context).createAudioDeviceModule())
             .createPeerConnectionFactory()
         
         Log.d(TAG, "PeerConnectionFactory initialized")
@@ -244,21 +243,45 @@ class WebRTCManager @Inject constructor(
      * Create offer for a client
      */
     suspend fun createOffer(clientId: String): SessionDescription? {
-        return peerConnections[clientId]?.let { peerConnection ->
-            try {
-                val constraints = MediaConstraints().apply {
-                    mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"))
-                    mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
-                }
-                
-                val sdp = peerConnection.createOffer(constraints)
-                peerConnection.setLocalDescription(sdp)
-                
-                Log.d(TAG, "Created offer for client: $clientId")
-                sdp
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to create offer for client: $clientId", e)
-                null
+        return suspendCancellableCoroutine { continuation ->
+            peerConnections[clientId]?.let { peerConnection ->
+                try {
+                    val constraints = MediaConstraints().apply {
+                        mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"))
+                        mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
+                    }
+                    
+                    peerConnection.createOffer(object : SdpObserver {
+                        override fun onCreateSuccess(sessionDescription: SessionDescription?) {
+                            sessionDescription?.let { sdp ->
+                                peerConnection.setLocalDescription(object : SdpObserver {
+                                    override fun onCreateSuccess(sd: SessionDescription?) {}
+                                    override fun onSetSuccess() {
+                                        Log.d(TAG, "Created offer for client: $clientId")
+                                        continuation.resume(sdp)
+                                    }
+                                    override fun onCreateFailure(error: String?) {
+                                        Log.e(TAG, "Set local description failed: $error")
+                                        continuation.resume(null)
+                                    }
+                                    override fun onSetFailure(error: String?) {
+                                        Log.e(TAG, "Set local description failed: $error")
+                                        continuation.resume(null)
+                                    }
+                                }, sdp)
+                            } ?: continuation.resume(null)
+                        }
+                        override fun onSetSuccess() {}
+                        override fun onCreateFailure(error: String?) {
+                            Log.e(TAG, "Create offer failed: $error")
+                            continuation.resume(null)
+                        }
+                        override fun onSetFailure(error: String?) {}
+                    }, constraints)
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to create offer for client: $clientId", e)
+                    continuation.resume(null)
             }
         }
     }

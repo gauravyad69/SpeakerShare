@@ -657,6 +657,7 @@ private fun SliderSetting(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DropdownSetting(
     title: String,

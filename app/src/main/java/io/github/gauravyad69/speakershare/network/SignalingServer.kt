@@ -1,6 +1,8 @@
 package io.github.gauravyad69.speakershare.network
 
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import io.github.gauravyad69.speakershare.data.model.ClientConnection
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
@@ -13,6 +15,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.webrtc.IceCandidate
@@ -48,6 +51,7 @@ class SignalingServer @Inject constructor() {
     /**
      * Start the signaling server
      */
+    @RequiresApi(Build.VERSION_CODES.O)
     fun startServer(port: Int = DEFAULT_PORT): Boolean {
         return try {
             server = embeddedServer(Netty, port = port) {
@@ -307,7 +311,7 @@ class SignalingServer @Inject constructor() {
      * Send message to WebSocket session
      */
     private suspend fun sendMessage(session: WebSocketSession, message: SignalingMessage) {
-        val messageJson = json.encodeToString(SignalingMessage.serializer(), message)
+        val messageJson = json.encodeToString( message)
         session.send(Frame.Text(messageJson))
     }
     

@@ -2,13 +2,13 @@ package io.github.gauravyad69.speakershare.network
 
 import android.util.Log
 import io.github.gauravyad69.speakershare.network.api.HostDiscoveryInfo
-import io.ktor.client.*
-import io.ktor.client.call.*
-import io.ktor.client.engine.android.*
-import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.client.request.*
-import io.ktor.http.*
-import io.ktor.serialization.gson.*
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.engine.android.Android
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation // Changed import
+import io.ktor.client.request.get
+import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.gson.gson // Added import
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -209,7 +209,7 @@ class DiscoveryClient @Inject constructor() {
                 val client = httpClient ?: return@withContext null
                 val response = client.get("http://$hostIp:$port$DISCOVERY_PATH")
                 
-                if (response.status.isSuccess()) {
+                if (response.status == HttpStatusCode.OK) {
                     response.body<HostDiscoveryInfo>()
                 } else {
                     null
@@ -233,7 +233,7 @@ class DiscoveryClient @Inject constructor() {
                 client.get(url)
             }
             
-            if (response?.status?.isSuccess() == true) {
+            if (response?.status == HttpStatusCode.OK) {
                 val discoveryInfo = response.body<HostDiscoveryInfo>()
                 
                 DiscoveredHost(

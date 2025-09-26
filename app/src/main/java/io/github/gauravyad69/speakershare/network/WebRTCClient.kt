@@ -11,7 +11,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import org.webrtc.*
+import org.webrtc.audio.JavaAudioDeviceModule
 import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -269,29 +271,68 @@ class WebRTCClient @Inject constructor(
                 sdpData.description
             )
             
-            peerConnection?.setRemoteDescription(offer)
+            // Set remote description with SdpObserver
+            peerConnection?.setRemoteDescription(object : SdpObserver {
+                override fun onCreateSuccess(sessionDescription: SessionDescription?) {}
+                override fun onSetSuccess() {
+                    Log.d(TAG, "Remote description set successfully")
+                    // Create answer after setting remote description
+                    createAndSendAnswer()
+                }
+                override fun onCreateFailure(error: String?) {
+                    Log.e(TAG, "Set remote description failed: $error")
+                }
+                override fun onSetFailure(error: String?) {
+                    Log.e(TAG, "Set remote description failed: $error")
+                }
+            }, offer)
             
-            // Create answer
-            val answer = peerConnection?.createAnswer(MediaConstraints().apply {
-                mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
-                mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
-            })
-            
-            answer?.let { ans ->
-                peerConnection?.setLocalDescription(ans)
-                
-                // Send answer back to host
-                sendSignalingMessage(SignalingMessage(
-                    type = SignalingMessageType.ANSWER,
-                    clientId = clientId!!,
-                    sdp = SdpData(ans.type.canonicalForm(), ans.description)
-                ))
-                
-                Log.d(TAG, "Sent answer to host")
-            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to handle offer", e)
         }
+    }
+    
+    /**
+     * Create and send answer to host
+     */
+    private fun createAndSendAnswer() {
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
+        }
+        
+        peerConnection?.createAnswer(object : SdpObserver {
+            override fun onCreateSuccess(sessionDescription: SessionDescription?) {
+                sessionDescription?.let { answer ->
+                    // Set local description
+                    peerConnection?.setLocalDescription(object : SdpObserver {
+                        override fun onCreateSuccess(sd: SessionDescription?) {}
+                        override fun onSetSuccess() {
+                            // Send answer to host
+                            scope.launch {
+                                sendSignalingMessage(SignalingMessage(
+                                    type = SignalingMessageType.ANSWER,
+                                    clientId = clientId!!,
+                                    sdp = SdpData(answer.type.canonicalForm(), answer.description)
+                                ))
+                                Log.d(TAG, "Sent answer to host")
+                            }
+                        }
+                        override fun onCreateFailure(error: String?) {
+                            Log.e(TAG, "Set local description failed: $error")
+                        }
+                        override fun onSetFailure(error: String?) {
+                            Log.e(TAG, "Set local description failed: $error")
+                        }
+                    }, answer)
+                }
+            }
+            override fun onSetSuccess() {}
+            override fun onCreateFailure(error: String?) {
+                Log.e(TAG, "Create answer failed: $error")
+            }
+            override fun onSetFailure(error: String?) {}
+        }, constraints)
     }
     
     /**
@@ -413,7 +454,7 @@ class WebRTCClient @Inject constructor(
      */
     private suspend fun sendSignalingMessage(message: SignalingMessage) {
         try {
-            val messageJson = json.encodeToString(SignalingMessage.serializer(), message)
+            val messageJson = json.encodeToString(message)
             websocketSession?.send(Frame.Text(messageJson))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send signaling message", e)

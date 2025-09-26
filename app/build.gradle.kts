@@ -63,6 +63,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.material) // Added Material Components
     
     // Compose BOM and UI
     implementation(platform(libs.androidx.compose.bom))
@@ -81,9 +82,12 @@ dependencies {
     implementation(libs.ktor.client.android)
     implementation(libs.ktor.client.json)
     implementation(libs.ktor.client.serialization)
+    implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)
     implementation(libs.ktor.server.content.negotiation)
+    implementation(libs.ktor.server.cors)
+    implementation(libs.ktor.server.websockets)
     implementation(libs.ktor.serialization.gson)
     
     // Coroutines for async operations

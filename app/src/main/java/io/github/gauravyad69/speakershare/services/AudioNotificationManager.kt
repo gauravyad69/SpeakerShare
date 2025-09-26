@@ -8,8 +8,8 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.R
-import io.github.gauravyad69.speakershare.data.models.HostSession
-import io.github.gauravyad69.speakershare.ui.MainActivity
+import io.github.gauravyad69.speakershare.data.model.HostSession
+import io.github.gauravyad69.speakershare.MainActivity
 import javax.inject.Inject
 import javax.inject.Singleton
 

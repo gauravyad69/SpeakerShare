@@ -6,6 +6,7 @@ package io.github.gauravyad69.speakershare.data.model
  */
 data class HostSession(
     val sessionId: String,           // Unique session identifier
+    val sessionName: String,         // User-friendly session name
     val hostName: String,            // Display name for this host
     val audioSource: AudioSource,    // MICROPHONE or SYSTEM_AUDIO
     val quality: AudioQuality,       // Bitrate and encoding settings
@@ -13,7 +14,9 @@ data class HostSession(
     val startTime: Long,             // Session start timestamp
     val connectedClients: List<ClientConnection>,
     val networkInfo: NetworkInfo,    // IP, port, discovery info
-    val maxClients: Int = 50         // Maximum concurrent clients allowed
+    val maxClients: Int = 50,        // Maximum concurrent clients allowed
+    val requiresPassword: Boolean = false, // Whether session requires password
+    val password: String? = null     // Session password (if required)
 )
 
 /**
