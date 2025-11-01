@@ -90,14 +90,18 @@
 ## Phase 3.3: Core Implementation (ONLY after tests are failing)
 
 ### Data Models
-- [x] **T020** [P] HostSession data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/HostSession.kt`
-- [x] **T021** [P] ClientConnection data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/ClientConnection.kt`
-- [x] **T022** [P] AudioStream data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/AudioStream.kt`
-- [x] **T023** [P] NetworkInfo data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/NetworkInfo.kt`
-- [x] **T024** [P] UserSettings data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/models/UserSettings.kt`
+- [x] **T020** [P] HostSession data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/model/HostSession.kt`
+  - ⚠️ Ensure `AudioSource` is used as enum type, not string
+  - Include `sessionName` field separate from `hostName`
+  - Add optional `maxClients`, `requiresPassword`, and `password` fields
+- [x] **T021** [P] ClientConnection data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/model/ClientConnection.kt`
+- [x] **T022** [P] AudioStream data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/model/AudioStream.kt`
+- [x] **T023** [P] NetworkInfo data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/model/NetworkInfo.kt`
+- [x] **T024** [P] UserSettings data class in `app/src/main/java/io/github/gauravyad69/speakershare/data/model/UserSettings.kt`
 
 ### Core Services (Sequential - shared state)
 - [x] **T025** AudioStreamManager service in `app/src/main/java/io/github/gauravyad69/speakershare/services/AudioStreamManager.kt`
+  - ⚠️ Note: Path is `services/` not `service/`
 - [x] **T026** HostService for session management in `app/src/main/java/io/github/gauravyad69/speakershare/services/HostService.kt`
 - [x] **T027** ClientManager for connection handling in `app/src/main/java/io/github/gauravyad69/speakershare/services/ClientManager.kt`
 - [x] **T028** NetworkDiscoveryService (mDNS + UDP broadcast) in `app/src/main/java/io/github/gauravyad69/speakershare/services/NetworkDiscoveryService.kt`

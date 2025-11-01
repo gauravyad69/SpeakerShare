@@ -47,7 +47,7 @@ fun ClientsScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -309,7 +309,7 @@ private fun QuickActionsCard(
                     onClick = onMuteAll,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.VolumeOff, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Filled.VolumeOff, contentDescription = null)
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Mute All")
                 }
@@ -318,7 +318,7 @@ private fun QuickActionsCard(
                     onClick = onUnmuteAll,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.VolumeUp, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null)
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Unmute All")
                 }
@@ -452,8 +452,6 @@ private fun ClientCard(
                         },
                         colors = AssistChipDefaults.assistChipColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer
-                                MaterialTheme.colorScheme.secondaryContainer
-                            }
                         )
                     )
                 }
@@ -480,7 +478,7 @@ private fun ClientCard(
                     value = "${client.networkMetrics.latency}ms"
                 )
                 ClientStat(
-                    icon = if (client.audioSettings.isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                    icon = if (client.audioSettings.isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                     label = "Audio",
                     value = if (client.audioSettings.isMuted) "Muted" else "Active"
                 )
@@ -497,7 +495,7 @@ private fun ClientCard(
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(
-                            if (client.audioSettings.isMuted) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                            if (client.audioSettings.isMuted) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
                             contentDescription = null
                         )
                         Spacer(modifier = Modifier.width(4.dp))

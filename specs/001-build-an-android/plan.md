@@ -55,6 +55,7 @@ Android app with dual Host/Client modes for real-time audio broadcasting over LA
 - Ktor for communication and HTTP server
 - AAC/MP3 encoding libraries for UDP fallback
 - Kotlin Coroutines for async operations
+- Hilt for dependency injection
 **Storage**: SharedPreferences for user settings, in-memory for session state  
 **Testing**: JUnit 4, Espresso for UI testing, MockK for mocking  
 **Target Platform**: Android 5.0+ (API 21), supports Wi-Fi and mobile hotspot  
@@ -80,6 +81,16 @@ Android app with dual Host/Client modes for real-time audio broadcasting over LA
 3. Tunable audio quality, default 128kbps AAC
 4. <200ms latency requirement
 5. Ktor for communication layer
+
+**Implementation Learnings**:
+1. **Coroutines & ExperimentalCoroutinesApi**: `suspendCancellableCoroutine` requires `@OptIn(ExperimentalCoroutinesApi::class)` and proper cancellation handling with `invokeOnCancellation`
+2. **WebRTC Type Conflicts**: Be explicit with `org.webrtc.IceCandidate` vs custom event types to avoid type mismatches
+3. **Material Icons**: Use `Icons.AutoMirrored.Filled.*` for directional icons (ArrowBack, ArrowForward, VolumeUp, VolumeOff) to support RTL layouts
+4. **Compose Color API**: Use `MaterialTheme.colorScheme.*` instead of deprecated `MaterialTheme.colors.*` for Material 3
+5. **Service Lifecycle**: Injectable services need proper initialization methods; avoid assuming methods exist without checking implementations
+6. **Data Model Consistency**: Ensure enum types (like `AudioSource`) are used consistently as enums vs strings across the codebase
+7. **Notification Compatibility**: Handle both notification channel creation (API 26+) and legacy notification APIs
+8. **Drawable Resources**: Missing drawables should be created early in the process to avoid cascading build errors
 
 ## Constitution Check
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
@@ -263,9 +274,58 @@ ios/ or android/
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
+| Dual transport (WebRTC + UDP) | Network reliability across different conditions | Single transport fails in various network scenarios |
 | [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
 
+## Common Implementation Issues & Solutions
+
+### Build & Compilation Issues
+1. **WebRTC Type Conflicts**
+   - Problem: `IceCandidate` type mismatch between `org.webrtc.IceCandidate` and custom event types
+   - Solution: Always use fully qualified `org.webrtc.IceCandidate` in type declarations
+   - Location: `WebRTCManager.kt`, `WebRTCEvent` sealed class
+
+2. **Coroutines Experimental API**
+   - Problem: `suspendCancellableCoroutine` requires opt-in annotation
+   - Solution: Add `@OptIn(ExperimentalCoroutinesApi::class)` at file level, implement `invokeOnCancellation`
+   - Location: Any file using `suspendCancellableCoroutine`
+
+3. **Material 3 Icon Migration**
+   - Problem: Directional icons need RTL support
+   - Solution: Use `Icons.AutoMirrored.Filled.*` for ArrowBack, ArrowForward, VolumeUp, VolumeOff
+   - Location: All Compose UI files
+
+4. **Color Scheme API**
+   - Problem: `MaterialTheme.colors` deprecated in Material 3
+   - Solution: Use `MaterialTheme.colorScheme` instead
+   - Location: All Compose UI files with color references
+
+### Service & Architecture Issues
+5. **Enum Type Consistency**
+   - Problem: `AudioSource` used as both enum and string across layers
+   - Solution: Enforce enum usage in data models, convert to string only at serialization boundaries
+   - Location: `HostSession`, `AudioForegroundService`, API handlers
+
+6. **Service Method Signatures**
+   - Problem: Injected services missing expected methods (initialize, start, stop)
+   - Solution: Define clear interfaces for all injectable services with required methods
+   - Location: All `@Inject` services in `AudioForegroundService`
+
+7. **Notification Resources**
+   - Problem: Missing drawable resources cause cascading build failures
+   - Solution: Create placeholder drawables early in development for all notification icons
+   - Required icons: ic_notification, ic_stop, ic_pause, ic_play_arrow, ic_volume_off, ic_volume_up, ic_cast_connected, ic_cast_disconnected, ic_error, ic_sync, ic_search, ic_pause_circle
+
+### Data Model Issues
+8. **Session Naming Confusion**
+   - Problem: Single `hostName` field insufficient for UX
+   - Solution: Separate `sessionName` (broadcast name) from `hostName` (device name)
+   - Location: `HostSession` data class
+
+9. **Path Inconsistencies**
+   - Problem: Mix of `service/` vs `services/`, `models/` vs `model/` in package names
+   - Solution: Standardize on `services/` and `model/` throughout codebase
+   - Location: Package structure
 
 ## Progress Tracking
 *This checklist is updated during execution flow*
@@ -274,8 +334,8 @@ ios/ or android/
 - [x] Phase 0: Research complete (/plan command)
 - [x] Phase 1: Design complete (/plan command)
 - [x] Phase 2: Task planning complete (/plan command - describe approach only)
-- [ ] Phase 3: Tasks generated (/tasks command)
-- [ ] Phase 4: Implementation complete
+- [x] Phase 3: Tasks generated (/tasks command)
+- [~] Phase 4: Implementation in progress (build errors being resolved)
 - [ ] Phase 5: Validation passed
 
 **Gate Status**:

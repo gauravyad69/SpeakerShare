@@ -13,28 +13,40 @@
 ```kotlin
 data class HostSession(
     val sessionId: String,           // Unique session identifier
-    val hostName: String,            // Display name for this host
+    val sessionName: String,         // Display name for this session
+    val hostName: String,            // Display name for this host (device)
     val audioSource: AudioSource,    // MICROPHONE or SYSTEM_AUDIO
     val quality: AudioQuality,       // Bitrate and encoding settings
     val isActive: Boolean,           // Currently broadcasting
     val startTime: Long,             // Session start timestamp
     val connectedClients: List<ClientConnection>,
-    val networkInfo: NetworkInfo     // IP, port, discovery info
+    val networkInfo: NetworkInfo,    // IP, port, discovery info
+    val maxClients: Int = 0,         // 0 = unlimited
+    val requiresPassword: Boolean = false,
+    val password: String? = null
 )
 
 enum class AudioSource {
     MICROPHONE,
-    SYSTEM_AUDIO
+    SYSTEM_AUDIO,
+    LINE_IN,
+    BLUETOOTH
 }
 
 data class AudioQuality(
     val bitrate: Int = 128,          // kbps, tunable 64-320
     val sampleRate: Int = 44100,     // Hz
-    val encoding: AudioEncoding = AAC
+    val encoding: AudioEncoding = AudioEncoding.AAC,
+    val channels: Int = 2            // 1 = mono, 2 = stereo
 )
 
 enum class AudioEncoding { AAC, MP3 }
 ```
+
+**Implementation Notes**:
+- `AudioSource` is an enum type - ensure consistency across service layers
+- Services should use `AudioSource.MICROPHONE` not string "MICROPHONE"
+- `sessionName` added separately from `hostName` for better UX
 
 **State Transitions**:
 - IDLE → STARTING → ACTIVE → STOPPING → IDLE

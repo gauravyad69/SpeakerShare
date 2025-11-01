@@ -15,6 +15,7 @@
    - Launch SpeakerShare app
    - Grant microphone permission when prompted
    - Select "Host Mode" 
+   - Enter session name (e.g., "My Broadcast")
    - Tap "Start Broadcasting"
    - Verify status shows "Broadcasting - 0 clients"
 
@@ -30,8 +31,14 @@
 - [ ] Client shows "Connected to [Host Name]" 
 - [ ] Client can hear host's microphone audio clearly
 - [ ] Audio latency feels natural (<200ms perceived delay)
+- [ ] Notification appears on host device showing active broadcast
 
 **Expected Result**: ✅ Basic audio streaming works end-to-end
+
+**Common Issues**:
+- Missing drawable resources: Ensure all notification icons (ic_notification, ic_stop, ic_pause, ic_play_arrow, ic_volume_off, ic_volume_up) are created
+- Permission errors: Check that RECORD_AUDIO, ACCESS_WIFI_STATE, CHANGE_WIFI_MULTICAST_STATE are granted
+- WebRTC initialization errors: Verify PeerConnectionFactory is properly initialized with context
 
 ---
 
