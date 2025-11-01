@@ -6,5 +6,16 @@
     "github.copilot.chat.languageContext.fix.typescript.enabled": true,
     "github.copilot.chat.languageContext.inline.typescript.enabled": true,
     "github.copilot.chat.pullRequestDescriptionGeneration.instructions": [],
-    "github.copilot.chat.codesearch.enabled": true
+    "github.copilot.chat.codesearch.enabled": true,
+    "chat.promptFilesRecommendations": {
+        "speckit.constitution": true,
+        "speckit.specify": true,
+        "speckit.plan": true,
+        "speckit.tasks": true,
+        "speckit.implement": true
+    },
+    "chat.tools.terminal.autoApprove": {
+        ".specify/scripts/bash/": true,
+        ".specify/scripts/powershell/": true
+    }
 }
