@@ -1,6 +1,18 @@
 package io.github.gauravyad69.speakershare.services
 
 import io.github.gauravyad69.speakershare.data.model.*
+import io.github.gauravyad69.speakershare.network.api.ClientConnectRequest
+import io.github.gauravyad69.speakershare.network.api.ClientConnectResponse
+import io.github.gauravyad69.speakershare.network.api.ClientDisconnectResponse
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.engine.android.Android
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import io.ktor.serialization.gson.gson
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,6 +60,19 @@ class ClientManager @Inject constructor(
         private const val MAX_RECONNECT_ATTEMPTS = 5
     }
     
+    private val httpClient = HttpClient(Android) {
+        install(ContentNegotiation) {
+            gson {
+                setPrettyPrinting()
+                disableHtmlEscaping()
+            }
+        }
+        engine {
+            connectTimeout = 5000
+            socketTimeout = 5000
+        }
+    }
+
     /**
      * Start discovering available hosts on the network
      */
@@ -311,17 +336,43 @@ class ClientManager @Inject constructor(
         hostSession: HostSession,
         clientConnection: ClientConnection
     ): Result<Unit> {
-        Log.d(TAG, "Sending connection request to ${hostSession.networkInfo.localIpAddress}")
-        // TODO: Implement HTTP connection request to host (T044)
-        
-        // Simulate connection request
-        delay(CONNECTION_TIMEOUT_MS / 10)
-        return Result.success(Unit)
+        return try {
+            val hostIp = hostSession.networkInfo.localIpAddress
+            val port = hostSession.networkInfo.port
+            val url = "http://$hostIp:$port/api/v1/connect"
+            
+            Log.d(TAG, "Sending connection request to $url")
+            
+            val request = ClientConnectRequest(
+                clientId = clientConnection.clientId,
+                clientName = clientConnection.clientName,
+                preferredTransport = "WEBRTC",
+                capabilities = listOf("OPUS", "AAC")
+            )
+            
+            val response: ClientConnectResponse = httpClient.post(url) {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }.body()
+            
+            if (response.status == "ACCEPTED") {
+                Log.d(TAG, "Connection accepted by host")
+                Result.success(Unit)
+            } else {
+                Log.w(TAG, "Connection rejected: ${response.reason}")
+                Result.failure(Exception("Connection rejected: ${response.reason}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Connection request failed", e)
+            Result.failure(e)
+        }
     }
     
     private suspend fun sendDisconnectionRequest(connection: ClientConnection) {
         Log.d(TAG, "Sending disconnection request")
         // TODO: Implement HTTP disconnection request
+        // We need the host IP to send the request. 
+        // For now, we'll just log it as we don't have the host session stored in this context easily.
     }
     
     private suspend fun startAudioPlayback(hostSession: HostSession) {

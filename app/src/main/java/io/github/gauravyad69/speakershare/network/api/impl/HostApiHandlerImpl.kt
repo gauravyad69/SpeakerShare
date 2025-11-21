@@ -1,16 +1,19 @@
 package io.github.gauravyad69.speakershare.network.api.impl
 
 import io.github.gauravyad69.speakershare.network.api.*
+import io.github.gauravyad69.speakershare.services.HostService
 import java.util.*
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
- * Basic stub implementation of HostApiHandler for TDD green phase.
- * Provides realistic test responses to make contract tests pass.
+ * Implementation of HostApiHandler that delegates to HostService.
  */
 @Singleton
-class HostApiHandlerImpl @Inject constructor() : HostApiHandler {
+class HostApiHandlerImpl @Inject constructor(
+    private val hostServiceProvider: Provider<HostService>
+) : HostApiHandler {
     
     private val connectedClients = mutableMapOf<String, ConnectedClient>()
     private var isAcceptingClients = true
@@ -29,42 +32,33 @@ class HostApiHandlerImpl @Inject constructor() : HostApiHandler {
         if (request.preferredTransport !in listOf("WEBRTC", "UDP")) {
             throw BadRequestException(400, "Invalid transport - must be WEBRTC or UDP")
         }
-        if (request.capabilities.isEmpty()) {
-            throw BadRequestException(400, "Invalid capabilities - at least one required")
+        
+        val hostService = hostServiceProvider.get()
+        val session = hostService.currentSession.value
+            ?: throw ServiceUnavailableException(503, "No active session")
+            
+        // Try to register client with HostService
+        val result = hostService.handleClientConnection(
+            clientId = request.clientId,
+            clientName = request.clientName,
+            clientIp = "unknown" // TODO: Extract IP from request context if possible
+        )
+        
+        if (result.isFailure) {
+            throw ServiceUnavailableException(500, result.exceptionOrNull()?.message ?: "Connection failed")
         }
         
-        // Check if host is accepting clients
-        if (!isAcceptingClients) {
-            throw ServiceUnavailableException(503, "Host is not accepting connections")
-        }
-        
-        // Check max clients limit
-        if (maxClients > 0 && connectedClients.size >= maxClients) {
-            return ClientConnectResponse(
+        val accepted = result.getOrDefault(false)
+        if (!accepted) {
+             return ClientConnectResponse(
                 status = "REJECTED",
                 reason = "MAX_CLIENTS_REACHED",
-                maxClients = maxClients
+                maxClients = session.maxClients
             )
         }
         
-        // Add client to connected list
-        val client = ConnectedClient(
-            id = request.clientId,
-            ipAddress = "192.168.1.105", // Mock IP
-            deviceName = request.clientName,
-            connectedAt = "2024-01-01T10:00:00Z",
-            audioLatency = 150,
-            connectionQuality = "GOOD"
-        )
-        connectedClients[request.clientId] = client
-        
-        // Return successful connection response
-        val assignedTransport = when {
-            transportMode == "UDP_ONLY" -> "UDP"
-            transportMode == "WEBRTC_ONLY" -> "WEBRTC"
-            request.preferredTransport == "WEBRTC" -> "WEBRTC"
-            else -> "UDP"
-        }
+        // Determine transport
+        val assignedTransport = if (request.preferredTransport == "WEBRTC") "WEBRTC" else "UDP"
         
         return ClientConnectResponse(
             status = "ACCEPTED",
@@ -76,17 +70,16 @@ class HostApiHandlerImpl @Inject constructor() : HostApiHandler {
     
     override suspend fun disconnectClient(clientId: String): ClientDisconnectResponse {
         // Validate client ID format
-        if (clientId.isBlank() || !isValidUUID(clientId)) {
-            throw BadRequestException(400, "Invalid client ID format")
+        if (clientId.isBlank()) {
+            throw BadRequestException(400, "Invalid client ID")
         }
         
-        // Check if client exists
-        if (!connectedClients.containsKey(clientId)) {
-            throw NotFoundException(404, "Client not found")
-        }
+        val hostService = hostServiceProvider.get()
+        val result = hostService.disconnectClient(clientId, "Client requested disconnect")
         
-        // Remove client
-        connectedClients.remove(clientId)
+        if (result.isFailure) {
+             throw NotFoundException(404, "Client not found or failed to disconnect")
+        }
         
         return ClientDisconnectResponse(
             status = "DISCONNECTED",

@@ -19,7 +19,9 @@ import java.util.UUID
  */
 @Singleton
 class HostService @Inject constructor(
-    private val audioStreamManager: AudioStreamManager
+    private val audioStreamManager: AudioStreamManager,
+    private val httpApiServer: io.github.gauravyad69.speakershare.network.HttpApiServer,
+    private val networkDiscoveryService: NetworkDiscoveryService
 ) {
     
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -297,12 +299,12 @@ class HostService @Inject constructor(
     
     private fun startHttpApiServer(port: Int) {
         Log.d(TAG, "Starting HTTP API server on port $port")
-        // TODO: Implement HTTP server startup (T042)
+        httpApiServer.startServer(port)
     }
     
     private fun stopHttpApiServer() {
         Log.d(TAG, "Stopping HTTP API server")
-        // TODO: Implement HTTP server cleanup
+        httpApiServer.stopServer()
     }
     
     private fun startDiscoveryBroadcast(session: HostSession) {
