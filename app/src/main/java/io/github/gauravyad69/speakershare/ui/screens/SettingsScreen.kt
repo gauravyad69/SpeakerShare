@@ -96,9 +96,9 @@ fun SettingsScreen(
                     icon = Icons.Default.Router
                 ) {
                     // Basic settings that are available
-                    if (settings != null) {
-                        Text("Max Clients: ${if (settings.maxClients == 0) "Unlimited" else settings.maxClients.toString()}")
-                        Text("Auto Start Host: ${if (settings.autoStartHost) "Yes" else "No"}")
+                    settings?.let { s ->
+                        Text("Max Clients: ${if (s.maxClients == 0) "Unlimited" else s.maxClients.toString()}")
+                        Text("Auto Start Host: ${if (s.autoStartHost) "Yes" else "No"}")
                     }
                     // TODO: Add controls when ViewModel methods are available
                 }
@@ -111,9 +111,9 @@ fun SettingsScreen(
                     icon = Icons.Default.Tune
                 ) {
                     // Available UI settings
-                    if (settings != null) {
-                        Text("Keep Screen On: ${if (settings.keepScreenOn) "Yes" else "No"}")
-                        Text("Show Network Metrics: ${if (settings.showNetworkMetrics) "Yes" else "No"}")
+                    settings?.let { s ->
+                        Text("Keep Screen On: ${if (s.keepScreenOn) "Yes" else "No"}")
+                        Text("Show Network Metrics: ${if (s.showNetworkMetrics) "Yes" else "No"}")
                     }
                     // TODO: Add controls when ViewModel methods are available
                 }

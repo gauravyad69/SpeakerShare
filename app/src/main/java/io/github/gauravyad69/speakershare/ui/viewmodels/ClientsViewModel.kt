@@ -18,7 +18,8 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class ClientsViewModel @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val audioService: AudioForegroundService
 ) : ViewModel() {
 
     /**

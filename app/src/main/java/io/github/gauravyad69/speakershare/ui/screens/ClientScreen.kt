@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import io.github.gauravyad69.speakershare.network.discovery.DiscoveredHost
 import io.github.gauravyad69.speakershare.ui.viewmodels.ClientViewModel
 
@@ -85,7 +86,10 @@ fun ClientScreen(
                 DiscoverySection(
                     isDiscovering = uiState.isLoading,
                     discoveredHosts = emptyList(), // TODO: Integrate with DiscoveryViewModel
-                    onConnectToHost = { host -> viewModel.connectToHost(host) },
+                    onConnectToHost = { host -> 
+                        // TODO: Convert DiscoveredHost to NetworkInfo or change ClientViewModel.connectToHost signature
+                        // viewModel.connectToHost(host)
+                    },
                     onRefreshDiscovery = { /* TODO: Implement refresh discovery */ }
                 )
             }
@@ -109,7 +113,7 @@ fun ClientScreen(
 @Composable
 private fun ConnectionStatusCard(
     isConnected: Boolean,
-    connectedHost: DiscoveredHost?,
+    connectedHost: NetworkInfo?,
     connectionStatus: String,
     onDisconnect: () -> Unit
 ) {
@@ -157,16 +161,16 @@ private fun ConnectionStatusCard(
                 
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = "Host: ${connectedHost.hostName}",
+                        text = "Service: ${connectedHost.serviceName}",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
-                        text = "IP: ${connectedHost.ipAddress}:${connectedHost.port}",
+                        text = "IP: ${connectedHost.localIpAddress}:${connectedHost.port}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "Audio Source: ${connectedHost.audioSource}",
+                        text = "Discovery: ${connectedHost.discoveryMethod}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

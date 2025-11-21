@@ -287,6 +287,36 @@ class SettingsViewModel @Inject constructor(
         _error.value = null
     }
 
+    /**
+     * Export settings to JSON for backup
+     */
+    fun exportSettings() {
+        viewModelScope.launch {
+            try {
+                _userSettings.value?.let { settings ->
+                    // TODO: Implement actual export logic (e.g., save to file or share)
+                    _error.value = "Export functionality coming soon"
+                }
+            } catch (e: Exception) {
+                _error.value = "Failed to export settings: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * Import settings from JSON backup
+     */
+    fun importSettings() {
+        viewModelScope.launch {
+            try {
+                // TODO: Implement actual import logic (e.g., read from file or clipboard)
+                _error.value = "Import functionality coming soon"
+            } catch (e: Exception) {
+                _error.value = "Failed to import settings: ${e.message}"
+            }
+        }
+    }
+
     // Helper functions
     private fun generateUserId(): String = java.util.UUID.randomUUID().toString()
     private fun getDefaultDeviceName(): String = android.os.Build.MODEL

@@ -358,8 +358,10 @@ class AudioForegroundService : Service() {
 
     private suspend fun startUdpServer(session: HostSession) {
         udpAudioServer.startServer(
-            port = 9090,
-            hostSession = session
+            sessionId = session.sessionId,
+            hostName = session.hostName,
+            audioPort = 9090,
+            discoveryPort = 9089
         )
     }
 

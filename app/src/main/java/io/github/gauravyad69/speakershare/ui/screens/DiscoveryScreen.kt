@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package io.github.gauravyad69.speakershare.ui.screens
 
 import androidx.compose.foundation.layout.*
