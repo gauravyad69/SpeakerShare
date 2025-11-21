@@ -4,6 +4,7 @@ package io.github.gauravyad69.speakershare.network
 
 import android.content.Context
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.data.model.ClientConnection
 import io.getstream.webrtc.android.compose.*
 import kotlinx.coroutines.*
@@ -24,7 +25,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class WebRTCManager @Inject constructor(
-    private val context: Context
+    @ApplicationContext private val context: Context
 ) {
     companion object {
         private const val TAG = "WebRTCManager"

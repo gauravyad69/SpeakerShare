@@ -2,12 +2,15 @@ package io.github.gauravyad69.speakershare.network.api.impl
 
 import io.github.gauravyad69.speakershare.network.api.*
 import java.util.*
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Basic stub implementation of HostApiHandler for TDD green phase.
  * Provides realistic test responses to make contract tests pass.
  */
-class HostApiHandlerImpl : HostApiHandler {
+@Singleton
+class HostApiHandlerImpl @Inject constructor() : HostApiHandler {
     
     private val connectedClients = mutableMapOf<String, ConnectedClient>()
     private var isAcceptingClients = true

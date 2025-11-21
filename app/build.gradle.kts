@@ -73,6 +73,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.compose.tabler.icons)
+    implementation("androidx.navigation:navigation-compose:2.7.5")
     
     // WebRTC for real-time audio streaming
     implementation(libs.stream.webrtc.android.compose)

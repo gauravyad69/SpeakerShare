@@ -4,13 +4,16 @@ import android.util.Log
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.zip.CRC32
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.experimental.and
 
 /**
  * UDP Packet Handler for audio streaming
  * Handles packet encoding/decoding, fragmentation, and validation
  */
-class UdpPacketHandler {
+@Singleton
+class UdpPacketHandler @Inject constructor() {
     companion object {
         private const val TAG = "UdpPacketHandler"
         

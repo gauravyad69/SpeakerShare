@@ -7,6 +7,7 @@ import io.github.gauravyad69.speakershare.data.model.AudioSource
 import io.github.gauravyad69.speakershare.data.model.AudioQuality
 import io.github.gauravyad69.speakershare.data.model.AudioEncoding
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,7 +22,7 @@ import android.util.Log
 @Singleton
 class SettingsRepository @Inject constructor(
     @ApplicationContext private val context: Context
-) {
+) : UserSettingsRepository {
     
     private val sharedPreferences: SharedPreferences = context.getSharedPreferences(
         PREFS_NAME, Context.MODE_PRIVATE
@@ -29,6 +30,10 @@ class SettingsRepository @Inject constructor(
     
     private val _userSettings = MutableStateFlow(loadSettings())
     val userSettings: StateFlow<UserSettings> = _userSettings.asStateFlow()
+
+    override fun getUserSettings(): Flow<UserSettings> = userSettings
+
+    override suspend fun getCurrentSettings(): UserSettings = _userSettings.value
     
     companion object {
         private const val TAG = "SettingsRepository"
@@ -121,39 +126,41 @@ class SettingsRepository @Inject constructor(
     /**
      * Update user settings
      */
-    suspend fun updateSettings(settings: UserSettings) {
-        Log.d(TAG, "Updating user settings")
-        _userSettings.value = settings
-        saveSettings(settings)
+    override suspend fun updateSettings(settings: UserSettings): Result<Unit> {
+        return runCatching {
+            Log.d(TAG, "Updating user settings")
+            _userSettings.value = settings
+            saveSettings(settings)
+        }
     }
-    
+
     /**
      * Update user name
      */
-    suspend fun updateUserName(userName: String) {
+    override suspend fun updateDisplayName(displayName: String): Result<Unit> {
         val currentSettings = _userSettings.value
-        val updatedSettings = currentSettings.copy(displayName = userName)
-        updateSettings(updatedSettings)
+        val updatedSettings = currentSettings.copy(displayName = displayName)
+        return updateSettings(updatedSettings)
     }
     
     /**
      * Update default audio source
      */
-    suspend fun updateDefaultAudioSource(audioSource: AudioSource) {
+    override suspend fun updateDefaultAudioSource(audioSource: AudioSource): Result<Unit> {
         Log.d(TAG, "Updating default audio source to $audioSource")
         val currentSettings = _userSettings.value
         val updatedSettings = currentSettings.copy(defaultAudioSource = audioSource)
-        updateSettings(updatedSettings)
+        return updateSettings(updatedSettings)
     }
     
     /**
      * Update audio quality settings
      */
-    suspend fun updateAudioQuality(quality: AudioQuality) {
+    override suspend fun updateDefaultQuality(quality: AudioQuality): Result<Unit> {
         Log.d(TAG, "Updating audio quality: ${quality.bitrate}kbps, ${quality.sampleRate}Hz, ${quality.encoding}")
         val currentSettings = _userSettings.value
         val updatedSettings = currentSettings.copy(defaultQuality = quality)
-        updateSettings(updatedSettings)
+        return updateSettings(updatedSettings)
     }
     
     /**
@@ -206,11 +213,13 @@ class SettingsRepository @Inject constructor(
     /**
      * Reset settings to defaults
      */
-    suspend fun resetToDefaults() {
-        Log.d(TAG, "Resetting settings to defaults")
-        sharedPreferences.edit().clear().apply()
-        val defaultSettings = loadSettings()
-        _userSettings.value = defaultSettings
+    override suspend fun resetToDefaults(): Result<Unit> {
+        return runCatching {
+            Log.d(TAG, "Resetting settings to defaults")
+            sharedPreferences.edit().clear().apply()
+            val defaultSettings = loadSettings()
+            _userSettings.value = defaultSettings
+        }
     }
     
     /**
