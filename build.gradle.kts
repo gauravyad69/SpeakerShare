@@ -6,3 +6,13 @@ plugins {
     alias(libs.plugins.hilt) apply false
     alias(libs.plugins.ksp) apply false
 }
+
+// Workaround for JDK 21 compatibility issue with Android Gradle Plugin
+subprojects {
+    tasks.withType<JavaCompile>().configureEach {
+        options.compilerArgs.add("-source")
+        options.compilerArgs.add("11")
+        options.compilerArgs.add("-target")
+        options.compilerArgs.add("11")
+    }
+}
