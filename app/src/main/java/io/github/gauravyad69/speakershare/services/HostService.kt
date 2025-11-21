@@ -1,6 +1,7 @@
 package io.github.gauravyad69.speakershare.services
 
 import io.github.gauravyad69.speakershare.data.model.*
+import io.github.gauravyad69.speakershare.data.repository.HostSessionRepository
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,7 +22,8 @@ import java.util.UUID
 class HostService @Inject constructor(
     private val audioStreamManager: AudioStreamManager,
     private val httpApiServer: io.github.gauravyad69.speakershare.network.HttpApiServer,
-    private val networkDiscoveryService: NetworkDiscoveryService
+    private val networkDiscoveryService: NetworkDiscoveryService,
+    private val hostSessionRepository: HostSessionRepository
 ) {
     
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -90,7 +92,10 @@ class HostService @Inject constructor(
             }
             
             // Start HTTP API server for client communication
-            startHttpApiServer(DEFAULT_PORT)
+            if (!startHttpApiServer(DEFAULT_PORT)) {
+                audioStreamManager.stopStreaming()
+                return Result.failure(Exception("Failed to start HTTP server on port $DEFAULT_PORT"))
+            }
             
             // Start network discovery broadcasting
             startDiscoveryBroadcast(hostSession)
@@ -99,6 +104,15 @@ class HostService @Inject constructor(
             val activeSession = hostSession.copy(isActive = true)
             _currentSession.value = activeSession
             _isHosting.value = true
+            
+            // Sync with repository
+            hostSessionRepository.createSession(
+                hostName = hostName,
+                audioSource = audioSource,
+                quality = quality,
+                networkInfo = networkInfo
+            )
+            hostSessionRepository.startBroadcasting()
             
             Log.d(TAG, "Host session started successfully")
             Result.success(activeSession)
@@ -136,6 +150,10 @@ class HostService @Inject constructor(
             _currentSession.value = session.copy(isActive = false)
             _isHosting.value = false
             _connectedClients.value = emptyList()
+            
+            // Sync with repository
+            hostSessionRepository.stopBroadcasting()
+            hostSessionRepository.endSession()
             
             // Clear session after a delay
             _currentSession.value = null
@@ -298,9 +316,9 @@ class HostService @Inject constructor(
         return ips.firstOrNull() ?: "127.0.0.1"
     }
     
-    private fun startHttpApiServer(port: Int) {
+    private fun startHttpApiServer(port: Int): Boolean {
         Log.d(TAG, "Starting HTTP API server on port $port")
-        httpApiServer.startServer(port)
+        return httpApiServer.startServer(port)
     }
     
     private fun stopHttpApiServer() {
@@ -310,12 +328,22 @@ class HostService @Inject constructor(
     
     private fun startDiscoveryBroadcast(session: HostSession) {
         Log.d(TAG, "Starting discovery broadcast for session ${session.sessionId}")
-        // TODO: Implement discovery broadcast (T028)
+        serviceScope.launch {
+            networkDiscoveryService.registerHost(
+                hostName = session.hostName,
+                port = DEFAULT_PORT,
+                userName = session.hostName, // Using hostName as userName for now
+                currentClients = session.connectedClients.size,
+                maxClients = session.maxClients
+            )
+        }
     }
     
     private fun stopDiscoveryBroadcast() {
         Log.d(TAG, "Stopping discovery broadcast")
-        // TODO: Implement discovery broadcast cleanup
+        serviceScope.launch {
+            networkDiscoveryService.unregisterHost()
+        }
     }
     
     private suspend fun disconnectAllClients(reason: String) {

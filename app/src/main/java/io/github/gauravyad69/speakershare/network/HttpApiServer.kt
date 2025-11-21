@@ -52,7 +52,7 @@ class HttpApiServer @Inject constructor(
         }
         
         return try {
-            server = embeddedServer(Netty, port = port) {
+            server = embeddedServer(Netty, port = port, host = "0.0.0.0") {
                 configureServer()
             }
             

@@ -70,3 +70,5 @@ host_dump_new.xml
 host_dump_latest.xml
 client_dump_new.xml
 host_dump.xml
+.idea/deploymentTargetSelector.xml
+client_logs.txt

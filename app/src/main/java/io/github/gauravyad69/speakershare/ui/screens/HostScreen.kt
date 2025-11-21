@@ -142,7 +142,9 @@ fun HostScreen(
                     if (uiState.isHosting) {
                         viewModel.stopHosting()
                     } else {
-                        viewModel.startHosting()
+                        viewModel.startHosting(
+                        hostName = android.os.Build.MODEL
+                    )
                     }
                 },
                 modifier = Modifier.weight(1f),

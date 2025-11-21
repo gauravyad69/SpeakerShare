@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.data.repository.*
 import io.github.gauravyad69.speakershare.network.api.HostApiHandler
+import io.github.gauravyad69.speakershare.services.HostService
 import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -22,6 +23,7 @@ class HostViewModel @Inject constructor(
     private val audioStreamRepository: AudioStreamRepository,
     private val userSettingsRepository: UserSettingsRepository,
     private val hostApiHandler: HostApiHandler,
+    private val hostService: HostService,
     private val networkDiscoveryService: NetworkDiscoveryService
 ) : ViewModel() {
 
@@ -121,44 +123,18 @@ class HostViewModel @Inject constructor(
     /**
      * Start hosting session
      */
-    fun startHosting() {
+    fun startHosting(hostName: String) {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                // Get real IP
-                val ipAddresses = networkDiscoveryService.getLocalIpAddresses()
-                val ipAddress = ipAddresses.firstOrNull() ?: "127.0.0.1"
-
-                // Create network info
-                val networkInfo = NetworkInfo(
-                    localIpAddress = ipAddress,
-                    port = 8080,
-                    networkInterface = "wlan0",
-                    isHotspot = false,
-                    discoveryMethod = DiscoveryMethod.MDNS,
-                    serviceName = "SpeakerShare-${getDeviceName()}"
+                // Use HostService to start hosting
+                val result = hostService.startHosting(
+                    hostName = hostName,
+                    audioSource = _audioSource.value
                 )
-
-                // Create session using repository
-                val result = hostSessionRepository.createSession(
-                    hostName = getDeviceName(),
-                    audioSource = _audioSource.value,
-                    quality = AudioQuality(),
-                    networkInfo = networkInfo
-                )
-
+                
                 result.onSuccess { session ->
                     _hostSession.value = session
-                    // Start broadcasting
-                    hostSessionRepository.startBroadcasting()
-                    
-                    // Start Network Discovery
-                    networkDiscoveryService.registerHost(
-                        hostName = session.sessionName,
-                        port = networkInfo.port,
-                        userName = session.hostName
-                    )
-
                     _isBroadcasting.value = true
                 }.onFailure { error ->
                     _error.value = "Failed to create session: ${error.message}"
@@ -180,18 +156,8 @@ class HostViewModel @Inject constructor(
             _isLoading.value = true
             try {
                 _hostSession.value?.let { session ->
-                    // Update session as inactive
-                    // Stop broadcasting using repository
-                    hostSessionRepository.stopBroadcasting()
-
-                    // Stop Network Discovery
-                    networkDiscoveryService.unregisterHost()
-
-                    // Disconnect all clients
-                    disconnectAllClients()
-
-                    // Stop audio stream
-                    stopAudioStream()
+                    // Stop hosting using HostService
+                    hostService.stopHosting()
 
                     _isBroadcasting.value = false
                 }

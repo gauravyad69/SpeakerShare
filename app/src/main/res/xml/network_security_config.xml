@@ -1,20 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <!-- Allow local network traffic for LAN communication -->
-        <domain includeSubdomains="false">localhost</domain>
-        <domain includeSubdomains="true">10.0.0.0</domain>
-        <domain includeSubdomains="true">172.16.0.0</domain>
-        <domain includeSubdomains="true">192.168.0.0</domain>
-        
-        <!-- Allow any local IP addresses -->
-        <domain includeSubdomains="true">local</domain>
-    </domain-config>
-    
-    <!-- Allow all local network ranges -->
-    <base-config cleartextTrafficPermitted="false">
+    <!-- Allow cleartext traffic for all domains for development/LAN usage -->
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
-            <certificates src="system"/>
+            <certificates src="system" />
         </trust-anchors>
     </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">192.168.101.7</domain>
+        <domain includeSubdomains="true">localhost</domain>
+    </domain-config>
 </network-security-config>

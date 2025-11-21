@@ -1,0 +1,411 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build Debug APK",
+			"type": "shell",
+			"command": "./gradlew assembleDebug",
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Check APK Timestamp",
+			"type": "shell",
+			"command": "ls -l app/build/outputs/apk/debug/app-debug.apk",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Install APK on Client",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 install -r app/build/outputs/apk/debug/app-debug.apk",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Clear Logcat",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -c",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Launch App",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 shell am start -n io.github.gauravyad69.speakershare/.MainActivity",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Capture Logs",
+			"type": "shell",
+			"command": "timeout 10s adb -s 192.168.101.5 logcat -v time | grep -E \"ClientManager|NetworkDiscovery|HostService|System.err|AndroidRuntime\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Dump Logs",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep -E \"ClientManager|NetworkDiscovery|HostService|System.err|AndroidRuntime\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check ClientManager Logs",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep \"ClientManager\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Get ClientManager Error Details",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep -C 20 \"ClientManager\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Get ClientManager Error Details 2",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep -C 20 \"ClientManager\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check ClientManager Logs 3",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep \"ClientManager\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Save Logs to File",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d > client_logs.txt",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Find Error Lines",
+			"type": "shell",
+			"command": "grep -n \"ClientManager\" client_logs.txt",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Test Host Connectivity",
+			"type": "shell",
+			"command": "curl -v http://192.168.101.7:8080/",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Host Logs",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 logcat -d | grep -E \"HostService|Ktor|System.err|AndroidRuntime\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Host HttpApiServer Logs",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 logcat -d | grep \"HttpApiServer\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Host Process",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 shell ps | grep speakershare",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Host Ports",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 shell netstat -an | grep 8080",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Host Failures",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 logcat -d | grep \"Failed to start\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Build Debug APK (Fix Host)",
+			"type": "shell",
+			"command": "./gradlew assembleDebug",
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Install on Host",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 install -r app/build/outputs/apk/debug/app-debug.apk",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Install on Client",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 install -r app/build/outputs/apk/debug/app-debug.apk",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Install on Client 2",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 install -r app/build/outputs/apk/debug/app-debug.apk",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Clear All Logs",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 logcat -c && adb -s 192.168.101.5 logcat -c",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Host Server Logs",
+			"type": "shell",
+			"command": "timeout 5s adb -s 192.168.101.7 logcat -d | grep -E \"HttpApiServer|HostService|Netty\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Build Debug APK (Fix URL & Bind)",
+			"type": "shell",
+			"command": "./gradlew assembleDebug",
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Check Build Status",
+			"type": "shell",
+			"command": "ls -l app/build/outputs/apk/debug/app-debug.apk",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Ensure Build Complete",
+			"type": "shell",
+			"command": "./gradlew assembleDebug",
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Clean and Build",
+			"type": "shell",
+			"command": "./gradlew clean assembleDebug",
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Hard Clean and Build",
+			"type": "shell",
+			"command": "./gradlew --stop && rm -rf app/build && ./gradlew assembleDebug",
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Install on Host (Final)",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 install -r app/build/outputs/apk/debug/app-debug.apk",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Install on Client (Final)",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 install -r app/build/outputs/apk/debug/app-debug.apk",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Launch Both Devices",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 logcat -c && adb -s 192.168.101.5 logcat -c && adb -s 192.168.101.7 shell am start -n io.github.gauravyad69.speakershare/.MainActivity && sleep 5 && adb -s 192.168.101.5 shell am start -n io.github.gauravyad69.speakershare/.MainActivity",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Final Logs",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep -E \"ClientManager|NetworkDiscovery\" && echo \"--- HOST LOGS ---\" && adb -s 192.168.101.7 logcat -d | grep -E \"HostService|HttpApiServer\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Quick Log Check",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep \"ClientManager\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Get Error Context",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep -C 5 \"ClientManager\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Last ClientManager Logs",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep \"ClientManager\" | tail -n 20",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Find Exception",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep -B 10 -A 5 \"ClientManager\" | grep \"Exception\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Host Start Log",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 logcat -d | grep \"HTTP server started\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Build Debug APK (Security Fix)",
+			"type": "shell",
+			"command": "./gradlew assembleDebug",
+			"isBackground": false,
+			"problemMatcher": [
+				"$gradle"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Install on Host (Security Fix)",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 install -r app/build/outputs/apk/debug/app-debug.apk",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Install on Client (Security Fix)",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 install -r app/build/outputs/apk/debug/app-debug.apk",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Clear Logs (Security Fix)",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 logcat -c && adb -s 192.168.101.5 logcat -c",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Launch Apps (Security Fix)",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 shell am start -n io.github.gauravyad69.speakershare/.MainActivity && sleep 5 && adb -s 192.168.101.5 shell am start -n io.github.gauravyad69.speakershare/.MainActivity",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Host Server Status",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 logcat -d | grep -E \"HttpApiServer|HostService\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Host Logs Generic",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 logcat -d | grep \"speakershare\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Host Port 8080",
+			"type": "shell",
+			"command": "adb -s 192.168.101.7 shell netstat -an | grep 8080",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Client Logs",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep \"ClientManager\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Check Client Exception",
+			"type": "shell",
+			"command": "adb -s 192.168.101.5 logcat -d | grep -C 5 \"ClientManager\" | grep \"Exception\"",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		}
+	]
+}

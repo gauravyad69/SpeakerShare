@@ -334,7 +334,7 @@ class ClientManager @Inject constructor(
         return try {
             val hostIp = hostSession.networkInfo.localIpAddress
             val port = hostSession.networkInfo.port
-            val url = "http://$hostIp:$port/api/v1/connect"
+            val url = "http://$hostIp:$port/api/v1/clients/connect"
             
             Log.d(TAG, "Sending connection request to $url")
             

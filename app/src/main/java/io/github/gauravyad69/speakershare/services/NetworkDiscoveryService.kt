@@ -52,6 +52,7 @@ class NetworkDiscoveryService @Inject constructor(
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var udpDiscoveryJob: Job? = null
+    private var udpSocket: DatagramSocket? = null
     private var udpBroadcastJob: Job? = null
     private var registeredService: NsdServiceInfo? = null
     
@@ -369,15 +370,15 @@ class NetworkDiscoveryService @Inject constructor(
         Log.d(TAG, "Starting UDP discovery")
         
         udpDiscoveryJob = serviceScope.launch {
-            var socket: DatagramSocket? = null
-            
             try {
-                socket = DatagramSocket(UDP_DISCOVERY_PORT)
+                udpSocket = DatagramSocket(UDP_DISCOVERY_PORT).apply {
+                    reuseAddress = true
+                }
                 val buffer = ByteArray(1024)
                 val packet = DatagramPacket(buffer, buffer.size)
                 
                 while (udpDiscoveryJob?.isActive == true) {
-                    socket.receive(packet)
+                    udpSocket?.receive(packet)
                     val message = String(packet.data, 0, packet.length)
                     Log.v(TAG, "UDP discovery received: $message")
                     
@@ -387,9 +388,12 @@ class NetworkDiscoveryService @Inject constructor(
                 }
                 
             } catch (e: IOException) {
-                Log.e(TAG, "UDP discovery error", e)
+                if (udpDiscoveryJob?.isActive == true) {
+                    Log.e(TAG, "UDP discovery error", e)
+                }
             } finally {
-                socket?.close()
+                udpSocket?.close()
+                udpSocket = null
             }
         }
     }
@@ -401,6 +405,8 @@ class NetworkDiscoveryService @Inject constructor(
         Log.d(TAG, "Stopping UDP discovery")
         udpDiscoveryJob?.cancel()
         udpDiscoveryJob = null
+        udpSocket?.close()
+        udpSocket = null
     }
     
     /**

@@ -49,8 +49,8 @@ interface NetworkDiscovery {
     suspend fun isHotspot(): Boolean
 }
 
-// Network discovery data classes
-data class DiscoveredHost(
+// Network discovery data classe/s
+/*data class DiscoveredHost(
     val hostId: String,
     val hostName: String,
     val ipAddress: String,
@@ -64,7 +64,7 @@ data class DiscoveredHost(
     val connectedClients: Int,
     val maxClients: Int,
     val isAcceptingClients: Boolean
-)
+)*/
 
 data class HostConnectionInfo(
     val hostId: String,
