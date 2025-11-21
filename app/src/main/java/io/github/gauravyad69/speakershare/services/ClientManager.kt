@@ -32,7 +32,8 @@ import java.util.UUID
  */
 @Singleton
 class ClientManager @Inject constructor(
-    private val audioStreamManager: AudioStreamManager
+    private val audioStreamManager: AudioStreamManager,
+    private val networkDiscoveryService: NetworkDiscoveryService
 ) {
     
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -85,11 +86,29 @@ class ClientManager @Inject constructor(
             
             Log.d(TAG, "Starting host discovery")
             _isDiscovering.value = true
-            _discoveredHosts.value = emptyList()
             
-            // Start network discovery
+            // Start network discovery service
+            networkDiscoveryService.startDiscovery()
+            
+            // Observe discovered hosts
             serviceScope.launch {
-                performNetworkDiscovery()
+                networkDiscoveryService.discoveredHosts.collect { networkInfos ->
+                    val hostSessions = networkInfos.map { networkInfo ->
+                        HostSession(
+                            sessionId = networkInfo.serviceName, // Use service name as session ID for now
+                            sessionName = networkInfo.serviceName,
+                            hostName = networkInfo.serviceName,
+                            networkInfo = networkInfo,
+                            isActive = true,
+                            audioSource = AudioSource.MICROPHONE, // Default
+                            quality = AudioQuality(), // Default
+                            connectedClients = emptyList(),
+                            maxClients = 50, // Default
+                            startTime = System.currentTimeMillis()
+                        )
+                    }
+                    _discoveredHosts.value = hostSessions
+                }
             }
             
             Result.success(Unit)
@@ -106,7 +125,9 @@ class ClientManager @Inject constructor(
     fun stopDiscovery() {
         Log.d(TAG, "Stopping host discovery")
         _isDiscovering.value = false
-        // Discovery coroutines will check this flag and stop
+        serviceScope.launch {
+            networkDiscoveryService.stopDiscovery()
+        }
     }
     
     /**
@@ -302,34 +323,8 @@ class ClientManager @Inject constructor(
     }
     
     // Private helper methods
-    private suspend fun performNetworkDiscovery() {
-        Log.d(TAG, "Performing network discovery")
-        
-        while (_isDiscovering.value) {
-            try {
-                // TODO: Implement actual network discovery (T028)
-                // For now, simulate discovery with placeholder data
-                val discoveredHosts = simulateHostDiscovery()
-                _discoveredHosts.value = discoveredHosts
-                
-                delay(2000) // Discovery interval
-            } catch (e: Exception) {
-                Log.e(TAG, "Error during discovery", e)
-                delay(5000) // Error retry delay
-            }
-        }
-        
-        Log.d(TAG, "Network discovery stopped")
-    }
-    
-    private fun simulateHostDiscovery(): List<HostSession> {
-        // TODO: Replace with actual network discovery
-        return emptyList()
-    }
-    
-    private fun getLocalIpAddress(): String {
-        // TODO: Implement actual local IP address detection
-        return "192.168.1.101" // Placeholder
+    private suspend fun getLocalIpAddress(): String {
+        return networkDiscoveryService.getLocalIpAddresses().firstOrNull() ?: "127.0.0.1"
     }
     
     private suspend fun sendConnectionRequest(

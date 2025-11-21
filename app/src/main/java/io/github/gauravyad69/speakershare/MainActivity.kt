@@ -59,7 +59,29 @@ fun SpeakerShareApp() {
         composable("discovery") {
             DiscoveryScreen(
                 onNavigateBack = { navController.popBackStack() },
-                onHostSelected = { navController.navigate("client") }
+                onHostSelected = { host -> 
+                    navController.navigate("client/${host.ipAddress}/${host.port}/${host.serviceName}")
+                }
+            )
+        }
+        
+        composable(
+            "client/{ip}/{port}/{name}",
+            arguments = listOf(
+                androidx.navigation.navArgument("ip") { type = androidx.navigation.NavType.StringType },
+                androidx.navigation.navArgument("port") { type = androidx.navigation.NavType.IntType },
+                androidx.navigation.navArgument("name") { type = androidx.navigation.NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val ip = backStackEntry.arguments?.getString("ip") ?: ""
+            val port = backStackEntry.arguments?.getInt("port") ?: 0
+            val name = backStackEntry.arguments?.getString("name") ?: ""
+            
+            ClientScreen(
+                onNavigateBack = { navController.popBackStack() },
+                initialHostIp = ip,
+                initialHostPort = port,
+                initialHostName = name
             )
         }
         

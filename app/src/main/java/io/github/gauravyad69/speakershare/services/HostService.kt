@@ -292,9 +292,10 @@ class HostService @Inject constructor(
     }
     
     // Private helper methods
-    private fun getLocalIpAddress(): String {
-        // TODO: Implement actual local IP address detection
-        return "192.168.1.100" // Placeholder
+    private suspend fun getLocalIpAddress(): String {
+        val ips = networkDiscoveryService.getLocalIpAddresses()
+        Log.d(TAG, "Detected local IPs: $ips")
+        return ips.firstOrNull() ?: "127.0.0.1"
     }
     
     private fun startHttpApiServer(port: Int) {

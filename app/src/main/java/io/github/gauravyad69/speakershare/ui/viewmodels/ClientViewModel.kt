@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.data.repository.ClientConnectionRepository
 import io.github.gauravyad69.speakershare.data.repository.UserSettingsRepository
+import io.github.gauravyad69.speakershare.services.ClientManager
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -16,28 +17,28 @@ import java.util.*
  */
 @HiltViewModel
 class ClientViewModel @Inject constructor(
-    private val clientConnectionRepository: ClientConnectionRepository,
+    private val clientManager: ClientManager,
     private val userSettingsRepository: UserSettingsRepository
 ) : ViewModel() {
 
     // Current client connection
-    private val _currentConnection = MutableStateFlow<ClientConnection?>(null)
-    val currentConnection: StateFlow<ClientConnection?> = _currentConnection.asStateFlow()
+    val currentConnection: StateFlow<ClientConnection?> = clientManager.currentConnection
 
     // User settings
     val userSettings: StateFlow<UserSettings?> = userSettingsRepository.getUserSettings()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
 
     // Connection state
-    private val _connectionState = MutableStateFlow(ConnectionStatus.DISCONNECTED)
-    val connectionState: StateFlow<ConnectionStatus> = _connectionState.asStateFlow()
+    val connectionState: StateFlow<ConnectionStatus> = clientManager.isConnected.map { connected ->
+        if (connected) ConnectionStatus.CONNECTED else ConnectionStatus.DISCONNECTED
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), ConnectionStatus.DISCONNECTED)
 
     // Audio settings (local to this client)
-    private val _volume = MutableStateFlow(1.0f)
-    val volume: StateFlow<Float> = _volume.asStateFlow()
+    val volume: StateFlow<Float> = clientManager.audioSettings.map { it.volume }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), 1.0f)
 
-    private val _isMuted = MutableStateFlow(false)
-    val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
+    val isMuted: StateFlow<Boolean> = clientManager.audioSettings.map { it.isMuted }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), false)
 
     // Connected host info
     private val _connectedHost = MutableStateFlow<NetworkInfo?>(null)
@@ -51,43 +52,36 @@ class ClientViewModel @Inject constructor(
     fun connectToHost(hostInfo: NetworkInfo) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
-            _connectionState.value = ConnectionStatus.CONNECTING
             
             try {
-                val clientConnection = ClientConnection(
-                    clientId = generateClientId(),
-                    clientName = getClientName(),
-                    ipAddress = hostInfo.localIpAddress,
-                    connectionTime = System.currentTimeMillis(),
-                    status = ConnectionStatus.CONNECTING,
-                    audioSettings = ClientAudioSettings(
-                        volume = _volume.value,
-                        isMuted = _isMuted.value
-                    ),
-                    networkMetrics = NetworkMetrics(
-                        latency = 0,
-                        packetLoss = 0.0f,
-                        bandwidth = 0
-                    )
+                val hostSession = HostSession(
+                    sessionId = hostInfo.serviceName,
+                    sessionName = hostInfo.serviceName,
+                    hostName = hostInfo.serviceName,
+                    audioSource = AudioSource.MICROPHONE, // Default
+                    quality = AudioQuality(), // Default
+                    isActive = true,
+                    startTime = System.currentTimeMillis(),
+                    connectedClients = emptyList(),
+                    networkInfo = hostInfo,
+                    maxClients = 50
                 )
                 
-                // Save connection
-                clientConnectionRepository.addClient(
-                    clientId = clientConnection.clientId,
-                    clientName = clientConnection.clientName,
-                    ipAddress = clientConnection.ipAddress,
-                    audioSettings = clientConnection.audioSettings
-                )
-                _currentConnection.value = clientConnection
-                _connectedHost.value = hostInfo
-                _connectionState.value = ConnectionStatus.CONNECTED
+                val clientName = userSettings.value?.displayName ?: "Client"
+                
+                val result = clientManager.connectToHost(hostSession, clientName)
+                
+                if (result.isSuccess) {
+                    _connectedHost.value = hostInfo
+                } else {
+                    _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message)
+                }
                 
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = e.message
                 )
-                _connectionState.value = ConnectionStatus.ERROR
             } finally {
                 _uiState.value = _uiState.value.copy(isLoading = false)
             }
@@ -96,58 +90,26 @@ class ClientViewModel @Inject constructor(
 
     fun disconnect() {
         viewModelScope.launch {
-            _currentConnection.value?.let { connection ->
-                clientConnectionRepository.updateClientStatus(
-                    clientId = connection.clientId,
-                    status = ConnectionStatus.DISCONNECTED
-                )
-            }
-            
-            _currentConnection.value = null
+            clientManager.disconnect()
             _connectedHost.value = null
-            _connectionState.value = ConnectionStatus.DISCONNECTED
         }
     }
 
     fun setVolume(volume: Float) {
         viewModelScope.launch {
-            _volume.value = volume.coerceIn(0.0f, 1.0f)
-            
-            // Update connection with new audio settings
-            _currentConnection.value?.let { connection ->
-                val updatedSettings = connection.audioSettings.copy(volume = _volume.value)
-                clientConnectionRepository.updateClientAudioSettings(
-                    clientId = connection.clientId,
-                    settings = updatedSettings
-                )
-                _currentConnection.value = connection.copy(audioSettings = updatedSettings)
-            }
+            clientManager.setVolume(volume)
         }
     }
 
     fun toggleMute() {
         viewModelScope.launch {
-            _isMuted.value = !_isMuted.value
-            
-            // Update connection with new audio settings
-            _currentConnection.value?.let { connection ->
-                val updatedSettings = connection.audioSettings.copy(isMuted = _isMuted.value)
-                clientConnectionRepository.updateClientAudioSettings(
-                    clientId = connection.clientId,
-                    settings = updatedSettings
-                )
-                _currentConnection.value = connection.copy(audioSettings = updatedSettings)
-            }
+            clientManager.toggleMute()
         }
     }
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
-
-    private fun generateClientId(): String = UUID.randomUUID().toString()
-    
-    private fun getClientName(): String = userSettings.value?.displayName ?: "Client"
 }
 
 /**

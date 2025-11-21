@@ -17,6 +17,8 @@ import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import io.github.gauravyad69.speakershare.network.discovery.DiscoveredHost
 import io.github.gauravyad69.speakershare.ui.viewmodels.ClientViewModel
 
+import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
+
 /**
  * Client Screen for connecting to hosts and controlling playback
  */
@@ -24,6 +26,9 @@ import io.github.gauravyad69.speakershare.ui.viewmodels.ClientViewModel
 @Composable
 fun ClientScreen(
     onNavigateBack: () -> Unit,
+    initialHostIp: String? = null,
+    initialHostPort: Int? = null,
+    initialHostName: String? = null,
     viewModel: ClientViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -33,8 +38,22 @@ fun ClientScreen(
     val isMuted by viewModel.isMuted.collectAsState()
     val context = LocalContext.current
 
-    // For now, we'll create a simple discovery mechanism or disable it
-    // TODO: Integrate with DiscoveryViewModel properly
+    LaunchedEffect(initialHostIp, initialHostPort, initialHostName) {
+        if (initialHostIp != null && initialHostPort != null && initialHostName != null) {
+            if (connectionState == io.github.gauravyad69.speakershare.data.model.ConnectionStatus.DISCONNECTED) {
+                viewModel.connectToHost(
+                    NetworkInfo(
+                        localIpAddress = initialHostIp,
+                        port = initialHostPort,
+                        networkInterface = "wlan0",
+                        isHotspot = false,
+                        discoveryMethod = DiscoveryMethod.MDNS, // Default
+                        serviceName = initialHostName
+                    )
+                )
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
