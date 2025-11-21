@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.data.repository.UserSettingsRepository
 import io.github.gauravyad69.speakershare.network.discovery.DiscoveredHost
+import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -17,7 +18,8 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class DiscoveryViewModel @Inject constructor(
-    private val userSettingsRepository: UserSettingsRepository
+    private val userSettingsRepository: UserSettingsRepository,
+    private val networkDiscoveryService: NetworkDiscoveryService
 ) : ViewModel() {
 
     // Available hosts
@@ -62,6 +64,35 @@ class DiscoveryViewModel @Inject constructor(
     init {
         loadRecentHosts()
         startAutoDiscovery()
+        observeDiscoveredHosts()
+    }
+
+    /**
+     * Observe discovered hosts from NetworkDiscoveryService
+     */
+    private fun observeDiscoveredHosts() {
+        viewModelScope.launch {
+            networkDiscoveryService.discoveredHosts.collect { networkInfoList ->
+                // Convert NetworkInfo to DiscoveredHost
+                val hosts = networkInfoList.map { networkInfo ->
+                    DiscoveredHost(
+                        hostId = networkInfo.serviceName,
+                        hostName = networkInfo.serviceName,
+                        ipAddress = networkInfo.localIpAddress,
+                        port = networkInfo.port,
+                        serviceName = networkInfo.serviceName,
+                        discoveryMethod = networkInfo.discoveryMethod.name,
+                        lastSeen = System.currentTimeMillis(),
+                        audioSource = "MICROPHONE",
+                        quality = "STANDARD",
+                        connectedClients = 0,
+                        maxClients = 50,
+                        isAcceptingClients = true
+                    )
+                }
+                _availableHosts.value = hosts
+            }
+        }
     }
 
     /**
@@ -136,52 +167,56 @@ class DiscoveryViewModel @Inject constructor(
      * Perform mDNS discovery
      */
     private suspend fun performMDNSDiscovery(): List<DiscoveredHost> {
-        // TODO: Implement actual mDNS discovery
-        // For now, return mock data
-        delay(1000) // Simulate discovery time
-        
-        return listOf(
-            DiscoveredHost(
-                hostId = "mock-session-1",
-                hostName = "John's Phone",
-                ipAddress = "192.168.1.105",
-                port = 8080,
-                serviceName = "speakershare-mock-session-1",
-                discoveryMethod = "MDNS",
-                lastSeen = System.currentTimeMillis(),
-                audioSource = "MICROPHONE",
-                quality = "STANDARD",
-                connectedClients = 0,
-                maxClients = 0,
-                isAcceptingClients = true
-            )
-        )
+        return try {
+            networkDiscoveryService.startDiscovery()
+            delay(3000) // Wait for discovery
+            networkDiscoveryService.discoveredHosts.value.map { networkInfo ->
+                DiscoveredHost(
+                    hostId = networkInfo.serviceName,
+                    hostName = networkInfo.serviceName,
+                    ipAddress = networkInfo.localIpAddress,
+                    port = networkInfo.port,
+                    serviceName = networkInfo.serviceName,
+                    discoveryMethod = networkInfo.discoveryMethod.name,
+                    lastSeen = System.currentTimeMillis(),
+                    audioSource = "MICROPHONE",
+                    quality = "STANDARD",
+                    connectedClients = 0,
+                    maxClients = 50,
+                    isAcceptingClients = true
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     /**
      * Perform UDP broadcast discovery
      */
     private suspend fun performUDPBroadcastDiscovery(): List<DiscoveredHost> {
-        // TODO: Implement actual UDP broadcast discovery
-        // For now, return mock data
-        delay(1500) // Simulate discovery time
-        
-        return listOf(
-            DiscoveredHost(
-                hostId = "mock-session-2",
-                hostName = "Living Room Speaker",
-                ipAddress = "192.168.1.110",
-                port = 8080,
-                serviceName = "speakershare-mock-session-2",
-                discoveryMethod = "UDP_BROADCAST",
-                lastSeen = System.currentTimeMillis(),
-                audioSource = "SYSTEM_AUDIO",
-                quality = "HIGH",
-                connectedClients = 2,
-                maxClients = 10,
-                isAcceptingClients = true
-            )
-        )
+        return try {
+            networkDiscoveryService.startDiscovery()
+            delay(3000) // Wait for discovery
+            networkDiscoveryService.discoveredHosts.value.map { networkInfo ->
+                DiscoveredHost(
+                    hostId = networkInfo.serviceName,
+                    hostName = networkInfo.serviceName,
+                    ipAddress = networkInfo.localIpAddress,
+                    port = networkInfo.port,
+                    serviceName = networkInfo.serviceName,
+                    discoveryMethod = networkInfo.discoveryMethod.name,
+                    lastSeen = System.currentTimeMillis(),
+                    audioSource = "SYSTEM_AUDIO",
+                    quality = "HIGH",
+                    connectedClients = 0,
+                    maxClients = 50,
+                    isAcceptingClients = true
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     /**

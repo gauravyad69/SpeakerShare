@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.data.repository.*
 import io.github.gauravyad69.speakershare.network.api.HostApiHandler
+import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -20,7 +21,8 @@ class HostViewModel @Inject constructor(
     private val clientConnectionRepository: ClientConnectionRepository,
     private val audioStreamRepository: AudioStreamRepository,
     private val userSettingsRepository: UserSettingsRepository,
-    private val hostApiHandler: HostApiHandler
+    private val hostApiHandler: HostApiHandler,
+    private val networkDiscoveryService: NetworkDiscoveryService
 ) : ViewModel() {
 
     // Host session state
@@ -123,9 +125,13 @@ class HostViewModel @Inject constructor(
         viewModelScope.launch {
             _isLoading.value = true
             try {
+                // Get real IP
+                val ipAddresses = networkDiscoveryService.getLocalIpAddresses()
+                val ipAddress = ipAddresses.firstOrNull() ?: "127.0.0.1"
+
                 // Create network info
                 val networkInfo = NetworkInfo(
-                    localIpAddress = "192.168.1.100", // This would come from network detection
+                    localIpAddress = ipAddress,
                     port = 8080,
                     networkInterface = "wlan0",
                     isHotspot = false,
@@ -145,6 +151,14 @@ class HostViewModel @Inject constructor(
                     _hostSession.value = session
                     // Start broadcasting
                     hostSessionRepository.startBroadcasting()
+                    
+                    // Start Network Discovery
+                    networkDiscoveryService.registerHost(
+                        hostName = session.sessionName,
+                        port = networkInfo.port,
+                        userName = session.hostName
+                    )
+
                     _isBroadcasting.value = true
                 }.onFailure { error ->
                     _error.value = "Failed to create session: ${error.message}"
@@ -169,6 +183,9 @@ class HostViewModel @Inject constructor(
                     // Update session as inactive
                     // Stop broadcasting using repository
                     hostSessionRepository.stopBroadcasting()
+
+                    // Stop Network Discovery
+                    networkDiscoveryService.unregisterHost()
 
                     // Disconnect all clients
                     disconnectAllClients()

@@ -65,3 +65,8 @@ out/
 .kotlin/sessions/*
 .kotlin/*
 .idea/*
+client_dump.xml
+host_dump_new.xml
+host_dump_latest.xml
+client_dump_new.xml
+host_dump.xml
