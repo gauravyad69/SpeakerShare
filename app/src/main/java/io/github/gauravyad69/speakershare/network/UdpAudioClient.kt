@@ -25,9 +25,10 @@ class UdpAudioClient @Inject constructor(
         private const val TAG = "UdpAudioClient"
         private const val DISCOVERY_TIMEOUT_MS = 10000L
         private const val CONNECTION_TIMEOUT_MS = 5000L
-        private const val HEARTBEAT_INTERVAL_MS = 15000L
+        private const val HEARTBEAT_INTERVAL_MS = 10000L  // Send heartbeat every 10 seconds
         private const val PACKET_TIMEOUT_MS = 1000L
         private const val MAX_PACKET_BUFFER_SIZE = 100
+        private const val HOST_AUDIO_PORT = 9090  // Default host port for sending heartbeats
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -102,8 +103,8 @@ class UdpAudioClient @Inject constructor(
      * Used when the host already knows about this client (via HTTP connection).
      * The host will send audio directly to this port.
      */
-    suspend fun startListening(listenPort: Int): Boolean {
-        Log.d(TAG, "startListening called with port $listenPort, isConnected=${isConnected.get()}")
+    suspend fun startListening(listenPort: Int, providedClientId: String? = null): Boolean {
+        Log.d(TAG, "startListening called with port $listenPort, clientId=$providedClientId, isConnected=${isConnected.get()}")
         if (isConnected.get()) {
             Log.w(TAG, "Already connected/listening")
             return true
@@ -111,8 +112,8 @@ class UdpAudioClient @Inject constructor(
         
         return withContext(Dispatchers.IO) {
             try {
-                clientId = "client_${System.currentTimeMillis()}"
-                Log.d(TAG, "Creating DatagramSocket on port $listenPort")
+                clientId = providedClientId ?: "client_${System.currentTimeMillis()}"
+                Log.d(TAG, "Creating DatagramSocket on port $listenPort with clientId=$clientId")
                 
                 // Create audio socket bound to the specified port
                 audioSocket = DatagramSocket(listenPort).apply {
@@ -383,6 +384,7 @@ class UdpAudioClient @Inject constructor(
         receiverJob = scope.launch {
             val buffer = ByteArray(2048) // Larger buffer for audio data
             var packetCount = 0
+            var heartbeatStarted = false
             
             while (isConnected.get()) {
                 try {
@@ -391,6 +393,20 @@ class UdpAudioClient @Inject constructor(
                     
                     socket.receive(packet)
                     packetCount++
+                    
+                    // Capture host address from first packet to enable heartbeats
+                    if (hostAddress == null && packet.address != null) {
+                        hostAddress = packet.address
+                        hostAudioPort = HOST_AUDIO_PORT  // Use standard host port for heartbeats
+                        Log.i(TAG, "Captured host address: ${packet.address.hostAddress}:$hostAudioPort")
+                    }
+                    
+                    // Start heartbeat after we know the host address
+                    if (!heartbeatStarted && hostAddress != null) {
+                        startHeartbeat()
+                        heartbeatStarted = true
+                        Log.i(TAG, "Started heartbeat to host")
+                    }
                     
                     val rawData = packet.data.copyOfRange(0, packet.length)
                     if (packetCount <= 3) {
@@ -516,7 +532,9 @@ class UdpAudioClient @Inject constructor(
      * Start heartbeat to host
      */
     private fun startHeartbeat() {
+        heartbeatJob?.cancel()  // Cancel any existing heartbeat job
         heartbeatJob = scope.launch {
+            Log.d(TAG, "Heartbeat job started, will send every ${HEARTBEAT_INTERVAL_MS/1000}s to $hostAddress:$hostAudioPort")
             while (isConnected.get()) {
                 try {
                     val ackPacket = packetHandler.createControlPacket(
@@ -533,6 +551,7 @@ class UdpAudioClient @Inject constructor(
                             hostAudioPort
                         )
                         audioSocket?.send(packet)
+                        Log.v(TAG, "Sent heartbeat to ${address.hostAddress}:$hostAudioPort")
                     }
                     
                 } catch (e: Exception) {
@@ -541,6 +560,7 @@ class UdpAudioClient @Inject constructor(
                 
                 delay(HEARTBEAT_INTERVAL_MS)
             }
+            Log.d(TAG, "Heartbeat job stopped")
         }
     }
     

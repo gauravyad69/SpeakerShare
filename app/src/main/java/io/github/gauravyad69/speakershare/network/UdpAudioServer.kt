@@ -26,7 +26,7 @@ class UdpAudioServer @Inject constructor(
         private const val DEFAULT_DISCOVERY_PORT = 9089
         private const val DISCOVERY_INTERVAL_MS = 5000L
         private const val HEARTBEAT_INTERVAL_MS = 10000L
-        private const val CLIENT_TIMEOUT_MS = 300000L  // 5 minutes - increased since HTTP clients are passive receivers
+        private const val CLIENT_TIMEOUT_MS = 30000L  // 30 seconds - clients send heartbeats every 10s
         private const val MAX_RETRY_ATTEMPTS = 3
     }
 
@@ -52,6 +52,7 @@ class UdpAudioServer @Inject constructor(
     private var discoveryJob: Job? = null
     private var heartbeatJob: Job? = null
     private var clientMonitorJob: Job? = null
+    private var controlReceiverJob: Job? = null
     
     // Events
     private val _serverEvents = MutableSharedFlow<UdpServerEvent>()
@@ -95,6 +96,7 @@ class UdpAudioServer @Inject constructor(
                 startDiscoveryBroadcast()
                 startHeartbeat()
                 startClientMonitoring()
+                startControlReceiver()  // Listen for client heartbeats
                 
                 scope.launch {
                     _serverEvents.emit(UdpServerEvent.ServerStarted(audioPort, discoveryPort))
@@ -130,6 +132,7 @@ class UdpAudioServer @Inject constructor(
             discoveryJob?.cancel()
             heartbeatJob?.cancel()
             clientMonitorJob?.cancel()
+            controlReceiverJob?.cancel()
             
             // Clear clients
             connectedClients.clear()
@@ -194,8 +197,6 @@ class UdpAudioServer @Inject constructor(
                             socket.send(packet)
                         }
                         successCount++
-                        // Refresh lastSeen for passive HTTP-connected clients on successful send
-                        clientLastSeen[client.clientId] = System.currentTimeMillis()
                         if (seqNum % 100 == 0L) {
                             Log.d(TAG, "Sent audio packet seq=$seqNum to ${client.address}:${client.audioPort}")
                         }
@@ -270,7 +271,22 @@ class UdpAudioServer @Inject constructor(
             
             UdpPacketHandler.CONTROL_ACK -> {
                 // Update client last seen time
-                clientLastSeen[packet.sessionId] = System.currentTimeMillis()
+                val clientSessionId = packet.sessionId
+                if (clientLastSeen.containsKey(clientSessionId)) {
+                    clientLastSeen[clientSessionId] = System.currentTimeMillis()
+                    Log.v(TAG, "Heartbeat received from client $clientSessionId")
+                } else {
+                    // Try to find by address if session ID doesn't match exactly
+                    val matchingClient = connectedClients.entries.find { 
+                        it.value.address == senderAddress 
+                    }
+                    if (matchingClient != null) {
+                        clientLastSeen[matchingClient.key] = System.currentTimeMillis()
+                        Log.d(TAG, "Heartbeat from ${senderAddress.hostAddress} matched to ${matchingClient.key}")
+                    } else {
+                        Log.w(TAG, "Heartbeat from unknown client: $clientSessionId from ${senderAddress.hostAddress}")
+                    }
+                }
             }
             
             else -> {
@@ -369,6 +385,41 @@ class UdpAudioServer @Inject constructor(
                 
                 delay(HEARTBEAT_INTERVAL_MS)
             }
+        }
+    }
+    
+    /**
+     * Start receiver for control packets (heartbeats from clients)
+     */
+    private fun startControlReceiver() {
+        controlReceiverJob = scope.launch {
+            val buffer = ByteArray(256)  // Small buffer for control packets
+            Log.d(TAG, "Control receiver started, listening for client heartbeats")
+            
+            while (isRunning.get()) {
+                try {
+                    val socket = audioSocket ?: break
+                    socket.soTimeout = 1000  // 1 second timeout
+                    
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    socket.receive(packet)
+                    
+                    val rawData = packet.data.copyOfRange(0, packet.length)
+                    val udpPacket = packetHandler.parsePacket(rawData)
+                    
+                    if (udpPacket?.isControlPacket() == true) {
+                        handleControlMessage(udpPacket, packet.address)
+                    }
+                    
+                } catch (e: SocketTimeoutException) {
+                    // Expected, continue listening
+                } catch (e: Exception) {
+                    if (isRunning.get()) {
+                        Log.w(TAG, "Control receiver error: ${e.message}")
+                    }
+                }
+            }
+            Log.d(TAG, "Control receiver stopped")
         }
     }
     

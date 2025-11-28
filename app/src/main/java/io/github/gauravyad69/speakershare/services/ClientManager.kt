@@ -236,8 +236,8 @@ class ClientManager @Inject constructor(
             _currentConnection.value = connectedClient
             _isConnected.value = true
             
-            // Start audio playback
-            startAudioPlayback(hostSession, response.sampleRate)
+            // Start audio playback with clientId for heartbeat identification
+            startAudioPlayback(hostSession, response.sampleRate, clientId)
             
             Log.d(TAG, "Connected to host successfully")
             Result.success(Unit)
@@ -436,10 +436,10 @@ class ClientManager @Inject constructor(
         // For now, we'll just log it as we don't have the host session stored in this context easily.
     }
     
-    private suspend fun startAudioPlayback(hostSession: HostSession, sampleRate: Int) {
+    private suspend fun startAudioPlayback(hostSession: HostSession, sampleRate: Int, clientId: String) {
         // Audio stream uses 22050Hz sample rate (configured in AudioCaptureService/AudioEncoder)
         val actualSampleRate = 22050
-        Log.d(TAG, "Starting audio playback for session ${hostSession.sessionId} at ${actualSampleRate}Hz")
+        Log.d(TAG, "Starting audio playback for session ${hostSession.sessionId} at ${actualSampleRate}Hz with clientId=$clientId")
         
         // Start decoder with matching sample rate (host uses 22050Hz for encoding)
         val decoderConfig = AudioDecoder.DecoderConfig(
@@ -453,10 +453,10 @@ class ClientManager @Inject constructor(
         // Start playback with matching sample rate 
         audioPlaybackService.startPlayback(AudioPlaybackService.PlaybackConfig(sampleRate = actualSampleRate))
         
-        // Start UDP client to receive audio
+        // Start UDP client to receive audio with clientId for heartbeat identification
         // The host will send audio to CLIENT_AUDIO_PORT on this device
-        Log.d(TAG, "Starting UDP audio client on port $CLIENT_AUDIO_PORT")
-        udpAudioClient.startListening(CLIENT_AUDIO_PORT)
+        Log.d(TAG, "Starting UDP audio client on port $CLIENT_AUDIO_PORT with clientId=$clientId")
+        udpAudioClient.startListening(CLIENT_AUDIO_PORT, clientId)
     }
     
     private suspend fun stopAudioPlayback() {
