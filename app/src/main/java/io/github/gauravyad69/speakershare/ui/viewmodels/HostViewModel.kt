@@ -233,13 +233,24 @@ class HostViewModel @Inject constructor(
     fun switchAudioSource(source: AudioSource) {
         viewModelScope.launch {
             try {
-                _audioSource.value = source
-
-                // Use repository method to update audio source
-                hostSessionRepository.updateAudioSource(source)
+                android.util.Log.d("HostViewModel", "Switching audio source to $source")
+                
+                // Actually switch the audio source via HostService
+                val result = hostService.switchAudioSource(source)
+                
+                if (result.isSuccess) {
+                    _audioSource.value = source
+                    // Also update repository state
+                    hostSessionRepository.updateAudioSource(source)
+                    android.util.Log.d("HostViewModel", "Audio source switched successfully to $source")
+                } else {
+                    _error.value = "Failed to switch audio source: ${result.exceptionOrNull()?.message}"
+                    android.util.Log.e("HostViewModel", "Failed to switch audio source", result.exceptionOrNull())
+                }
 
             } catch (e: Exception) {
                 _error.value = "Failed to switch audio source: ${e.message}"
+                android.util.Log.e("HostViewModel", "Failed to switch audio source", e)
             }
         }
     }

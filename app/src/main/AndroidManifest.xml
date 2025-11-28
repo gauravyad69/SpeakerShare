@@ -14,6 +14,10 @@
     <!-- Background Service Permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    
+    <!-- Battery Optimization Exemption -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     
     <!-- System Audio Capture (Android 10+) -->
     <uses-permission android:name="android.permission.CAPTURE_AUDIO_OUTPUT" 
