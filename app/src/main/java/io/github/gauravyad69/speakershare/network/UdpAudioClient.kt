@@ -98,6 +98,52 @@ class UdpAudioClient @Inject constructor(
     }
     
     /**
+     * Start listening for incoming audio on a specific port.
+     * Used when the host already knows about this client (via HTTP connection).
+     * The host will send audio directly to this port.
+     */
+    suspend fun startListening(listenPort: Int): Boolean {
+        Log.d(TAG, "startListening called with port $listenPort, isConnected=${isConnected.get()}")
+        if (isConnected.get()) {
+            Log.w(TAG, "Already connected/listening")
+            return true
+        }
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                clientId = "client_${System.currentTimeMillis()}"
+                Log.d(TAG, "Creating DatagramSocket on port $listenPort")
+                
+                // Create audio socket bound to the specified port
+                audioSocket = DatagramSocket(listenPort).apply {
+                    reuseAddress = true
+                    soTimeout = 1000 // 1 second timeout for receive
+                }
+                
+                isConnected.set(true)
+                startAudioReceiver()
+                startBufferCleanup()
+                
+                scope.launch {
+                    _clientEvents.emit(UdpClientEvent.Connected("0.0.0.0", listenPort))
+                }
+                
+                Log.i(TAG, "Started listening for audio on port $listenPort")
+                true
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start listening on port $listenPort", e)
+                cleanup()
+                
+                scope.launch {
+                    _clientEvents.emit(UdpClientEvent.ConnectionError("Failed to listen: ${e.message}"))
+                }
+                false
+            }
+        }
+    }
+    
+    /**
      * Stop discovery
      */
     suspend fun stopDiscovery() {
@@ -333,8 +379,10 @@ class UdpAudioClient @Inject constructor(
      * Start audio receiver
      */
     private fun startAudioReceiver() {
+        Log.d(TAG, "Starting audio receiver")
         receiverJob = scope.launch {
             val buffer = ByteArray(2048) // Larger buffer for audio data
+            var packetCount = 0
             
             while (isConnected.get()) {
                 try {
@@ -342,10 +390,19 @@ class UdpAudioClient @Inject constructor(
                     val packet = DatagramPacket(buffer, buffer.size)
                     
                     socket.receive(packet)
+                    packetCount++
                     
-                    val udpPacket = packetHandler.parsePacket(
-                        packet.data.copyOfRange(0, packet.length)
-                    )
+                    val rawData = packet.data.copyOfRange(0, packet.length)
+                    if (packetCount <= 3) {
+                        // Log first few packets in detail
+                        val hexDump = rawData.take(32).joinToString(" ") { String.format("%02X", it) }
+                        Log.d(TAG, "Raw packet #$packetCount: size=${packet.length}, hex=$hexDump...")
+                    }
+                    if (packetCount % 50 == 0) {
+                        Log.d(TAG, "Received $packetCount packets, last from ${packet.address}:${packet.port}, size=${packet.length}")
+                    }
+                    
+                    val udpPacket = packetHandler.parsePacket(rawData)
                     
                     when {
                         udpPacket?.isAudioPacket() == true -> {
@@ -357,6 +414,9 @@ class UdpAudioClient @Inject constructor(
                         }
                         udpPacket?.isControlPacket() == true -> {
                             handleControlPacket(udpPacket)
+                        }
+                        else -> {
+                            Log.d(TAG, "Received unknown packet type: ${udpPacket?.packetType}")
                         }
                     }
                     
@@ -371,6 +431,7 @@ class UdpAudioClient @Inject constructor(
                     }
                 }
             }
+            Log.d(TAG, "Audio receiver stopped, total packets received: $packetCount")
         }
     }
     

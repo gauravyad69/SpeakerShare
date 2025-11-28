@@ -155,11 +155,13 @@ class AudioEncoder @Inject constructor() {
     suspend fun encodePCMData(pcmData: ByteArray, timestampUs: Long = System.nanoTime() / 1000): Result<Unit> {
         return try {
             if (!_encoderState.value.isEncoding) {
+                android.util.Log.w("AudioEncoder", "Encoder not started, dropping data")
                 return Result.failure(IllegalStateException("Encoder not started"))
             }
 
             inputBufferMutex.withLock {
                 inputBufferQueue.addLast(Pair(pcmData.clone(), timestampUs))
+                android.util.Log.d("AudioEncoder", "Queued PCM data: ${pcmData.size} bytes, queue size: ${inputBufferQueue.size}")
                 
                 // Prevent queue overflow
                 while (inputBufferQueue.size > 10) {
@@ -196,14 +198,22 @@ class AudioEncoder @Inject constructor() {
      */
     private suspend fun encodingLoop() {
         val config = _encoderState.value.config
+        var loopCounter = 0
+        
+        android.util.Log.d("AudioEncoder", "Starting encoding loop")
         
         while (currentCoroutineContext().isActive && mediaCodec != null) {
             try {
+                loopCounter++
                 // Process input buffers
                 processInputBuffers()
                 
                 // Process output buffers
                 processOutputBuffers()
+                
+                if (loopCounter % 100 == 0) {
+                    android.util.Log.d("AudioEncoder", "Encoding loop iteration $loopCounter")
+                }
                 
                 // Brief yield to prevent blocking
                 yield()
@@ -211,11 +221,13 @@ class AudioEncoder @Inject constructor() {
             } catch (e: Exception) {
                 if (currentCoroutineContext().isActive) {
                     incrementErrorCount()
-                    println("Encoding loop error: ${e.message}")
+                    android.util.Log.e("AudioEncoder", "Encoding loop error: ${e.message}")
                     delay(10) // Brief pause on error
                 }
             }
         }
+        
+        android.util.Log.d("AudioEncoder", "Encoding loop exited")
     }
 
     /**
@@ -224,7 +236,8 @@ class AudioEncoder @Inject constructor() {
     private suspend fun processInputBuffers() {
         val codec = mediaCodec ?: return
         
-        val inputBufferIndex = codec.dequeueInputBuffer(0)
+        // Use a small timeout (10ms) instead of 0 to give the encoder time to process
+        val inputBufferIndex = codec.dequeueInputBuffer(10000)
         if (inputBufferIndex >= 0) {
             inputBufferMutex.withLock {
                 val inputData = inputBufferQueue.removeFirstOrNull()
@@ -245,8 +258,16 @@ class AudioEncoder @Inject constructor() {
                         timestampUs,
                         0
                     )
+                    android.util.Log.d("AudioEncoder", "Queued ${pcmData.size} bytes to encoder input buffer")
+                } else {
+                    // No data to encode, return the buffer
+                    codec.queueInputBuffer(inputBufferIndex, 0, 0, 0, 0)
                 }
             }
+        } else if (inputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
+            // No buffer available, this is normal
+        } else {
+            android.util.Log.w("AudioEncoder", "Unexpected input buffer index: $inputBufferIndex")
         }
     }
 
@@ -277,7 +298,8 @@ class AudioEncoder @Inject constructor() {
                         isKeyFrame = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
                     )
                     
-                    _encodedPacketFlow.tryEmit(packet)
+                    val emitted = _encodedPacketFlow.tryEmit(packet)
+                    android.util.Log.d("AudioEncoder", "Emitted encoded packet: ${encodedData.size} bytes, emitted=$emitted")
                     updateEncodingStats(packet)
                 }
                 

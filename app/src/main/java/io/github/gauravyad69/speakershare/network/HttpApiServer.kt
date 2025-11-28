@@ -175,13 +175,18 @@ class HttpApiServer @Inject constructor(
             post("/connect") {
                 try {
                     val request = call.receive<ClientConnectRequest>()
-                    val response = hostApiHandler.connectClient(request)
+                    
+                    // Extract client IP from request
+                    val clientIp = call.request.local.remoteHost
+                    Log.d(TAG, "Client connect request from IP: $clientIp")
+                    
+                    val response = hostApiHandler.connectClientWithIp(request, clientIp)
                     
                     val statusCode = when (response.status) {
-                        "success" -> HttpStatusCode.OK
-                        "rejected" -> HttpStatusCode.Forbidden
+                        "success", "ACCEPTED" -> HttpStatusCode.OK
+                        "rejected", "REJECTED" -> HttpStatusCode.Forbidden
                         "error" -> HttpStatusCode.BadRequest
-                        else -> HttpStatusCode.InternalServerError
+                        else -> HttpStatusCode.OK // Default to OK for ACCEPTED status
                     }
                     
                     call.respond(statusCode, response)

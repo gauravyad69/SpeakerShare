@@ -2,6 +2,7 @@ package io.github.gauravyad69.speakershare.audio
 
 import android.media.AudioFormat
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
@@ -164,6 +165,10 @@ class AudioDecoder @Inject constructor() {
             inputPacketMutex.withLock {
                 inputPacketQueue.addLast(packet)
                 
+                if (inputPacketQueue.size % 50 == 1) {
+                    android.util.Log.d("AudioDecoder", "Queued AAC packet, queue size: ${inputPacketQueue.size}, data size: ${packet.data.size}")
+                }
+                
                 // Prevent queue overflow
                 while (inputPacketQueue.size > 15) {
                     inputPacketQueue.removeFirst()
@@ -185,12 +190,64 @@ class AudioDecoder @Inject constructor() {
         val mediaFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, config.sampleRate, config.channelCount).apply {
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, config.maxInputSize)
             setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+            setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+            setInteger(MediaFormat.KEY_IS_ADTS, 0) // Raw AAC (not ADTS wrapped)
+            
+            // Create AAC Audio Specific Config (ASC) for CSD-0
+            // ASC format for AAC-LC:
+            // - 5 bits: audioObjectType (2 = AAC-LC)
+            // - 4 bits: samplingFrequencyIndex 
+            // - 4 bits: channelConfiguration
+            // - remaining bits: 0
+            val asc = createAudioSpecificConfig(config.sampleRate, config.channelCount)
+            setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(asc))
+            android.util.Log.d("AudioDecoder", "CSD-0 (ASC): ${asc.joinToString(" ") { String.format("%02X", it) }}")
         }
+        
+        android.util.Log.d("AudioDecoder", "Configuring decoder: sampleRate=${config.sampleRate}, channels=${config.channelCount}")
 
         mediaCodec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_AAC).apply {
             configure(mediaFormat, null, null, 0)
             start()
         }
+        android.util.Log.d("AudioDecoder", "Decoder started successfully")
+    }
+    
+    /**
+     * Create AAC Audio Specific Config (ASC) for decoder initialization
+     * Format: audioObjectType (5 bits) + samplingFrequencyIndex (4 bits) + channelConfig (4 bits)
+     */
+    private fun createAudioSpecificConfig(sampleRate: Int, channelCount: Int): ByteArray {
+        // AAC-LC = 2
+        val audioObjectType = 2
+        
+        // Sampling frequency index lookup
+        val freqIndex = when (sampleRate) {
+            96000 -> 0
+            88200 -> 1
+            64000 -> 2
+            48000 -> 3
+            44100 -> 4
+            32000 -> 5
+            24000 -> 6
+            22050 -> 7
+            16000 -> 8
+            12000 -> 9
+            11025 -> 10
+            8000 -> 11
+            else -> 4 // Default to 44100Hz
+        }
+        
+        // Channel configuration: 1 = mono, 2 = stereo
+        val channelConfig = channelCount.coerceIn(1, 2)
+        
+        // Build the 2-byte ASC
+        // Byte 0: audioObjectType (5 bits) + upper 3 bits of freqIndex
+        // Byte 1: lower 1 bit of freqIndex + channelConfig (4 bits) + frame length flag (1 bit = 0) + depends on core coder (1 bit = 0) + extension flag (1 bit = 0)
+        val byte0 = ((audioObjectType shl 3) or (freqIndex shr 1)).toByte()
+        val byte1 = (((freqIndex and 1) shl 7) or (channelConfig shl 3)).toByte()
+        
+        return byteArrayOf(byte0, byte1)
     }
 
     /**
@@ -226,26 +283,41 @@ class AudioDecoder @Inject constructor() {
     private suspend fun processInputBuffers() {
         val codec = mediaCodec ?: return
         
-        val inputBufferIndex = codec.dequeueInputBuffer(0)
-        if (inputBufferIndex >= 0) {
-            inputPacketMutex.withLock {
-                val inputPacket = inputPacketQueue.removeFirstOrNull()
+        // First, peek if we have data available
+        val hasData = inputPacketMutex.withLock { inputPacketQueue.isNotEmpty() }
+        if (!hasData) {
+            delay(1) // Brief wait for data
+            return
+        }
+        
+        val inputBufferIndex = codec.dequeueInputBuffer(5000) // 5ms timeout
+        if (inputBufferIndex < 0) {
+            return // No buffer available
+        }
+        
+        inputPacketMutex.withLock {
+            val inputPacket = inputPacketQueue.removeFirstOrNull()
+            
+            if (inputPacket != null) {
+                val inputBuffer = codec.getInputBuffer(inputBufferIndex)
                 
-                inputPacket?.let { packet ->
-                    val inputBuffer = codec.getInputBuffer(inputBufferIndex)
-                    
-                    inputBuffer?.apply {
-                        clear()
-                        put(packet.data)
-                    }
-                    
-                    codec.queueInputBuffer(
-                        inputBufferIndex,
-                        0,
-                        packet.data.size,
-                        packet.presentationTimeUs,
-                        0
-                    )
+                inputBuffer?.apply {
+                    clear()
+                    put(inputPacket.data)
+                }
+                
+                codec.queueInputBuffer(
+                    inputBufferIndex,
+                    0,
+                    inputPacket.data.size,
+                    inputPacket.presentationTimeUs,
+                    0
+                )
+                
+                // Occasional logging
+                val currentPackets = _decoderState.value.packetsDecoded
+                if (currentPackets % 100 == 0L) {
+                    android.util.Log.d("AudioDecoder", "Fed AAC packet #$currentPackets to decoder: ${inputPacket.data.size} bytes, queueSize=${inputPacketQueue.size}")
                 }
             }
         }
@@ -279,8 +351,13 @@ class AudioDecoder @Inject constructor() {
                         channelCount = config.channelCount
                     )
                     
-                    _decodedAudioFlow.tryEmit(decodedData)
+                    val emitted = _decodedAudioFlow.tryEmit(decodedData)
                     updateDecodingStats(decodedData)
+                    
+                    // Log occasional PCM output
+                    if (_decoderState.value.packetsDecoded % 50 == 1L) {
+                        android.util.Log.d("AudioDecoder", "Decoded PCM: ${pcmData.size} bytes, emitted=$emitted")
+                    }
                 }
                 
                 codec.releaseOutputBuffer(outputBufferIndex, false)

@@ -2,6 +2,7 @@ package io.github.gauravyad69.speakershare.services
 
 import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.data.repository.HostSessionRepository
+import io.github.gauravyad69.speakershare.network.UdpAudioServer
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,6 +13,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 import android.util.Log
+import java.net.InetAddress
 import java.util.UUID
 
 /**
@@ -23,7 +25,8 @@ class HostService @Inject constructor(
     private val audioStreamManager: AudioStreamManager,
     private val httpApiServer: io.github.gauravyad69.speakershare.network.HttpApiServer,
     private val networkDiscoveryService: NetworkDiscoveryService,
-    private val hostSessionRepository: HostSessionRepository
+    private val hostSessionRepository: HostSessionRepository,
+    private val udpAudioServer: UdpAudioServer
 ) {
     
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -173,7 +176,8 @@ class HostService @Inject constructor(
     suspend fun handleClientConnection(
         clientId: String,
         clientName: String,
-        clientIp: String
+        clientIp: String,
+        clientAudioPort: Int = 9091  // Default client audio port
     ): Result<Boolean> {
         return try {
             val session = _currentSession.value
@@ -207,6 +211,16 @@ class HostService @Inject constructor(
             val updatedClients = currentClients + clientConnection
             _connectedClients.value = updatedClients
             
+            // Register client with UDP audio server for streaming
+            try {
+                val clientAddress = InetAddress.getByName(clientIp)
+                udpAudioServer.addClient(clientId, clientAddress, clientAudioPort)
+                Log.d(TAG, "Registered client $clientId for UDP audio streaming at $clientIp:$clientAudioPort")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to register client with UDP server", e)
+                // Continue anyway - WebRTC might still work
+            }
+            
             // Update session with new client list
             _currentSession.value = session.copy(connectedClients = updatedClients)
             
@@ -229,6 +243,9 @@ class HostService @Inject constructor(
                 ?: return Result.failure(IllegalArgumentException("Client not found: $clientId"))
             
             Log.d(TAG, "Disconnecting client: ${client.clientName} - $reason")
+            
+            // Remove from UDP audio server
+            udpAudioServer.removeClient(clientId)
             
             // Update client status
             val updatedClient = client.copy(status = ConnectionStatus.DISCONNECTED)

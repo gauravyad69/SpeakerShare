@@ -126,21 +126,30 @@ class AudioStreamManager @Inject constructor(
         )
         audioEncoder.startEncoding(encoderConfig)
         
-        // 3. Start Capture
-        audioCaptureService.startCapture(audioSource, encoderConfig.sampleRate)
+        // 3. Set up pipeline collectors BEFORE starting capture
+        Log.d(TAG, "Setting up audio data pipeline")
         
-        // 4. Pipe Data
         scope.launch {
+            Log.d(TAG, "Starting audioDataFlow collector")
             audioCaptureService.audioDataFlow.collect { pcmData ->
+                Log.d(TAG, "Received PCM data: ${pcmData.size} bytes")
                 audioEncoder.encodePCMData(pcmData)
             }
         }
         
         scope.launch {
+            Log.d(TAG, "Starting encodedPacketFlow collector")
             audioEncoder.encodedPacketFlow.collect { packet ->
+                Log.d(TAG, "Broadcasting encoded packet: ${packet.size} bytes")
                 udpAudioServer.broadcastAudio(packet.data)
             }
         }
+        
+        Log.d(TAG, "Audio data pipeline set up complete")
+        
+        // 4. Start Capture AFTER pipeline is set up
+        Log.d(TAG, "Starting audio capture")
+        audioCaptureService.startCapture(audioSource, encoderConfig.sampleRate)
     }
     
     /**

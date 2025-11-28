@@ -1,5 +1,7 @@
 package io.github.gauravyad69.speakershare.services
 
+import io.github.gauravyad69.speakershare.audio.AudioDecoder
+import io.github.gauravyad69.speakershare.audio.AudioEncoder
 import io.github.gauravyad69.speakershare.audio.AudioPlaybackService
 import io.github.gauravyad69.speakershare.network.UdpAudioClient
 import io.github.gauravyad69.speakershare.network.UdpClientEvent
@@ -38,6 +40,7 @@ class ClientManager @Inject constructor(
     private val audioStreamManager: AudioStreamManager,
     private val networkDiscoveryService: NetworkDiscoveryService,
     private val audioPlaybackService: AudioPlaybackService,
+    private val audioDecoder: AudioDecoder,
     private val udpAudioClient: UdpAudioClient
 ) {
     
@@ -45,6 +48,21 @@ class ClientManager @Inject constructor(
     
     init {
         observeUdpEvents()
+        observeDecodedAudio()
+    }
+    
+    private fun observeDecodedAudio() {
+        // Listen for decoded PCM data and send to playback service
+        serviceScope.launch {
+            var receivedCount = 0
+            audioDecoder.decodedAudioFlow.collect { decodedData ->
+                receivedCount++
+                if (receivedCount % 50 == 1) {
+                    Log.d(TAG, "Received decoded PCM #$receivedCount: ${decodedData.pcmData.size} bytes")
+                }
+                audioPlaybackService.queueAudioData(decodedData.pcmData)
+            }
+        }
     }
 
     private fun observeUdpEvents() {
@@ -52,7 +70,14 @@ class ClientManager @Inject constructor(
             udpAudioClient.clientEvents.collect { event ->
                 when (event) {
                     is UdpClientEvent.AudioDataReceived -> {
-                        audioPlaybackService.queueAudioData(event.audioData)
+                        // Queue AAC data to decoder, not directly to playback
+                        val encodedPacket = AudioEncoder.EncodedAudioPacket(
+                            data = event.audioData,
+                            presentationTimeUs = event.timestamp * 1000, // Convert ms to us
+                            size = event.audioData.size,
+                            isKeyFrame = true
+                        )
+                        audioDecoder.decodeAACPacket(encodedPacket)
                     }
                     is UdpClientEvent.Connected -> {
                         Log.d(TAG, "UDP Client connected")
@@ -96,6 +121,7 @@ class ClientManager @Inject constructor(
         private const val CONNECTION_TIMEOUT_MS = 5000L
         private const val RECONNECT_DELAY_MS = 2000L
         private const val MAX_RECONNECT_ATTEMPTS = 5
+        private const val CLIENT_AUDIO_PORT = 9091  // Port where client listens for UDP audio
     }
     
     private val httpClient = HttpClient(Android) {
@@ -380,8 +406,9 @@ class ClientManager @Inject constructor(
             val request = ClientConnectRequest(
                 clientId = clientConnection.clientId,
                 clientName = clientConnection.clientName,
-                preferredTransport = "WEBRTC",
-                capabilities = listOf("OPUS", "AAC")
+                preferredTransport = "UDP",  // Request UDP transport for audio streaming
+                capabilities = listOf("OPUS", "AAC"),
+                audioPort = CLIENT_AUDIO_PORT  // Tell host which port we listen on
             )
             
             val response: ClientConnectResponse = httpClient.post(url) {
@@ -410,20 +437,33 @@ class ClientManager @Inject constructor(
     }
     
     private suspend fun startAudioPlayback(hostSession: HostSession, sampleRate: Int) {
-        Log.d(TAG, "Starting audio playback for session ${hostSession.sessionId} at ${sampleRate}Hz")
-        audioPlaybackService.startPlayback(AudioPlaybackService.PlaybackConfig(sampleRate = sampleRate))
+        // Audio stream uses 22050Hz sample rate (configured in AudioCaptureService/AudioEncoder)
+        val actualSampleRate = 22050
+        Log.d(TAG, "Starting audio playback for session ${hostSession.sessionId} at ${actualSampleRate}Hz")
         
-        // Start UDP client
-        val hostIp = hostSession.networkInfo.localIpAddress
-        val hostPort = 9090 // Default audio port
+        // Start decoder with matching sample rate (host uses 22050Hz for encoding)
+        val decoderConfig = AudioDecoder.DecoderConfig(
+            sampleRate = actualSampleRate,  // Must match encoder sample rate
+            channelCount = 1,
+            bufferTimeoutUs = 10000L
+        )
+        audioDecoder.startDecoding(decoderConfig)
+        Log.d(TAG, "Audio decoder started")
         
-        udpAudioClient.connectToHost(hostIp, hostPort)
+        // Start playback with matching sample rate 
+        audioPlaybackService.startPlayback(AudioPlaybackService.PlaybackConfig(sampleRate = actualSampleRate))
+        
+        // Start UDP client to receive audio
+        // The host will send audio to CLIENT_AUDIO_PORT on this device
+        Log.d(TAG, "Starting UDP audio client on port $CLIENT_AUDIO_PORT")
+        udpAudioClient.startListening(CLIENT_AUDIO_PORT)
     }
     
     private suspend fun stopAudioPlayback() {
         Log.d(TAG, "Stopping audio playback")
         audioPlaybackService.stopPlayback()
-        udpAudioClient.disconnect()
+        audioDecoder.stopDecoding()
+        udpAudioClient.disconnect()  // This will clean up and stop listening
     }
     
     private suspend fun applyVolumeChange(volume: Float) {

@@ -49,6 +49,12 @@ interface HostApiHandler {
      * GET /session/status
      */
     suspend fun getSessionStatus(): SessionStatusResponse
+    
+    /**
+     * Connect client with IP address context
+     * POST /clients/connect - internal method with IP
+     */
+    suspend fun connectClientWithIp(request: ClientConnectRequest, clientIp: String): ClientConnectResponse
 }
 
 // Data classes for API requests/responses
@@ -56,7 +62,8 @@ data class ClientConnectRequest(
     val clientId: String,
     val clientName: String,
     val preferredTransport: String,
-    val capabilities: List<String>
+    val capabilities: List<String>,
+    val audioPort: Int = 9091  // Port where client listens for UDP audio
 )
 
 data class ClientConnectResponse(

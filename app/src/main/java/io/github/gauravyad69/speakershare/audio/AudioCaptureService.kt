@@ -218,6 +218,9 @@ class AudioCaptureService @Inject constructor(
      */
     private suspend fun captureMicrophoneLoop(config: AudioCaptureConfig) {
         val buffer = ByteArray(config.bufferSizeBytes)
+        var emitCounter = 0
+        
+        android.util.Log.d("AudioCaptureService", "Starting microphone capture loop")
         
         while (currentCoroutineContext().isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
             try {
@@ -225,7 +228,11 @@ class AudioCaptureService @Inject constructor(
                 
                 if (bytesRead > 0) {
                     val audioData = buffer.copyOf(bytesRead)
-                    _audioDataFlow.tryEmit(audioData)
+                    val emitted = _audioDataFlow.tryEmit(audioData)
+                    emitCounter++
+                    if (emitCounter % 50 == 0) {
+                        android.util.Log.d("AudioCaptureService", "Captured $emitCounter chunks, last $bytesRead bytes, emitted=$emitted")
+                    }
                     calculateAudioLevel(audioData)
                 }
                 
@@ -234,7 +241,7 @@ class AudioCaptureService @Inject constructor(
             } catch (e: Exception) {
                 if (currentCoroutineContext().isActive) {
                     // Log error but continue capture
-                    println("Microphone capture error: ${e.message}")
+                    android.util.Log.e("AudioCaptureService", "Microphone capture error: ${e.message}")
                 }
                 break
             }

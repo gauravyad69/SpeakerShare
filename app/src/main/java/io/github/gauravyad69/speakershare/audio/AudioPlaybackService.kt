@@ -228,6 +228,7 @@ class AudioPlaybackService @Inject constructor(
      * Main playback loop
      */
     private suspend fun playbackLoop() {
+        var writtenCount = 0L
         while (currentCoroutineContext().isActive && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
             try {
                 // Get audio data from buffer
@@ -241,20 +242,25 @@ class AudioPlaybackService @Inject constructor(
 
                     // Write to AudioTrack
                     val bytesWritten = audioTrack?.write(audioData, 0, audioData.size) ?: 0
+                    writtenCount++
+                    
+                    if (writtenCount % 50 == 1L) {
+                        android.util.Log.d("AudioPlayback", "Written PCM: ${audioData.size} bytes, bytesWritten=$bytesWritten")
+                    }
                     
                     if (bytesWritten < 0) {
                         // Handle AudioTrack errors
                         when (bytesWritten) {
                             AudioTrack.ERROR_INVALID_OPERATION -> {
-                                println("AudioTrack invalid operation")
+                                android.util.Log.e("AudioPlayback", "AudioTrack invalid operation")
                                 break
                             }
                             AudioTrack.ERROR_BAD_VALUE -> {
-                                println("AudioTrack bad value")
+                                android.util.Log.e("AudioPlayback", "AudioTrack bad value")
                                 break
                             }
                             AudioTrack.ERROR_DEAD_OBJECT -> {
-                                println("AudioTrack dead object")
+                                android.util.Log.e("AudioPlayback", "AudioTrack dead object")
                                 break
                             }
                         }
@@ -276,7 +282,7 @@ class AudioPlaybackService @Inject constructor(
                 
             } catch (e: Exception) {
                 if (currentCoroutineContext().isActive) {
-                    println("Playback loop error: ${e.message}")
+                    android.util.Log.e("AudioPlayback", "Playback loop error: ${e.message}")
                     delay(10)
                 }
             }

@@ -22,6 +22,11 @@ class HostApiHandlerImpl @Inject constructor(
     private var isBroadcasting = true
     
     override suspend fun connectClient(request: ClientConnectRequest): ClientConnectResponse {
+        // This will be called without IP context - delegate to connectClientWithIp with unknown IP
+        return connectClientWithIp(request, "unknown")
+    }
+    
+    override suspend fun connectClientWithIp(request: ClientConnectRequest, clientIp: String): ClientConnectResponse {
         // Validate request
         if (request.clientId.isBlank()) {
             throw BadRequestException(400, "Invalid client ID - required field")
@@ -37,11 +42,12 @@ class HostApiHandlerImpl @Inject constructor(
         val session = hostService.currentSession.value
             ?: throw ServiceUnavailableException(503, "No active session")
             
-        // Try to register client with HostService
+        // Try to register client with HostService, including audio port for UDP streaming
         val result = hostService.handleClientConnection(
             clientId = request.clientId,
             clientName = request.clientName,
-            clientIp = "unknown" // TODO: Extract IP from request context if possible
+            clientIp = clientIp,
+            clientAudioPort = request.audioPort
         )
         
         if (result.isFailure) {

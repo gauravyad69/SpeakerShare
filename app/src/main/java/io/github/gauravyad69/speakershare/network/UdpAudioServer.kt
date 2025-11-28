@@ -150,6 +150,10 @@ class UdpAudioServer @Inject constructor(
      */
     suspend fun broadcastAudio(audioData: ByteArray): Boolean {
         if (!isRunning.get() || connectedClients.isEmpty()) {
+            // Log occasionally to avoid spamming
+            if (sequenceNumber.get() % 100 == 0L) {
+                Log.d(TAG, "Not broadcasting: isRunning=${isRunning.get()}, connectedClients=${connectedClients.size}")
+            }
             return false
         }
         
@@ -165,6 +169,14 @@ class UdpAudioServer @Inject constructor(
                     timestamp = timestamp,
                     audioData = audioData
                 )
+                
+                // Debug first few packets to verify format
+                if (seqNum <= 5) {
+                    packets.forEachIndexed { index, packetData ->
+                        val hexDump = packetData.take(32).joinToString(" ") { String.format("%02X", it) }
+                        Log.d(TAG, "Packet $seqNum/$index before send (size=${packetData.size}): $hexDump...")
+                    }
+                }
                 
                 // Send to all connected clients
                 val socket = audioSocket ?: return@withContext false
@@ -182,6 +194,9 @@ class UdpAudioServer @Inject constructor(
                             socket.send(packet)
                         }
                         successCount++
+                        if (seqNum % 100 == 0L) {
+                            Log.d(TAG, "Sent audio packet seq=$seqNum to ${client.address}:${client.audioPort}")
+                        }
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to send audio to client ${client.clientId}", e)
                         // Remove problematic client

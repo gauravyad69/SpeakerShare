@@ -73,11 +73,22 @@ A user wants to share their device's audio (microphone or system sounds) with mu
 - **FR-010**: Clients MUST be able to mute/unmute their audio output locally
 - **FR-011**: System MUST operate entirely over local network (Wi-Fi or hotspot) without internet requirement
 - **FR-012**: System MUST handle Android audio and network permissions appropriately
-- **FR-013**: System MUST maintain real-time audio streaming with [NEEDS CLARIFICATION: acceptable latency threshold not specified - typically <200ms for real-time audio?]
-- **FR-014**: System MUST support [NEEDS CLARIFICATION: maximum concurrent clients not specified - 5, 10, 20?] simultaneous client connections
+- **FR-013**: System MUST maintain real-time audio streaming with latency under 200ms for acceptable real-time audio experience
+- **FR-014**: System MUST support up to 50 simultaneous client connections (configurable)
 - **FR-015**: System MUST provide basic user interface for all core functions
 - **FR-016**: System MUST handle network disconnections gracefully with reconnection attempts
-- **FR-017**: System MUST stream audio at [NEEDS CLARIFICATION: audio quality not specified - 44.1kHz/16-bit, compressed format?]
+- **FR-017**: System MUST stream audio at 22050Hz/16-bit PCM captured, encoded as AAC-LC at 64kbps (LOW quality) to 320kbps (ULTRA quality)
+
+### Technical Implementation Details (Resolved)
+The following technical decisions have been validated through end-to-end testing:
+
+- **Audio Format**: 22050Hz sample rate, Mono channel, 16-bit PCM capture → AAC-LC encoding
+- **Transport Protocol**: UDP for audio streaming (port 9090 host, 9091 client), HTTP for signaling (port 8080)
+- **Packet Format**: Custom binary protocol with 28-byte header (magic number 0x53504B52, sequence, timestamp, CRC32)
+- **AAC Configuration**: CSD-0 (Audio Specific Config) required for decoder initialization
+- **Client Registration**: Clients register via HTTP, provide listening port; host sends UDP audio to registered addresses
+
+See `TECHNICAL_LEARNINGS.md` for detailed implementation notes and debugging history.
 
 ### Key Entities
 - **Host Session**: Represents an active audio broadcasting session with connection details, audio source type, connected clients list, and session state
@@ -96,8 +107,8 @@ A user wants to share their device's audio (microphone or system sounds) with mu
 - [x] All mandatory sections completed
 
 ### Requirement Completeness
-- [ ] No [NEEDS CLARIFICATION] markers remain (3 clarifications needed)
-- [x] Requirements are testable and unambiguous (except those marked for clarification)
+- [x] No [NEEDS CLARIFICATION] markers remain (all clarifications resolved)
+- [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Scope is clearly bounded
 - [x] Dependencies and assumptions identified
@@ -112,6 +123,7 @@ A user wants to share their device's audio (microphone or system sounds) with mu
 - [x] User scenarios defined
 - [x] Requirements generated
 - [x] Entities identified
-- [ ] Review checklist passed (pending clarifications)
+- [x] Review checklist passed
+- [x] End-to-end audio streaming validated (OnePlus ↔ Samsung test)
 
 ---

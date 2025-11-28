@@ -185,36 +185,30 @@ class UdpPacketHandler @Inject constructor() {
         // 20-23: Timestamp (4 bytes) - using lower 32 bits
         // 24-27: CRC32 checksum (4 bytes) - calculated after header
         
-        var position = 0
+        // Use buffer in sequential mode - position() advances automatically
+        buffer.position(0)
         
         // Magic number
-        buffer.putInt(position, MAGIC_NUMBER)
-        position += 4
+        buffer.putInt(MAGIC_NUMBER)
         
         // Protocol version and packet type
-        buffer.put(position, PROTOCOL_VERSION.toByte())
-        position += 1
-        buffer.put(position, packetType)
-        position += 1
+        buffer.put(PROTOCOL_VERSION.toByte())
+        buffer.put(packetType)
         
         // Fragment info (2 bytes)
         val fragmentInfo = (fragmentIndex and 0x3F) or 
                           ((totalFragments and 0x3F) shl 6) or
                           (if (isLastFragment) 0x8000 else 0)
-        buffer.putShort(position, fragmentInfo.toShort())
-        position += 2
+        buffer.putShort(fragmentInfo.toShort())
         
         // Session ID (8 bytes)
         buffer.put(paddedSessionId)
-        position += 8
         
         // Sequence number (4 bytes) - using lower 32 bits
-        buffer.putInt(position, (sequenceNumber and 0xFFFFFFFF).toInt())
-        position += 4
+        buffer.putInt((sequenceNumber and 0xFFFFFFFF).toInt())
         
         // Timestamp (4 bytes) - using lower 32 bits
-        buffer.putInt(position, (timestamp and 0xFFFFFFFF).toInt())
-        position += 4
+        buffer.putInt((timestamp and 0xFFFFFFFF).toInt())
         
         // Payload
         System.arraycopy(payload, 0, packet, HEADER_SIZE, payload.size)
@@ -223,8 +217,14 @@ class UdpPacketHandler @Inject constructor() {
         val crc32 = CRC32()
         crc32.update(payload)
         
-        // Insert CRC32 at the end of header (overwriting last 4 bytes if needed)
+        // Insert CRC32 at the end of header (absolute position)
         buffer.putInt(HEADER_SIZE - 4, crc32.value.toInt())
+        
+        // Debug logging for first few packets
+        if (sequenceNumber <= 3) {
+            val hexDump = packet.take(32).joinToString(" ") { String.format("%02X", it) }
+            Log.d(TAG, "Created packet seq=$sequenceNumber: magic=${String.format("0x%08X", MAGIC_NUMBER)}, hex=$hexDump...")
+        }
         
         return packet
     }
@@ -235,7 +235,7 @@ class UdpPacketHandler @Inject constructor() {
     fun parsePacket(packetData: ByteArray): UdpPacket? {
         return try {
             if (packetData.size < HEADER_SIZE) {
-                Log.w(TAG, "Packet too small: ${packetData.size} bytes")
+                Log.w(TAG, "Packet too small: ${packetData.size} bytes, need at least $HEADER_SIZE")
                 return null
             }
             
@@ -245,7 +245,9 @@ class UdpPacketHandler @Inject constructor() {
             // Validate magic number
             val magic = buffer.getInt(position)
             if (magic != MAGIC_NUMBER) {
-                Log.w(TAG, "Invalid magic number: 0x${magic.toString(16)}")
+                if (magic != 0x53504B52) { // Only log if not just wrong endian
+                    Log.w(TAG, "Invalid magic number: 0x${magic.toString(16)} (expected 0x${MAGIC_NUMBER.toString(16)})")
+                }
                 return null
             }
             position += 4
