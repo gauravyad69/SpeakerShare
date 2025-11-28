@@ -45,14 +45,13 @@
             </intent-filter>
         </activity>
         
-        <!-- Foreground Service for background audio streaming -->
-<!--        todo: implement this later on-->
-<!--        <service-->
-<!--            android:name=".services.AudioForegroundService"-->
-<!--            android:enabled="true"-->
-<!--            android:exported="false"-->
-<!--            android:foregroundServiceType="mediaPlayback" />-->
-<!--            -->
+        <!-- Foreground Service for client audio playback (keeps network alive in background) -->
+        <service
+            android:name=".services.ClientForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+            
     </application>
 
 </manifest>

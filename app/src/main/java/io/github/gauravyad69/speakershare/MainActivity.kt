@@ -54,11 +54,12 @@ fun SpeakerShareApp() {
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToClients = { navController.navigate("clients") },
                 onBecomeClient = { ip, port, hostName ->
-                    // Navigate to client mode connecting to the new host
-                    navController.navigate("client/$ip/$port/$hostName") {
+                    // Navigate to client mode connecting to the new host (with retry for transfer)
+                    navController.navigate("client_transfer/$ip/$port/$hostName") {
                         popUpTo("mode_selection") { inclusive = false }
                     }
-                }
+                },
+                autoStart = true  // Always auto-start when entering host mode
             )
         }
         
@@ -68,7 +69,7 @@ fun SpeakerShareApp() {
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToClients = { navController.navigate("clients") },
                 onBecomeClient = { ip, port, hostName ->
-                    navController.navigate("client/$ip/$port/$hostName") {
+                    navController.navigate("client_transfer/$ip/$port/$hostName") {
                         popUpTo("mode_selection") { inclusive = false }
                     }
                 },
@@ -108,6 +109,33 @@ fun SpeakerShareApp() {
                 initialHostIp = ip,
                 initialHostPort = port,
                 initialHostName = name
+            )
+        }
+        
+        // Client route for host transfer reconnection (with retry logic)
+        composable(
+            "client_transfer/{ip}/{port}/{name}",
+            arguments = listOf(
+                androidx.navigation.navArgument("ip") { type = androidx.navigation.NavType.StringType },
+                androidx.navigation.navArgument("port") { type = androidx.navigation.NavType.IntType },
+                androidx.navigation.navArgument("name") { type = androidx.navigation.NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val ip = backStackEntry.arguments?.getString("ip") ?: ""
+            val port = backStackEntry.arguments?.getInt("port") ?: 0
+            val name = backStackEntry.arguments?.getString("name") ?: ""
+            
+            ClientScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onBecomeHost = {
+                    navController.navigate("host/autostart") {
+                        popUpTo("mode_selection") { inclusive = false }
+                    }
+                },
+                initialHostIp = ip,
+                initialHostPort = port,
+                initialHostName = name,
+                isTransferReconnect = true  // Enable retry logic for transfer
             )
         }
         

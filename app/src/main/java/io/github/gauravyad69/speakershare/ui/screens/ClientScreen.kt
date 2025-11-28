@@ -33,6 +33,7 @@ fun ClientScreen(
     initialHostIp: String? = null,
     initialHostPort: Int? = null,
     initialHostName: String? = null,
+    isTransferReconnect: Boolean = false,
     viewModel: ClientViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -55,6 +56,8 @@ fun ClientScreen(
     LaunchedEffect(initialHostIp, initialHostPort, initialHostName) {
         if (initialHostIp != null && initialHostPort != null && initialHostName != null) {
             if (connectionState == io.github.gauravyad69.speakershare.data.model.ConnectionStatus.DISCONNECTED) {
+                // Use retry on failure when this is a reconnection after host transfer
+                // The new host may not be ready yet
                 viewModel.connectToHost(
                     NetworkInfo(
                         localIpAddress = initialHostIp,
@@ -63,7 +66,8 @@ fun ClientScreen(
                         isHotspot = false,
                         discoveryMethod = DiscoveryMethod.MDNS, // Default
                         serviceName = initialHostName
-                    )
+                    ),
+                    retryOnFailure = isTransferReconnect
                 )
             }
         }

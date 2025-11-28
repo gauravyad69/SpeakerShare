@@ -8,10 +8,14 @@ import io.github.gauravyad69.speakershare.data.repository.ClientConnectionReposi
 import io.github.gauravyad69.speakershare.data.repository.UserSettingsRepository
 import io.github.gauravyad69.speakershare.services.ClientManager
 import io.github.gauravyad69.speakershare.services.TransferRequest
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import java.util.*
+import android.util.Log
+
+private const val TAG = "ClientViewModel"
 
 /**
  * ViewModel for Client screen - manages connection to host and audio playback
@@ -59,42 +63,72 @@ class ClientViewModel @Inject constructor(
     val uiState: StateFlow<ClientUiState> = _uiState.asStateFlow()
 
     // Actions
-    fun connectToHost(hostInfo: NetworkInfo) {
+    fun connectToHost(hostInfo: NetworkInfo, retryOnFailure: Boolean = false) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
             
-            try {
-                val hostSession = HostSession(
-                    sessionId = hostInfo.serviceName,
-                    sessionName = hostInfo.serviceName,
-                    hostName = hostInfo.serviceName,
-                    audioSource = AudioSource.MICROPHONE, // Default
-                    quality = AudioQuality(), // Default
-                    isActive = true,
-                    startTime = System.currentTimeMillis(),
-                    connectedClients = emptyList(),
-                    networkInfo = hostInfo,
-                    maxClients = 50
-                )
-                
-                val clientName = userSettings.value?.displayName ?: "Client"
-                
-                val result = clientManager.connectToHost(hostSession, clientName)
-                
-                if (result.isSuccess) {
-                    _connectedHost.value = hostInfo
-                } else {
-                    _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message)
-                }
-                
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = e.message
-                )
-            } finally {
-                _uiState.value = _uiState.value.copy(isLoading = false)
+            // For transfer reconnect, wait initially for new host to start
+            if (retryOnFailure) {
+                Log.d(TAG, "Waiting 3 seconds for new host to start before connecting...")
+                delay(3000L)
             }
+            
+            val maxRetries = if (retryOnFailure) 10 else 1  // More retries for transfer
+            var lastError: Throwable? = null
+            
+            for (attempt in 1..maxRetries) {
+                try {
+                    if (attempt > 1) {
+                        // Wait before retry with exponential backoff (up to 3 seconds)
+                        val delayMs = (1000L * attempt).coerceAtMost(3000L)
+                        Log.d(TAG, "Connection attempt $attempt failed, retrying in ${delayMs}ms...")
+                        delay(delayMs)
+                    }
+                    
+                    Log.d(TAG, "Connecting to host at ${hostInfo.localIpAddress}:${hostInfo.port} (attempt $attempt/$maxRetries)")
+                    
+                    val hostSession = HostSession(
+                        sessionId = hostInfo.serviceName,
+                        sessionName = hostInfo.serviceName,
+                        hostName = hostInfo.serviceName,
+                        audioSource = AudioSource.MICROPHONE, // Default
+                        quality = AudioQuality(), // Default
+                        isActive = true,
+                        startTime = System.currentTimeMillis(),
+                        connectedClients = emptyList(),
+                        networkInfo = hostInfo,
+                        maxClients = 50
+                    )
+                    
+                    val clientName = userSettings.value?.displayName ?: "Client"
+                    
+                    val result = clientManager.connectToHost(hostSession, clientName)
+                    
+                    if (result.isSuccess) {
+                        Log.d(TAG, "Successfully connected to host on attempt $attempt")
+                        _connectedHost.value = hostInfo
+                        _uiState.value = _uiState.value.copy(isLoading = false)
+                        return@launch // Success!
+                    } else {
+                        lastError = result.exceptionOrNull()
+                        Log.w(TAG, "Connection attempt $attempt failed: ${lastError?.message}")
+                    }
+                    
+                } catch (e: Exception) {
+                    lastError = e
+                    Log.w(TAG, "Connection attempt $attempt threw exception: ${e.message}")
+                }
+            }
+            
+            // All retries failed
+            Log.e(TAG, "All $maxRetries connection attempts failed")
+            _uiState.value = _uiState.value.copy(
+                isLoading = false,
+                error = if (retryOnFailure) 
+                    "New host not ready. Please try manually connecting." 
+                else 
+                    lastError?.message ?: "Failed to connect after $maxRetries attempts"
+            )
         }
     }
 

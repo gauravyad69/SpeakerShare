@@ -24,6 +24,7 @@ class UdpAudioServer @Inject constructor(
         private const val TAG = "UdpAudioServer"
         private const val DEFAULT_AUDIO_PORT = 9090
         private const val DEFAULT_DISCOVERY_PORT = 9089
+        private const val CLIENT_AUDIO_PORT = 9091  // Port where clients listen for audio
         private const val DISCOVERY_INTERVAL_MS = 5000L
         private const val HEARTBEAT_INTERVAL_MS = 10000L
         private const val CLIENT_TIMEOUT_MS = 30000L  // 30 seconds - clients send heartbeats every 10s
@@ -404,8 +405,15 @@ class UdpAudioServer @Inject constructor(
      * Handle client connection request
      */
     private suspend fun handleClientConnect(clientId: String, clientAddress: InetAddress) {
+        // Don't register ourselves as a client
+        if (clientAddress.isLoopbackAddress || clientAddress.hostAddress == getLocalIpAddress()) {
+            Log.w(TAG, "Ignoring self-connection from ${clientAddress.hostAddress}")
+            return
+        }
+        
         if (!connectedClients.containsKey(clientId)) {
-            addClient(clientId, clientAddress, audioPort)
+            // Use CLIENT_AUDIO_PORT (9091) - the port where clients listen for audio
+            addClient(clientId, clientAddress, CLIENT_AUDIO_PORT)
             
             // Send acknowledgment
             val ackPacket = packetHandler.createControlPacket(
@@ -420,7 +428,7 @@ class UdpAudioServer @Inject constructor(
                     ackPacket,
                     ackPacket.size,
                     clientAddress,
-                    audioPort
+                    CLIENT_AUDIO_PORT
                 )
                 socket.send(packet)
                 
@@ -589,6 +597,21 @@ class UdpAudioServer @Inject constructor(
             connectedClients = connectedClients.size,
             isRunning = isRunning.get()
         )
+    }
+    
+    /**
+     * Get local IP address to avoid self-connection
+     */
+    private fun getLocalIpAddress(): String? {
+        return try {
+            NetworkInterface.getNetworkInterfaces()?.toList()
+                ?.flatMap { it.inetAddresses.toList() }
+                ?.firstOrNull { !it.isLoopbackAddress && it is Inet4Address }
+                ?.hostAddress
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get local IP address", e)
+            null
+        }
     }
     
     /**

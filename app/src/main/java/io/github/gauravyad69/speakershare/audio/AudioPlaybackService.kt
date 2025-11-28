@@ -65,6 +65,7 @@ class AudioPlaybackService @Inject constructor(
     private val playbackBufferQueue = ArrayDeque<ByteArray>()
     private val playbackBufferMutex = kotlinx.coroutines.sync.Mutex()
     private var hasAudioFocus = false
+    private var savedVolumeBeforeFocusLoss = 1.0f  // Save volume before transient focus loss
 
     /**
      * Start audio playback with specified configuration
@@ -339,12 +340,16 @@ class AudioPlaybackService @Inject constructor(
                 runBlocking {
                     val currentState = _playbackState.value
                     if (!currentState.isMuted) {
-                        setVolume(currentState.volume)
+                        // Restore saved volume (not current volume which might be 0)
+                        audioTrack?.setVolume(savedVolumeBeforeFocusLoss)
+                        _playbackState.value = _playbackState.value.copy(volume = savedVolumeBeforeFocusLoss)
+                        android.util.Log.d("AudioPlaybackService", "Audio focus gained, restored volume to $savedVolumeBeforeFocusLoss")
                     }
                 }
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
                 hasAudioFocus = false
+                android.util.Log.d("AudioPlaybackService", "Audio focus lost permanently, stopping playback")
                 // Stop playback
                 runBlocking {
                     stopPlayback()
@@ -352,16 +357,17 @@ class AudioPlaybackService @Inject constructor(
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 hasAudioFocus = false
-                // Pause playback temporarily
-                runBlocking {
-                    setVolume(0.0f)
-                }
+                // Save current volume and pause playback temporarily
+                savedVolumeBeforeFocusLoss = _playbackState.value.volume
+                android.util.Log.d("AudioPlaybackService", "Audio focus lost transiently, saved volume $savedVolumeBeforeFocusLoss, muting")
+                audioTrack?.setVolume(0.0f)
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 // Lower volume but continue playing
-                runBlocking {
-                    setVolume(_playbackState.value.volume * 0.3f)
-                }
+                savedVolumeBeforeFocusLoss = _playbackState.value.volume
+                val duckedVolume = savedVolumeBeforeFocusLoss * 0.3f
+                android.util.Log.d("AudioPlaybackService", "Audio focus ducking, saved volume $savedVolumeBeforeFocusLoss, ducking to $duckedVolume")
+                audioTrack?.setVolume(duckedVolume)
             }
         }
     }

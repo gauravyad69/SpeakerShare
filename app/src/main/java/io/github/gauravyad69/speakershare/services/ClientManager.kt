@@ -1,5 +1,9 @@
 package io.github.gauravyad69.speakershare.services
 
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.audio.AudioDecoder
 import io.github.gauravyad69.speakershare.audio.AudioEncoder
 import io.github.gauravyad69.speakershare.audio.AudioPlaybackService
@@ -37,6 +41,7 @@ import java.util.UUID
  */
 @Singleton
 class ClientManager @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val audioStreamManager: AudioStreamManager,
     private val networkDiscoveryService: NetworkDiscoveryService,
     private val audioPlaybackService: AudioPlaybackService,
@@ -251,6 +256,9 @@ class ClientManager @Inject constructor(
             _currentConnection.value = connectedClient
             _isConnected.value = true
             
+            // Start foreground service to keep network alive in background
+            startForegroundService(hostSession.hostName, hostSession.networkInfo.localIpAddress)
+            
             // Start audio playback with clientId for heartbeat identification
             startAudioPlayback(hostSession, response.sampleRate, clientId)
             
@@ -275,6 +283,9 @@ class ClientManager @Inject constructor(
             }
             
             Log.d(TAG, "Disconnecting from host")
+            
+            // Stop foreground service
+            stopForegroundService()
             
             // Stop audio playback
             stopAudioPlayback()
@@ -481,6 +492,22 @@ class ClientManager @Inject constructor(
         udpAudioClient.disconnect()  // This will clean up and stop listening
     }
     
+    private fun startForegroundService(hostName: String, hostIp: String) {
+        Log.d(TAG, "Starting client foreground service for host: $hostName")
+        val intent = ClientForegroundService.startPlayback(context, hostName, hostIp)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
+    }
+    
+    private fun stopForegroundService() {
+        Log.d(TAG, "Stopping client foreground service")
+        val intent = ClientForegroundService.stopPlayback(context)
+        context.startService(intent)
+    }
+    
     private suspend fun applyVolumeChange(volume: Float) {
         Log.d(TAG, "Applying volume change: $volume")
         audioPlaybackService.setVolume(volume)
@@ -537,6 +564,14 @@ class ClientManager @Inject constructor(
             
             // Clear the pending request
             _pendingTransferRequest.value = null
+            
+            // IMPORTANT: Disconnect from current host BEFORE becoming a host
+            // This stops audio playback and UDP client to avoid conflicts
+            Log.d(TAG, "Disconnecting client connection before becoming host")
+            stopAudioPlayback()
+            udpAudioClient.disconnect()
+            stopForegroundService()
+            _currentConnection.value = null
             
             // Trigger callback to start hosting process
             // The activity needs to request MediaProjection permission
