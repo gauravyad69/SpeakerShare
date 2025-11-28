@@ -316,6 +316,74 @@ class HostViewModel @Inject constructor(
     fun clearError() {
         _error.value = null
     }
+    
+    // Host transfer state
+    private val _pendingTransferClientId = MutableStateFlow<String?>(null)
+    val pendingTransferClientId: StateFlow<String?> = _pendingTransferClientId.asStateFlow()
+    
+    private val _transferStatus = MutableStateFlow<TransferStatus>(TransferStatus.Idle)
+    val transferStatus: StateFlow<TransferStatus> = _transferStatus.asStateFlow()
+    
+    /**
+     * Request to transfer host role to a specific client
+     */
+    fun requestTransferHost(clientId: String) {
+        viewModelScope.launch {
+            try {
+                _pendingTransferClientId.value = clientId
+                _transferStatus.value = TransferStatus.Requesting
+                
+                val result = hostService.requestTransferHost(clientId)
+                result.onSuccess {
+                    _transferStatus.value = TransferStatus.WaitingForResponse
+                    // Wait for TransferAccepted or TransferRejected event from UdpAudioServer
+                }.onFailure { error ->
+                    _pendingTransferClientId.value = null
+                    _transferStatus.value = TransferStatus.Failed(error.message ?: "Unknown error")
+                    _error.value = "Failed to send transfer request"
+                }
+            } catch (e: Exception) {
+                _pendingTransferClientId.value = null
+                _transferStatus.value = TransferStatus.Failed(e.message ?: "Unknown error")
+                _error.value = "Failed to request host transfer: ${e.message}"
+            }
+        }
+    }
+    
+    /**
+     * Handle transfer accepted by client - called when UdpServerEvent.TransferAccepted is received
+     */
+    fun handleTransferAccepted(clientId: String, newHostIp: String, newHostPort: Int) {
+        viewModelScope.launch {
+            _transferStatus.value = TransferStatus.Completing
+            val result = hostService.handleTransferAccepted(clientId, newHostIp, newHostPort)
+            result.onSuccess {
+                _transferStatus.value = TransferStatus.Completed
+                _pendingTransferClientId.value = null
+            }.onFailure { error ->
+                _transferStatus.value = TransferStatus.Failed(error.message ?: "Transfer completion failed")
+                _error.value = "Failed to complete transfer: ${error.message}"
+            }
+        }
+    }
+    
+    /**
+     * Handle transfer rejected by client - called when UdpServerEvent.TransferRejected is received
+     */
+    fun handleTransferRejected(clientId: String) {
+        hostService.handleTransferRejected(clientId)
+        _pendingTransferClientId.value = null
+        _transferStatus.value = TransferStatus.Rejected
+        _error.value = "Client rejected host transfer request"
+    }
+    
+    /**
+     * Cancel pending transfer request
+     */
+    fun cancelTransferRequest() {
+        _pendingTransferClientId.value = null
+        _transferStatus.value = TransferStatus.Idle
+    }
 
     // Combined UI State
     val uiState: StateFlow<HostUiState> = combine(
@@ -361,3 +429,16 @@ data class HostUiState(
     val error: String? = null,
     val networkInfo: NetworkInfo? = null
 )
+
+/**
+ * Represents the status of a host transfer operation
+ */
+sealed class TransferStatus {
+    data object Idle : TransferStatus()
+    data object Requesting : TransferStatus()
+    data object WaitingForResponse : TransferStatus()
+    data object Completing : TransferStatus()
+    data object Completed : TransferStatus()
+    data object Rejected : TransferStatus()
+    data class Failed(val reason: String) : TransferStatus()
+}

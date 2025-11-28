@@ -40,6 +40,39 @@ class HostService @Inject constructor(
     private val _isHosting = MutableStateFlow(false)
     val isHosting: StateFlow<Boolean> = _isHosting.asStateFlow()
     
+    // Transfer events from UDP server
+    private val _transferEvents = MutableStateFlow<TransferEvent?>(null)
+    val transferEvents: StateFlow<TransferEvent?> = _transferEvents.asStateFlow()
+    
+    init {
+        observeServerEvents()
+    }
+    
+    private fun observeServerEvents() {
+        serviceScope.launch {
+            udpAudioServer.serverEvents.collect { event ->
+                when (event) {
+                    is io.github.gauravyad69.speakershare.network.UdpServerEvent.TransferAccepted -> {
+                        Log.d(TAG, "Transfer accepted by ${event.clientId} at ${event.clientAddress}:${event.newServerPort}")
+                        _transferEvents.value = TransferEvent.Accepted(
+                            event.clientId,
+                            event.clientAddress,
+                            event.newServerPort
+                        )
+                        // Auto-handle the transfer if we have a pending request
+                        handleTransferAccepted(event.clientId, event.clientAddress, event.newServerPort)
+                    }
+                    is io.github.gauravyad69.speakershare.network.UdpServerEvent.TransferRejected -> {
+                        Log.d(TAG, "Transfer rejected by ${event.clientId}")
+                        _transferEvents.value = TransferEvent.Rejected(event.clientId)
+                        handleTransferRejected(event.clientId)
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+    
     companion object {
         private const val TAG = "HostService"
         private const val DEFAULT_PORT = 8080
@@ -303,6 +336,75 @@ class HostService @Inject constructor(
     }
     
     /**
+     * Request to transfer host role to a connected client.
+     * This sends a transfer request to the client and waits for their response.
+     */
+    suspend fun requestTransferHost(clientId: String): Result<Unit> {
+        return try {
+            val currentClients = _connectedClients.value
+            val client = currentClients.find { it.clientId == clientId }
+                ?: return Result.failure(IllegalArgumentException("Client not found: $clientId"))
+            
+            if (!_isHosting.value) {
+                return Result.failure(IllegalStateException("Not currently hosting"))
+            }
+            
+            Log.d(TAG, "Requesting host transfer to client: ${client.clientName}")
+            
+            // Send transfer request via UDP
+            val success = udpAudioServer.sendTransferRequest(clientId)
+            if (success) {
+                Log.d(TAG, "Transfer request sent to ${client.clientName}")
+                Result.success(Unit)
+            } else {
+                Log.e(TAG, "Failed to send transfer request")
+                Result.failure(Exception("Failed to send transfer request"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to request host transfer", e)
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Handle transfer acceptance from a client.
+     * This initiates the actual handover process.
+     */
+    suspend fun handleTransferAccepted(clientId: String, newHostIp: String, newHostPort: Int): Result<Unit> {
+        return try {
+            val currentClients = _connectedClients.value
+            val client = currentClients.find { it.clientId == clientId }
+            // Client might not be in our list if they just accepted (logging only)
+            
+            Log.d(TAG, "Transfer accepted by ${client?.clientName ?: clientId}, redirecting clients to $newHostIp:$newHostPort")
+            
+            // Broadcast redirect to all other clients
+            udpAudioServer.sendRedirectToAllClients(newHostIp, newHostPort)
+            
+            // Stop hosting after a short delay to allow redirect messages to be sent
+            kotlinx.coroutines.delay(500)
+            
+            // Stop our hosting session
+            stopHosting()
+            
+            Log.d(TAG, "Host transfer complete - stopped hosting")
+            Result.success(Unit)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to handle transfer acceptance", e)
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Handle transfer rejection from a client.
+     */
+    fun handleTransferRejected(clientId: String) {
+        val client = _connectedClients.value.find { it.clientId == clientId }
+        Log.d(TAG, "Transfer rejected by ${client?.clientName ?: clientId}")
+    }
+    
+    /**
      * Switch audio source during session
      */
     suspend fun switchAudioSource(newSource: AudioSource): Result<Unit> {
@@ -396,4 +498,17 @@ class HostService @Inject constructor(
         _connectedClients.value = emptyList()
         _isHosting.value = false
     }
+}
+
+/**
+ * Represents transfer events that occurred
+ */
+sealed class TransferEvent {
+    data class Accepted(
+        val clientId: String,
+        val clientAddress: String,
+        val newServerPort: Int
+    ) : TransferEvent()
+    
+    data class Rejected(val clientId: String) : TransferEvent()
 }

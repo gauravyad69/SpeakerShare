@@ -91,6 +91,14 @@ class ClientManager @Inject constructor(
                     is UdpClientEvent.ReceiveError -> {
                         Log.e(TAG, "UDP Receive error: ${event.message}")
                     }
+                    is UdpClientEvent.HostTransferRequested -> {
+                        Log.d(TAG, "Host transfer requested from ${event.fromHostAddress}")
+                        _pendingTransferRequest.value = TransferRequest(event.fromHostAddress)
+                    }
+                    is UdpClientEvent.HostTransferRedirect -> {
+                        Log.d(TAG, "Redirecting to new host at ${event.newHostAddress}:${event.newHostPort}")
+                        handleHostRedirect(event.newHostAddress, event.newHostPort)
+                    }
                     else -> {}
                 }
             }
@@ -114,6 +122,13 @@ class ClientManager @Inject constructor(
     
     private val _isDiscovering = MutableStateFlow(false)
     val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
+    
+    // Host transfer request state
+    private val _pendingTransferRequest = MutableStateFlow<TransferRequest?>(null)
+    val pendingTransferRequest: StateFlow<TransferRequest?> = _pendingTransferRequest.asStateFlow()
+    
+    // Callback when client becomes host (requires MediaProjection)
+    private var onBecomeHostCallback: ((String) -> Unit)? = null
     
     companion object {
         private const val TAG = "ClientManager"
@@ -494,4 +509,112 @@ class ClientManager @Inject constructor(
             Result.failure(e)
         }
     }
+    
+    // ========== Host Transfer Methods ==========
+    
+    /**
+     * Set callback for when client needs to become host.
+     * This callback should trigger MediaProjection permission request.
+     */
+    fun setOnBecomeHostCallback(callback: (String) -> Unit) {
+        onBecomeHostCallback = callback
+    }
+    
+    /**
+     * Accept the pending host transfer request.
+     * This will trigger the transition to become a host.
+     * @param newServerPort The port our new UDP server will listen on
+     */
+    suspend fun acceptTransferRequest(newServerPort: Int = 9090): Result<Unit> {
+        return try {
+            val request = _pendingTransferRequest.value
+                ?: return Result.failure(IllegalStateException("No pending transfer request"))
+            
+            Log.d(TAG, "Accepting transfer request from ${request.fromHostAddress}")
+            
+            // Send accept message to current host
+            udpAudioClient.sendTransferAccept(newServerPort)
+            
+            // Clear the pending request
+            _pendingTransferRequest.value = null
+            
+            // Trigger callback to start hosting process
+            // The activity needs to request MediaProjection permission
+            onBecomeHostCallback?.invoke(request.fromHostAddress)
+            
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to accept transfer request", e)
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Reject the pending host transfer request
+     */
+    suspend fun rejectTransferRequest(): Result<Unit> {
+        return try {
+            val request = _pendingTransferRequest.value
+                ?: return Result.failure(IllegalStateException("No pending transfer request"))
+            
+            Log.d(TAG, "Rejecting transfer request from ${request.fromHostAddress}")
+            
+            // Send reject message to current host
+            udpAudioClient.sendTransferReject()
+            
+            // Clear the pending request
+            _pendingTransferRequest.value = null
+            
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to reject transfer request", e)
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * Handle redirect to new host (when another client became the host)
+     */
+    private suspend fun handleHostRedirect(newHostAddress: String, newHostPort: Int) {
+        try {
+            Log.d(TAG, "Handling redirect to new host: $newHostAddress:$newHostPort")
+            
+            // Stop current connection
+            udpAudioClient.disconnect()
+            
+            // Short delay before reconnecting
+            delay(500)
+            
+            // Connect to new host
+            val success = udpAudioClient.connectToHost(
+                hostIp = newHostAddress,
+                audioPort = newHostPort
+            )
+            
+            if (success) {
+                Log.d(TAG, "Successfully reconnected to new host")
+                // Update connection info in current session
+                _currentConnection.value = _currentConnection.value?.copy(
+                    // Could add new host address here if needed
+                )
+            } else {
+                Log.e(TAG, "Failed to connect to new host")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to handle host redirect", e)
+        }
+    }
+    
+    /**
+     * Get the client ID for transfer purposes
+     */
+    fun getClientId(): String = udpAudioClient.getClientId()
 }
+
+/**
+ * Represents a pending host transfer request
+ */
+data class TransferRequest(
+    val fromHostAddress: String,
+    val timestamp: Long = System.currentTimeMillis()
+)

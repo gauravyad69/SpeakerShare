@@ -7,6 +7,7 @@ import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.data.repository.ClientConnectionRepository
 import io.github.gauravyad69.speakershare.data.repository.UserSettingsRepository
 import io.github.gauravyad69.speakershare.services.ClientManager
+import io.github.gauravyad69.speakershare.services.TransferRequest
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -46,6 +47,12 @@ class ClientViewModel @Inject constructor(
     // Connected host info
     private val _connectedHost = MutableStateFlow<NetworkInfo?>(null)
     val connectedHost: StateFlow<NetworkInfo?> = _connectedHost.asStateFlow()
+
+    // Pending host transfer request
+    val pendingTransferRequest: StateFlow<TransferRequest?> = clientManager.pendingTransferRequest
+    
+    // Callback when user accepts becoming a host
+    private var onBecomeHostListener: ((String) -> Unit)? = null
 
     // UI state
     private val _uiState = MutableStateFlow(ClientUiState())
@@ -112,6 +119,41 @@ class ClientViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+    
+    // ========== Host Transfer Methods ==========
+    
+    /**
+     * Set callback for when user needs to become a host.
+     * This is called from the UI layer to handle MediaProjection permission.
+     */
+    fun setOnBecomeHostListener(listener: (String) -> Unit) {
+        onBecomeHostListener = listener
+        clientManager.setOnBecomeHostCallback(listener)
+    }
+    
+    /**
+     * Accept the pending host transfer request
+     */
+    fun acceptTransferRequest() {
+        viewModelScope.launch {
+            val result = clientManager.acceptTransferRequest()
+            result.onFailure { error ->
+                _uiState.value = _uiState.value.copy(error = error.message)
+            }
+        }
+    }
+    
+    /**
+     * Reject the pending host transfer request
+     */
+    fun rejectTransferRequest() {
+        viewModelScope.launch {
+            val result = clientManager.rejectTransferRequest()
+            result.onFailure { error ->
+                _uiState.value = _uiState.value.copy(error = error.message)
+            }
+        }
     }
 }
 

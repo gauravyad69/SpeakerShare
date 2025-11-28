@@ -38,6 +38,13 @@ class UdpPacketHandler @Inject constructor() {
         const val CONTROL_VOLUME = 0x03.toByte()
         const val CONTROL_MUTE = 0x04.toByte()
         const val CONTROL_ACK = 0x05.toByte()
+        
+        // Host transfer commands
+        const val CONTROL_TRANSFER_REQUEST = 0x10.toByte()   // Host -> Client: "Want to make you host"
+        const val CONTROL_TRANSFER_ACCEPT = 0x11.toByte()    // Client -> Host: "I accept, here's my server info"
+        const val CONTROL_TRANSFER_REJECT = 0x12.toByte()    // Client -> Host: "I decline"
+        const val CONTROL_TRANSFER_COMPLETE = 0x13.toByte()  // New Host -> All Clients: "I'm the new host, reconnect"
+        const val CONTROL_TRANSFER_REDIRECT = 0x14.toByte()  // Old Host -> All Clients: "Connect to new host at IP:port"
     }
     
     /**

@@ -255,6 +255,87 @@ class UdpAudioServer @Inject constructor(
     }
     
     /**
+     * Send host transfer request to a specific client
+     */
+    suspend fun sendTransferRequest(clientId: String): Boolean {
+        val client = connectedClients[clientId] ?: return false
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val transferPacket = packetHandler.createControlPacket(
+                    sessionId = sessionId,
+                    sequenceNumber = sequenceNumber.incrementAndGet(),
+                    command = UdpPacketHandler.CONTROL_TRANSFER_REQUEST
+                )
+                
+                val socket = audioSocket ?: return@withContext false
+                val packet = DatagramPacket(
+                    transferPacket,
+                    transferPacket.size,
+                    client.address,
+                    client.audioPort
+                )
+                socket.send(packet)
+                
+                Log.i(TAG, "Sent transfer request to client $clientId at ${client.address.hostAddress}")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send transfer request to $clientId", e)
+                false
+            }
+        }
+    }
+    
+    /**
+     * Send redirect command to all clients to connect to new host
+     */
+    suspend fun sendRedirectToAllClients(newHostIp: String, newHostPort: Int) {
+        withContext(Dispatchers.IO) {
+            // Encode new host IP and port
+            val ipParts = newHostIp.split(".")
+            val redirectData = byteArrayOf(
+                ipParts[0].toInt().toByte(),
+                ipParts[1].toInt().toByte(),
+                ipParts[2].toInt().toByte(),
+                ipParts[3].toInt().toByte(),
+                ((newHostPort shr 8) and 0xFF).toByte(),
+                (newHostPort and 0xFF).toByte()
+            )
+            
+            val redirectPacket = packetHandler.createControlPacket(
+                sessionId = sessionId,
+                sequenceNumber = sequenceNumber.incrementAndGet(),
+                command = UdpPacketHandler.CONTROL_TRANSFER_REDIRECT,
+                data = redirectData
+            )
+            
+            val socket = audioSocket ?: return@withContext
+            
+            connectedClients.values.forEach { client ->
+                try {
+                    val packet = DatagramPacket(
+                        redirectPacket,
+                        redirectPacket.size,
+                        client.address,
+                        client.audioPort
+                    )
+                    socket.send(packet)
+                    Log.d(TAG, "Sent redirect to ${client.clientId} -> $newHostIp:$newHostPort")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to send redirect to ${client.clientId}", e)
+                }
+            }
+            
+            Log.i(TAG, "Sent redirect to all ${connectedClients.size} clients -> $newHostIp:$newHostPort")
+        }
+    }
+    
+    /**
+     * Get list of all connected clients (for transfer)
+     */
+    fun getConnectedClientsList(): List<UdpClient> = connectedClients.values.toList()
+
+    /**
      * Handle control message from client
      */
     suspend fun handleControlMessage(packet: UdpPacket, senderAddress: InetAddress) {
@@ -286,6 +367,30 @@ class UdpAudioServer @Inject constructor(
                     } else {
                         Log.w(TAG, "Heartbeat from unknown client: $clientSessionId from ${senderAddress.hostAddress}")
                     }
+                }
+            }
+            
+            UdpPacketHandler.CONTROL_TRANSFER_ACCEPT -> {
+                // Client accepted host transfer - parse their new server port
+                val newServerPort = if (controlCommand.data.size >= 2) {
+                    ((controlCommand.data[0].toInt() and 0xFF) shl 8) or (controlCommand.data[1].toInt() and 0xFF)
+                } else {
+                    9090 // Default port
+                }
+                Log.i(TAG, "Client ${packet.sessionId} accepted host transfer, new server port: $newServerPort")
+                scope.launch {
+                    _serverEvents.emit(UdpServerEvent.TransferAccepted(
+                        packet.sessionId,
+                        senderAddress.hostAddress,
+                        newServerPort
+                    ))
+                }
+            }
+            
+            UdpPacketHandler.CONTROL_TRANSFER_REJECT -> {
+                Log.i(TAG, "Client ${packet.sessionId} rejected host transfer")
+                scope.launch {
+                    _serverEvents.emit(UdpServerEvent.TransferRejected(packet.sessionId))
                 }
             }
             
@@ -533,4 +638,8 @@ sealed class UdpServerEvent {
     data class ClientConnected(val clientId: String, val clientAddress: String) : UdpServerEvent()
     data class ClientDisconnected(val clientId: String) : UdpServerEvent()
     data class ServerError(val message: String) : UdpServerEvent()
+    
+    // Host transfer events
+    data class TransferAccepted(val clientId: String, val clientAddress: String, val newServerPort: Int) : UdpServerEvent()
+    data class TransferRejected(val clientId: String) : UdpServerEvent()
 }

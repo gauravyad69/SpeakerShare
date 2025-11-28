@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import io.github.gauravyad69.speakershare.network.discovery.DiscoveredHost
+import io.github.gauravyad69.speakershare.services.TransferRequest
 import io.github.gauravyad69.speakershare.ui.viewmodels.ClientViewModel
 
 import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
@@ -39,6 +40,7 @@ fun ClientScreen(
     val volume by viewModel.volume.collectAsState()
     val isMuted by viewModel.isMuted.collectAsState()
     val audioLevel by viewModel.audioLevel.collectAsState()
+    val pendingTransferRequest by viewModel.pendingTransferRequest.collectAsState()
     val context = LocalContext.current
 
     LaunchedEffect(initialHostIp, initialHostPort, initialHostName) {
@@ -148,6 +150,48 @@ fun ClientScreen(
         LaunchedEffect(error) {
             // Show error snackbar or dialog
         }
+    }
+    
+    // Host Transfer Request Dialog
+    pendingTransferRequest?.let { request ->
+        AlertDialog(
+            onDismissRequest = { viewModel.rejectTransferRequest() },
+            title = { 
+                Text(
+                    text = "Become Host?",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = { 
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("The current host wants to transfer control to you.")
+                    Text(
+                        text = "If you accept, you will become the new host and start broadcasting audio to all connected clients.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Note: This requires screen recording permission to capture system audio.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.acceptTransferRequest() }
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Accept")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { viewModel.rejectTransferRequest() }) {
+                    Text("Decline")
+                }
+            }
+        )
     }
 }
 

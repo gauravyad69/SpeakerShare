@@ -21,6 +21,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.gauravyad69.speakershare.ui.theme.SpeakerShareTheme
 import io.github.gauravyad69.speakershare.ui.viewmodels.HostViewModel
+import io.github.gauravyad69.speakershare.ui.viewmodels.TransferStatus
 import io.github.gauravyad69.speakershare.data.model.AudioSource
 import io.github.gauravyad69.speakershare.data.model.ClientConnection
 
@@ -37,6 +38,12 @@ fun HostScreen(
     viewModel: HostViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val transferStatus by viewModel.transferStatus.collectAsStateWithLifecycle()
+    val pendingTransferClientId by viewModel.pendingTransferClientId.collectAsStateWithLifecycle()
+    
+    // State for showing client action menu
+    var showClientMenu by remember { mutableStateOf<String?>(null) }
+    var showTransferConfirmDialog by remember { mutableStateOf<ClientConnection?>(null) }
     
     Column(
         modifier = modifier
@@ -328,21 +335,64 @@ fun HostScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(
-                                Icons.Default.Person,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                
+                                Spacer(modifier = Modifier.width(8.dp))
+                                
+                                Text(
+                                    text = client.clientName,
+                                    fontSize = 14.sp
+                                )
+                            }
                             
-                            Spacer(modifier = Modifier.width(8.dp))
-                            
-                            Text(
-                                text = client.clientName,
-                                fontSize = 14.sp
-                            )
+                            // Client action menu
+                            Box {
+                                IconButton(
+                                    onClick = { showClientMenu = client.clientId },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.MoreVert,
+                                        contentDescription = "Client options",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                
+                                DropdownMenu(
+                                    expanded = showClientMenu == client.clientId,
+                                    onDismissRequest = { showClientMenu = null }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Make Host") },
+                                        onClick = {
+                                            showClientMenu = null
+                                            showTransferConfirmDialog = client
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.SwapHoriz, contentDescription = null)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Kick") },
+                                        onClick = {
+                                            showClientMenu = null
+                                            viewModel.kickClient(client.clientId)
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.PersonRemove, contentDescription = null)
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                     
@@ -357,6 +407,88 @@ fun HostScreen(
                 }
             }
         }
+        
+        // Transfer Status Indicator
+        if (transferStatus !is TransferStatus.Idle) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = when (transferStatus) {
+                        is TransferStatus.Completed -> MaterialTheme.colorScheme.primaryContainer
+                        is TransferStatus.Failed, is TransferStatus.Rejected -> MaterialTheme.colorScheme.errorContainer
+                        else -> MaterialTheme.colorScheme.surfaceVariant
+                    }
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    when (transferStatus) {
+                        is TransferStatus.Requesting, is TransferStatus.WaitingForResponse, is TransferStatus.Completing -> {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        }
+                        is TransferStatus.Completed -> {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                        is TransferStatus.Failed, is TransferStatus.Rejected -> {
+                            Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        }
+                        else -> {}
+                    }
+                    
+                    Text(
+                        text = when (transferStatus) {
+                            is TransferStatus.Requesting -> "Sending transfer request..."
+                            is TransferStatus.WaitingForResponse -> "Waiting for client to accept..."
+                            is TransferStatus.Completing -> "Completing transfer..."
+                            is TransferStatus.Completed -> "Transfer complete!"
+                            is TransferStatus.Rejected -> "Client rejected the transfer"
+                            is TransferStatus.Failed -> "Transfer failed: ${(transferStatus as TransferStatus.Failed).reason}"
+                            else -> ""
+                        },
+                        fontSize = 14.sp
+                    )
+                    
+                    if (transferStatus is TransferStatus.WaitingForResponse) {
+                        Spacer(modifier = Modifier.weight(1f))
+                        TextButton(onClick = { viewModel.cancelTransferRequest() }) {
+                            Text("Cancel")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Transfer Confirmation Dialog
+    showTransferConfirmDialog?.let { client ->
+        AlertDialog(
+            onDismissRequest = { showTransferConfirmDialog = null },
+            title = { Text("Transfer Host Role") },
+            text = { 
+                Text("Are you sure you want to make ${client.clientName} the new host? You will stop broadcasting and become a client.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showTransferConfirmDialog = null
+                        viewModel.requestTransferHost(client.clientId)
+                    }
+                ) {
+                    Text("Transfer")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showTransferConfirmDialog = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
