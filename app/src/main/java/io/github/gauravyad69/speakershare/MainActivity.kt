@@ -79,6 +79,12 @@ fun SpeakerShareApp() {
             
             ClientScreen(
                 onNavigateBack = { navController.popBackStack() },
+                onBecomeHost = {
+                    // Navigate to host screen, replacing the current screen
+                    navController.navigate("host") {
+                        popUpTo("mode_selection") { inclusive = false }
+                    }
+                },
                 initialHostIp = ip,
                 initialHostPort = port,
                 initialHostName = name
@@ -87,7 +93,12 @@ fun SpeakerShareApp() {
         
         composable("client") {
             ClientScreen(
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                onBecomeHost = {
+                    navController.navigate("host") {
+                        popUpTo("mode_selection") { inclusive = false }
+                    }
+                }
             )
         }
         

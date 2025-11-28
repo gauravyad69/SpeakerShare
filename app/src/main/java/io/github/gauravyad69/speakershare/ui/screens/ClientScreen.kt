@@ -29,6 +29,7 @@ import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
 @Composable
 fun ClientScreen(
     onNavigateBack: () -> Unit,
+    onBecomeHost: () -> Unit = {},
     initialHostIp: String? = null,
     initialHostPort: Int? = null,
     initialHostName: String? = null,
@@ -42,6 +43,14 @@ fun ClientScreen(
     val audioLevel by viewModel.audioLevel.collectAsState()
     val pendingTransferRequest by viewModel.pendingTransferRequest.collectAsState()
     val context = LocalContext.current
+
+    // Set up callback for when user becomes host
+    LaunchedEffect(Unit) {
+        viewModel.setOnBecomeHostListener { fromHostAddress ->
+            android.util.Log.d("ClientScreen", "Becoming host, redirecting from: $fromHostAddress")
+            onBecomeHost()
+        }
+    }
 
     LaunchedEffect(initialHostIp, initialHostPort, initialHostName) {
         if (initialHostIp != null && initialHostPort != null && initialHostName != null) {
