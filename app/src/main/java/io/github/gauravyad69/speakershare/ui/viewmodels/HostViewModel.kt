@@ -324,7 +324,14 @@ class HostViewModel @Inject constructor(
         audioSource,
         isMuted,
         isLoading
-    ) { isBroadcasting, connectedClients, audioSource, isMuted, isLoading ->
+    ) { args ->
+        val isBroadcasting = args[0] as Boolean
+        @Suppress("UNCHECKED_CAST")
+        val connectedClients = args[1] as List<ClientConnection>
+        val audioSource = args[2] as AudioSource
+        val isMuted = args[3] as Boolean
+        val isLoading = args[4] as Boolean
+
         HostUiState(
             isHosting = isBroadcasting,
             connectedClients = connectedClients,

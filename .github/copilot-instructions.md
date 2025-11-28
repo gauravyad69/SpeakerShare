@@ -183,5 +183,4 @@ implementation "androidx.activity:activity-compose:$activity_version"
 ---
 *Auto-updated by .specify system | Keep manual additions between markers*
 <!-- MANUAL_ADDITIONS_START -->
-dump the xml's into a temporary folder
 <!-- MANUAL_ADDITIONS_END -->

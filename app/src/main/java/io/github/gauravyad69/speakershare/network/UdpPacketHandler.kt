@@ -18,7 +18,7 @@ class UdpPacketHandler @Inject constructor() {
         private const val TAG = "UdpPacketHandler"
         
         // Packet structure constants
-        private const val HEADER_SIZE = 20 // bytes
+        private const val HEADER_SIZE = 28 // bytes (increased to fit timestamp and CRC)
         private const val MAX_PACKET_SIZE = 1400 // bytes (safe for most MTUs)
         private const val MAX_PAYLOAD_SIZE = MAX_PACKET_SIZE - HEADER_SIZE
         

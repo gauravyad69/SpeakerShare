@@ -1,5 +1,6 @@
 package io.github.gauravyad69.speakershare.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -9,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -36,6 +38,7 @@ fun ClientScreen(
     val connectedHost by viewModel.connectedHost.collectAsState()
     val volume by viewModel.volume.collectAsState()
     val isMuted by viewModel.isMuted.collectAsState()
+    val audioLevel by viewModel.audioLevel.collectAsState()
     val context = LocalContext.current
 
     LaunchedEffect(initialHostIp, initialHostPort, initialHostName) {
@@ -98,6 +101,25 @@ fun ClientScreen(
                     onVolumeChange = { viewModel.setVolume(it) },
                     onMuteToggle = { viewModel.toggleMute() }
                 )
+
+                // Audio Visualizer
+                Card(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = "Audio Visualizer",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        AudioVisualizer(level = audioLevel)
+                    }
+                }
+
+                // Audio Visualizer
+                AudioVisualizer(level = volume)
             }
 
             // Discovery Section
@@ -467,6 +489,46 @@ private fun ConnectionStatsCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun AudioVisualizer(
+    level: Float,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.fillMaxWidth().height(60.dp)) {
+        val barCount = 30
+        val barWidth = size.width / barCount
+        val maxBarHeight = size.height
+        
+        for (i in 0 until barCount) {
+            val center = barCount / 2f
+            val dist = kotlin.math.abs(i - center) / center
+            val scale = 1f - dist * 0.5f
+            
+            val barHeight = maxBarHeight * level * scale * (0.8f + kotlin.random.Random.nextFloat() * 0.4f)
+            val clampedHeight = barHeight.coerceIn(2.dp.toPx(), maxBarHeight)
+            
+            val color = Color(
+                red = 0.2f,
+                green = 0.8f + (level * 0.2f),
+                blue = 0.4f,
+                alpha = 0.8f
+            )
+            
+            drawRect(
+                color = color,
+                topLeft = androidx.compose.ui.geometry.Offset(
+                    x = i * barWidth,
+                    y = (maxBarHeight - clampedHeight) / 2
+                ),
+                size = androidx.compose.ui.geometry.Size(
+                    width = barWidth * 0.8f,
+                    height = clampedHeight
+                )
+            )
         }
     }
 }

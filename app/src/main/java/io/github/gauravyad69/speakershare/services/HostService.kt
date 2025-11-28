@@ -84,7 +84,7 @@ class HostService @Inject constructor(
             
             // Start audio streaming
             val streamResult = audioStreamManager.startStreaming(
-                sessionId, audioSource, quality
+                sessionId, audioSource, quality, "UDP"
             )
             
             if (streamResult.isFailure) {
@@ -307,6 +307,13 @@ class HostService @Inject constructor(
             Log.e(TAG, "Failed to switch audio source", e)
             Result.failure(e)
         }
+    }
+    
+    /**
+     * Get audio level for visualization
+     */
+    fun getAudioLevel(): StateFlow<Float> {
+        return audioStreamManager.getAudioLevel()
     }
     
     // Private helper methods

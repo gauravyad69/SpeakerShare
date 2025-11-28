@@ -1,16 +1,26 @@
 package io.github.gauravyad69.speakershare.services
 
-import io.github.gauravyad69.speakershare.data.model.AudioStream
-import io.github.gauravyad69.speakershare.data.model.AudioSource
+import android.Manifest
+import android.util.Log
+import androidx.annotation.RequiresPermission
+import io.github.gauravyad69.speakershare.audio.AudioCaptureService
+import io.github.gauravyad69.speakershare.audio.AudioEncoder
 import io.github.gauravyad69.speakershare.data.model.AudioQuality
+import io.github.gauravyad69.speakershare.data.model.AudioSource
+import io.github.gauravyad69.speakershare.data.model.AudioStream
 import io.github.gauravyad69.speakershare.data.model.StreamState
 import io.github.gauravyad69.speakershare.data.model.StreamTransport
-import kotlinx.coroutines.flow.StateFlow
+import io.github.gauravyad69.speakershare.network.UdpAudioServer
+import io.github.gauravyad69.speakershare.network.WebRTCManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
-import android.util.Log
 
 /**
  * Central manager for audio streaming functionality.
@@ -18,13 +28,20 @@ import android.util.Log
  * Supports both WebRTC and UDP transport protocols.
  */
 @Singleton
-class AudioStreamManager @Inject constructor() {
+class AudioStreamManager @Inject constructor(
+    private val webRTCManager: WebRTCManager,
+    private val udpAudioServer: UdpAudioServer,
+    private val audioCaptureService: AudioCaptureService,
+    private val audioEncoder: AudioEncoder
+) {
     
     private val _currentStream = MutableStateFlow<AudioStream?>(null)
     val currentStream: StateFlow<AudioStream?> = _currentStream.asStateFlow()
     
     private val _isStreaming = MutableStateFlow(false)
     val isStreaming: StateFlow<Boolean> = _isStreaming.asStateFlow()
+    
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
     companion object {
         private const val TAG = "AudioStreamManager"
@@ -33,6 +50,7 @@ class AudioStreamManager @Inject constructor() {
     /**
      * Start audio streaming with specified configuration
      */
+    @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     suspend fun startStreaming(
         streamId: String,
         audioSource: AudioSource,
@@ -42,11 +60,13 @@ class AudioStreamManager @Inject constructor() {
         return try {
             Log.d(TAG, "Starting audio stream: $streamId, source: $audioSource, transport: $transport")
             
+            val transportType = if (transport == "WEBRTC") StreamTransport.WEBRTC else StreamTransport.UDP
+            
             val audioStream = AudioStream(
                 streamId = streamId,
                 sessionId = streamId, // Use same as streamId for now
                 audioSource = audioSource,
-                transport = if (transport == "WEBRTC") StreamTransport.WEBRTC else StreamTransport.UDP,
+                transport = transportType,
                 quality = quality,
                 state = StreamState.STARTING,
                 isActive = false,
@@ -58,8 +78,17 @@ class AudioStreamManager @Inject constructor() {
             _currentStream.value = audioStream
             
             // Initialize audio capture and transport
-            initializeAudioCapture(audioSource)
-            initializeTransport(transport, quality)
+            if (transportType == StreamTransport.WEBRTC) {
+                startWebRTCStreaming(streamId)
+                // Try to start capture service for visualization only
+                try {
+                    audioCaptureService.startCapture(audioSource, quality.sampleRate)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to start audio capture for visualization (WebRTC active): ${e.message}")
+                }
+            } else {
+                startUdpStreaming(streamId, audioSource, quality)
+            }
             
             // Update state to active
             _currentStream.value = audioStream.copy(state = StreamState.ACTIVE, isActive = true)
@@ -74,6 +103,46 @@ class AudioStreamManager @Inject constructor() {
         }
     }
     
+    private suspend fun startWebRTCStreaming(streamId: String) {
+        if (!webRTCManager.startBroadcasting()) {
+            throw RuntimeException("Failed to start WebRTC broadcasting")
+        }
+    }
+    
+    private suspend fun startUdpStreaming(streamId: String, audioSource: AudioSource, quality: AudioQuality) {
+        // 1. Start UDP Server
+        if (!udpAudioServer.startServer(streamId, "Host")) {
+             throw RuntimeException("Failed to start UDP server")
+        }
+        
+        // 2. Start Encoder
+        val encoderConfig = audioEncoder.getQualityPreset(
+            when {
+                quality.bitrate <= 64000 -> AudioEncoder.AudioQuality.LOW
+                quality.bitrate <= 128000 -> AudioEncoder.AudioQuality.MEDIUM
+                quality.bitrate <= 256000 -> AudioEncoder.AudioQuality.HIGH
+                else -> AudioEncoder.AudioQuality.ULTRA
+            }
+        )
+        audioEncoder.startEncoding(encoderConfig)
+        
+        // 3. Start Capture
+        audioCaptureService.startCapture(audioSource, encoderConfig.sampleRate)
+        
+        // 4. Pipe Data
+        scope.launch {
+            audioCaptureService.audioDataFlow.collect { pcmData ->
+                audioEncoder.encodePCMData(pcmData)
+            }
+        }
+        
+        scope.launch {
+            audioEncoder.encodedPacketFlow.collect { packet ->
+                udpAudioServer.broadcastAudio(packet.data)
+            }
+        }
+    }
+    
     /**
      * Stop current audio streaming
      */
@@ -82,9 +151,14 @@ class AudioStreamManager @Inject constructor() {
             Log.d(TAG, "Stopping audio stream")
             
             _currentStream.value?.let { stream ->
-                // Stop transport and audio capture
-                stopTransport()
-                stopAudioCapture()
+                if (stream.transport == StreamTransport.WEBRTC) {
+                    webRTCManager.stopBroadcasting()
+                    audioCaptureService.stopCapture() // Stop visualization capture
+                } else {
+                    udpAudioServer.stopServer()
+                    audioEncoder.stopEncoding()
+                    audioCaptureService.stopCapture()
+                }
                 
                 // Update state
                 _currentStream.value = stream.copy(state = StreamState.STOPPED, isActive = false)
@@ -116,10 +190,10 @@ class AudioStreamManager @Inject constructor() {
             Log.d(TAG, "Switching audio source from ${currentStream.audioSource} to $newSource")
             
             // Stop current capture
-            stopAudioCapture()
+            audioCaptureService.stopCapture()
             
             // Initialize new capture
-            initializeAudioCapture(newSource)
+            audioCaptureService.startCapture(newSource, currentStream.quality.sampleRate)
             
             // Update stream
             _currentStream.value = currentStream.copy(audioSource = newSource)
@@ -145,7 +219,8 @@ class AudioStreamManager @Inject constructor() {
             Log.d(TAG, "Updating audio quality: ${newQuality.bitrate}kbps, ${newQuality.sampleRate}Hz")
             
             // Reconfigure encoder with new quality
-            reconfigureEncoder(newQuality)
+            // TODO: Implement dynamic reconfiguration in AudioEncoder
+            // For now, we'll just update the stream info
             
             // Update stream
             _currentStream.value = currentStream.copy(quality = newQuality)
@@ -165,32 +240,10 @@ class AudioStreamManager @Inject constructor() {
         return _currentStream.value?.metrics
     }
     
-    // Private helper methods for actual implementation
-    private suspend fun initializeAudioCapture(source: AudioSource) {
-        Log.d(TAG, "Initializing audio capture for source: $source")
-        // TODO: Implement actual audio capture initialization
-        // This will be implemented when T031 (AudioCaptureService) is completed
-    }
-    
-    private suspend fun initializeTransport(transport: String, quality: AudioQuality) {
-        Log.d(TAG, "Initializing transport: $transport with quality: ${quality.bitrate}kbps")
-        // TODO: Implement transport initialization (WebRTC/UDP)
-        // This will be implemented when T036-T041 are completed
-    }
-    
-    private suspend fun stopTransport() {
-        Log.d(TAG, "Stopping transport")
-        // TODO: Implement transport cleanup
-    }
-    
-    private suspend fun stopAudioCapture() {
-        Log.d(TAG, "Stopping audio capture")
-        // TODO: Implement audio capture cleanup
-    }
-    
-    private suspend fun reconfigureEncoder(quality: AudioQuality) {
-        Log.d(TAG, "Reconfiguring encoder for quality: ${quality.bitrate}kbps")
-        // TODO: Implement encoder reconfiguration
-        // This will be implemented when T032 (AudioEncoder) is completed
+    /**
+     * Get audio level for visualization
+     */
+    fun getAudioLevel(): StateFlow<Float> {
+        return audioCaptureService.currentAudioLevel
     }
 }

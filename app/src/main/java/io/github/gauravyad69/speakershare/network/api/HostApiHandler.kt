@@ -65,7 +65,8 @@ data class ClientConnectResponse(
     val streamEndpoint: StreamEndpoint? = null,
     val clientId: String? = null,
     val reason: String? = null,
-    val maxClients: Int = 0
+    val maxClients: Int = 0,
+    val sampleRate: Int = 44100
 )
 
 data class StreamEndpoint(

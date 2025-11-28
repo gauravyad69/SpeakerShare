@@ -1,5 +1,8 @@
 package io.github.gauravyad69.speakershare.services
 
+import io.github.gauravyad69.speakershare.audio.AudioPlaybackService
+import io.github.gauravyad69.speakershare.network.UdpAudioClient
+import io.github.gauravyad69.speakershare.network.UdpClientEvent
 import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.network.api.ClientConnectRequest
 import io.github.gauravyad69.speakershare.network.api.ClientConnectResponse
@@ -33,10 +36,41 @@ import java.util.UUID
 @Singleton
 class ClientManager @Inject constructor(
     private val audioStreamManager: AudioStreamManager,
-    private val networkDiscoveryService: NetworkDiscoveryService
+    private val networkDiscoveryService: NetworkDiscoveryService,
+    private val audioPlaybackService: AudioPlaybackService,
+    private val udpAudioClient: UdpAudioClient
 ) {
     
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    
+    init {
+        observeUdpEvents()
+    }
+
+    private fun observeUdpEvents() {
+        serviceScope.launch {
+            udpAudioClient.clientEvents.collect { event ->
+                when (event) {
+                    is UdpClientEvent.AudioDataReceived -> {
+                        audioPlaybackService.queueAudioData(event.audioData)
+                    }
+                    is UdpClientEvent.Connected -> {
+                        Log.d(TAG, "UDP Client connected")
+                    }
+                    is UdpClientEvent.Disconnected -> {
+                        Log.d(TAG, "UDP Client disconnected")
+                    }
+                    is UdpClientEvent.ConnectionError -> {
+                        Log.e(TAG, "UDP Connection error: ${event.message}")
+                    }
+                    is UdpClientEvent.ReceiveError -> {
+                        Log.e(TAG, "UDP Receive error: ${event.message}")
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
     
     private val _discoveredHosts = MutableStateFlow<List<HostSession>>(emptyList())
     val discoveredHosts: StateFlow<List<HostSession>> = _discoveredHosts.asStateFlow()
@@ -49,6 +83,9 @@ class ClientManager @Inject constructor(
     
     private val _audioSettings = MutableStateFlow(ClientAudioSettings())
     val audioSettings: StateFlow<ClientAudioSettings> = _audioSettings.asStateFlow()
+
+    // Expose audio level from playback service
+    val audioLevel: StateFlow<Float> = audioPlaybackService.audioLevel
     
     private val _isDiscovering = MutableStateFlow(false)
     val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
@@ -163,16 +200,18 @@ class ClientManager @Inject constructor(
             
             if (connectionResult.isFailure) {
                 _currentConnection.value = clientConnection.copy(status = ConnectionStatus.ERROR)
-                return connectionResult
+                return Result.failure(connectionResult.exceptionOrNull() ?: Exception("Unknown error"))
             }
             
+            val response = connectionResult.getOrNull()!!
+
             // Update connection status
             val connectedClient = clientConnection.copy(status = ConnectionStatus.CONNECTED)
             _currentConnection.value = connectedClient
             _isConnected.value = true
             
             // Start audio playback
-            startAudioPlayback(hostSession)
+            startAudioPlayback(hostSession, response.sampleRate)
             
             Log.d(TAG, "Connected to host successfully")
             Result.success(Unit)
@@ -330,7 +369,7 @@ class ClientManager @Inject constructor(
     private suspend fun sendConnectionRequest(
         hostSession: HostSession,
         clientConnection: ClientConnection
-    ): Result<Unit> {
+    ): Result<ClientConnectResponse> {
         return try {
             val hostIp = hostSession.networkInfo.localIpAddress
             val port = hostSession.networkInfo.port
@@ -352,7 +391,7 @@ class ClientManager @Inject constructor(
             
             if (response.status == "ACCEPTED") {
                 Log.d(TAG, "Connection accepted by host")
-                Result.success(Unit)
+                Result.success(response)
             } else {
                 Log.w(TAG, "Connection rejected: ${response.reason}")
                 Result.failure(Exception("Connection rejected: ${response.reason}"))
@@ -370,25 +409,31 @@ class ClientManager @Inject constructor(
         // For now, we'll just log it as we don't have the host session stored in this context easily.
     }
     
-    private suspend fun startAudioPlayback(hostSession: HostSession) {
-        Log.d(TAG, "Starting audio playback for session ${hostSession.sessionId}")
-        // TODO: Start audio playback service (T034)
-        // This will receive and decode the audio stream from host
+    private suspend fun startAudioPlayback(hostSession: HostSession, sampleRate: Int) {
+        Log.d(TAG, "Starting audio playback for session ${hostSession.sessionId} at ${sampleRate}Hz")
+        audioPlaybackService.startPlayback(AudioPlaybackService.PlaybackConfig(sampleRate = sampleRate))
+        
+        // Start UDP client
+        val hostIp = hostSession.networkInfo.localIpAddress
+        val hostPort = 9090 // Default audio port
+        
+        udpAudioClient.connectToHost(hostIp, hostPort)
     }
     
     private suspend fun stopAudioPlayback() {
         Log.d(TAG, "Stopping audio playback")
-        // TODO: Stop audio playback service
+        audioPlaybackService.stopPlayback()
+        udpAudioClient.disconnect()
     }
     
     private suspend fun applyVolumeChange(volume: Float) {
         Log.d(TAG, "Applying volume change: $volume")
-        // TODO: Apply volume to audio playback service
+        audioPlaybackService.setVolume(volume)
     }
     
     private suspend fun applyMuteChange(muted: Boolean) {
         Log.d(TAG, "Applying mute change: $muted")
-        // TODO: Apply mute to audio playback service
+        audioPlaybackService.setMuted(muted)
     }
     
     private suspend fun attemptReconnection(connection: ClientConnection): Result<Unit> {

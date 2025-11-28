@@ -51,7 +51,7 @@ interface NetworkDiscovery {
 
 // Network discovery data classe/s
 /*data class DiscoveredHost(
-    val hostId: String,
+    val h.
     val hostName: String,
     val ipAddress: String,
     val port: Int,

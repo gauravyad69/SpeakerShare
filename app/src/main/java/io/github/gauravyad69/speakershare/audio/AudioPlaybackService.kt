@@ -51,6 +51,10 @@ class AudioPlaybackService @Inject constructor(
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
+    // Audio level for visualization
+    private val _audioLevel = MutableStateFlow(0f)
+    val audioLevel: StateFlow<Float> = _audioLevel.asStateFlow()
+
     // Audio components
     private var audioTrack: AudioTrack? = null
     private var audioManager: AudioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -150,6 +154,8 @@ class AudioPlaybackService @Inject constructor(
         }
     }
 
+
+
     /**
      * Set playback volume (0.0 to 1.0)
      */
@@ -230,6 +236,9 @@ class AudioPlaybackService @Inject constructor(
                 }
 
                 if (audioData != null) {
+                    // Calculate audio level for visualization
+                    calculateAudioLevel(audioData)
+
                     // Write to AudioTrack
                     val bytesWritten = audioTrack?.write(audioData, 0, audioData.size) ?: 0
                     
@@ -272,6 +281,23 @@ class AudioPlaybackService @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Calculate RMS audio level from PCM data
+     */
+    private fun calculateAudioLevel(data: ByteArray) {
+        var sum = 0.0
+        // Process 16-bit PCM samples
+        for (i in 0 until data.size - 1 step 2) {
+            // Little endian
+            val sample = ((data[i+1].toInt() shl 8) or (data[i].toInt() and 0xFF)).toShort()
+            sum += sample * sample
+        }
+        val rms = kotlin.math.sqrt(sum / (data.size / 2))
+        // Normalize to 0..1 (assuming 16-bit max is 32768)
+        val level = (rms / 32768.0).toFloat().coerceIn(0f, 1f)
+        _audioLevel.value = level
     }
 
     /**

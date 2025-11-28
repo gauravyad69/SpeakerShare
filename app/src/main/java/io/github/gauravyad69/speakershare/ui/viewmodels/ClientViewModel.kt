@@ -40,6 +40,9 @@ class ClientViewModel @Inject constructor(
     val isMuted: StateFlow<Boolean> = clientManager.audioSettings.map { it.isMuted }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), false)
 
+    // Audio level for visualization
+    val audioLevel: StateFlow<Float> = clientManager.audioLevel
+
     // Connected host info
     private val _connectedHost = MutableStateFlow<NetworkInfo?>(null)
     val connectedHost: StateFlow<NetworkInfo?> = _connectedHost.asStateFlow()

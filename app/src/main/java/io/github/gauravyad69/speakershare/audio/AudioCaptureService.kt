@@ -73,6 +73,10 @@ class AudioCaptureService @Inject constructor(
     )
     val audioDataFlow: SharedFlow<ByteArray> = _audioDataFlow.asSharedFlow()
 
+    // Current audio level for visualization
+    private val _currentAudioLevel = MutableStateFlow(0f)
+    val currentAudioLevel: StateFlow<Float> = _currentAudioLevel.asStateFlow()
+
     // Internal capture components
     private var audioRecord: AudioRecord? = null
     private var mediaProjection: MediaProjection? = null
@@ -84,7 +88,10 @@ class AudioCaptureService @Inject constructor(
      * Start audio capture from the specified source
      */
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
-    suspend fun startCapture(audioSource: io.github.gauravyad69.speakershare.data.model.AudioSource): Result<Unit> {
+    suspend fun startCapture(
+        audioSource: io.github.gauravyad69.speakershare.data.model.AudioSource,
+        sampleRate: Int = SAMPLE_RATE
+    ): Result<Unit> {
         return try {
             if (_captureState.value.isCapturing) {
                 stopCapture()
@@ -92,11 +99,11 @@ class AudioCaptureService @Inject constructor(
 
             when (audioSource) {
                 io.github.gauravyad69.speakershare.data.model.AudioSource.MICROPHONE -> {
-                    startMicrophoneCapture()
+                    startMicrophoneCapture(sampleRate)
                 }
                 io.github.gauravyad69.speakershare.data.model.AudioSource.SYSTEM_AUDIO -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        startSystemAudioCapture()
+                        startSystemAudioCapture(sampleRate)
                     } else {
                         return Result.failure(UnsupportedOperationException("System audio capture requires Android 10+"))
                     }
@@ -105,7 +112,8 @@ class AudioCaptureService @Inject constructor(
 
             _captureState.value = _captureState.value.copy(
                 isCapturing = true,
-                audioSource = audioSource
+                audioSource = audioSource,
+                sampleRate = sampleRate
             )
 
             Result.success(Unit)
@@ -152,9 +160,10 @@ class AudioCaptureService @Inject constructor(
     suspend fun switchAudioSource(newSource: io.github.gauravyad69.speakershare.data.model.AudioSource): Result<Unit> {
         return try {
             if (_captureState.value.isCapturing) {
+                val currentSampleRate = _captureState.value.sampleRate
                 stopCapture()
                 delay(100) // Brief pause for cleanup
-                startCapture(newSource)
+                startCapture(newSource, currentSampleRate)
             } else {
                 Result.failure(IllegalStateException("Not currently capturing"))
             }
@@ -167,8 +176,8 @@ class AudioCaptureService @Inject constructor(
      * Start microphone audio capture
      */
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
-    private suspend fun startMicrophoneCapture() {
-        val config = AudioCaptureConfig()
+    private suspend fun startMicrophoneCapture(sampleRate: Int) {
+        val config = AudioCaptureConfig(sampleRate = sampleRate)
         
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.MIC,
@@ -193,13 +202,14 @@ class AudioCaptureService @Inject constructor(
      * Start system audio capture using MediaProjection
      */
     @RequiresApi(Build.VERSION_CODES.Q)
-    private suspend fun startSystemAudioCapture() {
+    private suspend fun startSystemAudioCapture(sampleRate: Int) {
         // Note: In real implementation, MediaProjection would be initialized
         // with user permission via MediaProjectionManager.createScreenCaptureIntent()
         // For now, we'll simulate system audio capture
         
+        val config = AudioCaptureConfig(sampleRate = sampleRate)
         captureJob = captureScope.launch {
-            captureSystemAudioLoop()
+            captureSystemAudioLoop(config)
         }
     }
 
@@ -216,6 +226,7 @@ class AudioCaptureService @Inject constructor(
                 if (bytesRead > 0) {
                     val audioData = buffer.copyOf(bytesRead)
                     _audioDataFlow.tryEmit(audioData)
+                    calculateAudioLevel(audioData)
                 }
                 
                 // Yield to prevent blocking
@@ -230,16 +241,29 @@ class AudioCaptureService @Inject constructor(
         }
     }
 
+    private fun calculateAudioLevel(data: ByteArray) {
+        var sum = 0.0
+        // Process 16-bit PCM samples
+        for (i in 0 until data.size - 1 step 2) {
+            // Little endian
+            val sample = ((data[i+1].toInt() shl 8) or (data[i].toInt() and 0xFF)).toShort()
+            sum += sample * sample
+        }
+        val rms = kotlin.math.sqrt(sum / (data.size / 2))
+        // Normalize to 0..1 (assuming 16-bit max is 32768)
+        val level = (rms / 32768.0).toFloat().coerceIn(0f, 1f)
+        _currentAudioLevel.value = level
+    }
+
     /**
      * System audio capture loop (simulated for test environment)
      */
     @RequiresApi(Build.VERSION_CODES.Q)
-    private suspend fun captureSystemAudioLoop() {
+    private suspend fun captureSystemAudioLoop(config: AudioCaptureConfig) {
         // In real implementation, this would use AudioPlaybackCapture
         // with MediaProjection to capture system audio
         // For testing, we'll simulate system audio data
         
-        val config = AudioCaptureConfig()
         val simulatedBuffer = ByteArray(config.bufferSizeBytes)
         
         while (currentCoroutineContext().isActive) {
@@ -263,14 +287,7 @@ class AudioCaptureService @Inject constructor(
      * Get current audio levels for visualization
      */
     fun getCurrentAudioLevel(): Float {
-        // Calculate RMS level from recent audio data
-        // This would analyze the PCM data to provide level meters
-        return if (_captureState.value.isCapturing) {
-            // Simulate audio level (0.0 to 1.0)
-            kotlin.random.Random.nextFloat() * 0.5f
-        } else {
-            0.0f
-        }
+        return _currentAudioLevel.value
     }
 
     /**

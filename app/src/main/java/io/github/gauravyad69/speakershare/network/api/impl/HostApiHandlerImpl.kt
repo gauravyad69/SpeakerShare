@@ -64,7 +64,8 @@ class HostApiHandlerImpl @Inject constructor(
             status = "ACCEPTED",
             assignedTransport = assignedTransport,
             streamEndpoint = createStreamEndpoint(assignedTransport),
-            clientId = request.clientId
+            clientId = request.clientId,
+            sampleRate = session.quality.sampleRate
         )
     }
     
@@ -88,30 +89,41 @@ class HostApiHandlerImpl @Inject constructor(
     }
     
     override suspend fun getClientList(): ClientListResponse {
+        val hostService = hostServiceProvider.get()
+        val clients = hostService.connectedClients.value.map { 
+            ConnectedClient(
+                id = it.clientId,
+                ipAddress = it.ipAddress,
+                deviceName = it.clientName,
+                connectedAt = it.connectionTime.toString(),
+                audioLatency = it.networkMetrics.latency.toInt(),
+                connectionQuality = "GOOD" // TODO: Calculate based on metrics
+            )
+        }
+        
         return ClientListResponse(
-            totalClients = connectedClients.size,
-            clients = connectedClients.values.toList()
+            totalClients = clients.size,
+            clients = clients
         )
     }
     
     override suspend fun getDiscoveryInfo(): HostDiscoveryInfo {
-        // Check if host is broadcasting
-        if (!isBroadcasting) {
-            throw ServiceUnavailableException(503, "Host is not currently broadcasting")
-        }
-        
+        val hostService = hostServiceProvider.get()
+        val session = hostService.currentSession.value
+            ?: throw ServiceUnavailableException(503, "Host is not currently broadcasting")
+            
         return HostDiscoveryInfo(
-            sessionId = "550e8400-e29b-41d4-a716-446655440000",
-            hostName = "Test Host",
-            audioSource = "MICROPHONE",
+            sessionId = session.sessionId,
+            hostName = session.hostName,
+            audioSource = session.audioSource.name,
             quality = QualityInfo(
-                bitrate = 128,
-                sampleRate = 44100,
-                encoding = "AAC"
+                bitrate = session.quality.bitrate,
+                sampleRate = session.quality.sampleRate,
+                encoding = session.quality.encoding.name
             ),
-            isAcceptingClients = isAcceptingClients,
-            connectedClients = connectedClients.size,
-            maxClients = maxClients,
+            isAcceptingClients = true, // TODO: Add to HostSession
+            connectedClients = session.connectedClients.size,
+            maxClients = session.maxClients,
             transport = listOf("WEBRTC", "UDP")
         )
     }
@@ -146,8 +158,10 @@ class HostApiHandlerImpl @Inject constructor(
     }
     
     override suspend fun kickClient(clientId: String): ClientDisconnectResponse {
-        return if (connectedClients.containsKey(clientId)) {
-            connectedClients.remove(clientId)
+        val hostService = hostServiceProvider.get()
+        val result = hostService.kickClient(clientId, "Kicked by host")
+        
+        return if (result.isSuccess) {
             ClientDisconnectResponse(
                 status = "success",
                 reason = "Client kicked successfully"
@@ -155,7 +169,7 @@ class HostApiHandlerImpl @Inject constructor(
         } else {
             ClientDisconnectResponse(
                 status = "error",
-                reason = "Client not found"
+                reason = result.exceptionOrNull()?.message ?: "Client not found"
             )
         }
     }

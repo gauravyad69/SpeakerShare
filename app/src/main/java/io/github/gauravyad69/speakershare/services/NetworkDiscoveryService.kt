@@ -341,13 +341,18 @@ class NetworkDiscoveryService @Inject constructor(
                 val packet = DatagramPacket(data, data.size, broadcastAddress, UDP_DISCOVERY_PORT)
                 
                 while (udpBroadcastJob?.isActive == true) {
-                    socket.send(packet)
-                    Log.v(TAG, "UDP broadcast sent")
+                    try {
+                        socket.send(packet)
+                        Log.v(TAG, "UDP broadcast sent")
+                    } catch (e: IOException) {
+                        // Handle background restriction (EPERM) or other IO errors
+                        Log.w(TAG, "UDP broadcast failed: ${e.message}")
+                    }
                     delay(UDP_BROADCAST_INTERVAL)
                 }
                 
-            } catch (e: IOException) {
-                Log.e(TAG, "UDP broadcast error", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "UDP broadcast setup error", e)
             } finally {
                 socket?.close()
             }
@@ -473,7 +478,7 @@ class NetworkDiscoveryService @Inject constructor(
                 .filter { !it.isLoopback && it.isUp }
                 .flatMap { it.inetAddresses.asSequence() }
                 .filter { !it.isLoopbackAddress && it.isSiteLocalAddress }
-                .forEach { addresses.add(it.hostAddress) }
+                .forEach { it.hostAddress?.let { ip -> addresses.add(ip) } }
                 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get local IP addresses", e)
