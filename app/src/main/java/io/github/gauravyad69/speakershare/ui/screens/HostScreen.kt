@@ -34,6 +34,7 @@ import io.github.gauravyad69.speakershare.data.model.ClientConnection
 fun HostScreen(
     onNavigateToClients: () -> Unit,
     onNavigateBack: () -> Unit,
+    onBecomeClient: (ip: String, port: Int, hostName: String) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier,
     viewModel: HostViewModel = hiltViewModel()
 ) {
@@ -44,6 +45,15 @@ fun HostScreen(
     // State for showing client action menu
     var showClientMenu by remember { mutableStateOf<String?>(null) }
     var showTransferConfirmDialog by remember { mutableStateOf<ClientConnection?>(null) }
+    
+    // Handle becoming a client after transfer
+    LaunchedEffect(transferStatus) {
+        if (transferStatus is TransferStatus.BecomeClient) {
+            val status = transferStatus as TransferStatus.BecomeClient
+            android.util.Log.d("HostScreen", "Becoming client of new host: ${status.newHostIp}:${status.newHostPort}")
+            onBecomeClient(status.newHostIp, status.newHostPort, status.newHostName)
+        }
+    }
     
     Column(
         modifier = modifier

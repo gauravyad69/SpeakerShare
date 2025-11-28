@@ -69,6 +69,7 @@ class HostViewModel @Inject constructor(
         loadHostSession()
         observeConnectedClients()
         observeAudioStream()
+        observeTransferEvents()
     }
 
     /**
@@ -96,7 +97,8 @@ class HostViewModel @Inject constructor(
     private fun observeConnectedClients() {
         viewModelScope.launch {
             try {
-                clientConnectionRepository.getConnectedClients().collect { clients ->
+                // Use hostService.connectedClients which is updated when UDP clients connect
+                hostService.connectedClients.collect { clients ->
                     _connectedClients.value = clients
                 }
             } catch (e: Exception) {
@@ -116,6 +118,26 @@ class HostViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 _error.value = "Failed to load audio stream: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * Observe transfer events from HostService to update transfer status
+     */
+    private fun observeTransferEvents() {
+        viewModelScope.launch {
+            hostService.transferEvents.collect { event ->
+                when (event) {
+                    is io.github.gauravyad69.speakershare.services.TransferEvent.Accepted -> {
+                        // Transfer was accepted - handle it in the ViewModel
+                        handleTransferAccepted(event.clientId, event.clientAddress, event.newServerPort)
+                    }
+                    is io.github.gauravyad69.speakershare.services.TransferEvent.Rejected -> {
+                        handleTransferRejected(event.clientId)
+                    }
+                    null -> { /* No event */ }
+                }
             }
         }
     }
@@ -356,10 +378,16 @@ class HostViewModel @Inject constructor(
     fun handleTransferAccepted(clientId: String, newHostIp: String, newHostPort: Int) {
         viewModelScope.launch {
             _transferStatus.value = TransferStatus.Completing
+            
+            // Get the client name for display
+            val client = _connectedClients.value.find { it.clientId == clientId }
+            val newHostName = client?.clientName ?: "New Host"
+            
             val result = hostService.handleTransferAccepted(clientId, newHostIp, newHostPort)
             result.onSuccess {
-                _transferStatus.value = TransferStatus.Completed
                 _pendingTransferClientId.value = null
+                // Signal that we should become a client of the new host
+                _transferStatus.value = TransferStatus.BecomeClient(newHostIp, newHostPort, newHostName)
             }.onFailure { error ->
                 _transferStatus.value = TransferStatus.Failed(error.message ?: "Transfer completion failed")
                 _error.value = "Failed to complete transfer: ${error.message}"
@@ -441,4 +469,7 @@ sealed class TransferStatus {
     data object Completed : TransferStatus()
     data object Rejected : TransferStatus()
     data class Failed(val reason: String) : TransferStatus()
+    
+    /** Old host should now become a client connecting to the new host */
+    data class BecomeClient(val newHostIp: String, val newHostPort: Int, val newHostName: String) : TransferStatus()
 }
