@@ -62,6 +62,20 @@ fun SpeakerShareApp() {
             )
         }
         
+        // Host screen with auto-start for transfer recipients
+        composable("host/autostart") {
+            HostScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToClients = { navController.navigate("clients") },
+                onBecomeClient = { ip, port, hostName ->
+                    navController.navigate("client/$ip/$port/$hostName") {
+                        popUpTo("mode_selection") { inclusive = false }
+                    }
+                },
+                autoStart = true
+            )
+        }
+        
         composable("discovery") {
             DiscoveryScreen(
                 onNavigateBack = { navController.popBackStack() },
@@ -86,8 +100,8 @@ fun SpeakerShareApp() {
             ClientScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onBecomeHost = {
-                    // Navigate to host screen, replacing the current screen
-                    navController.navigate("host") {
+                    // Navigate to host screen with auto-start for transfer
+                    navController.navigate("host/autostart") {
                         popUpTo("mode_selection") { inclusive = false }
                     }
                 },
@@ -101,7 +115,7 @@ fun SpeakerShareApp() {
             ClientScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onBecomeHost = {
-                    navController.navigate("host") {
+                    navController.navigate("host/autostart") {
                         popUpTo("mode_selection") { inclusive = false }
                     }
                 }

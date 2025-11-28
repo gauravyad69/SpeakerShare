@@ -387,7 +387,9 @@ class HostViewModel @Inject constructor(
             result.onSuccess {
                 _pendingTransferClientId.value = null
                 // Signal that we should become a client of the new host
-                _transferStatus.value = TransferStatus.BecomeClient(newHostIp, newHostPort, newHostName)
+                // Use HTTP API port (8080) not the UDP audio port
+                val httpApiPort = 8080
+                _transferStatus.value = TransferStatus.BecomeClient(newHostIp, httpApiPort, newHostName)
             }.onFailure { error ->
                 _transferStatus.value = TransferStatus.Failed(error.message ?: "Transfer completion failed")
                 _error.value = "Failed to complete transfer: ${error.message}"

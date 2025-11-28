@@ -35,6 +35,7 @@ fun HostScreen(
     onNavigateToClients: () -> Unit,
     onNavigateBack: () -> Unit,
     onBecomeClient: (ip: String, port: Int, hostName: String) -> Unit = { _, _, _ -> },
+    autoStart: Boolean = false,
     modifier: Modifier = Modifier,
     viewModel: HostViewModel = hiltViewModel()
 ) {
@@ -45,6 +46,14 @@ fun HostScreen(
     // State for showing client action menu
     var showClientMenu by remember { mutableStateOf<String?>(null) }
     var showTransferConfirmDialog by remember { mutableStateOf<ClientConnection?>(null) }
+    
+    // Auto-start hosting if this is a transfer recipient
+    LaunchedEffect(autoStart) {
+        if (autoStart && !uiState.isHosting) {
+            android.util.Log.d("HostScreen", "Auto-starting hosting after transfer acceptance")
+            viewModel.startHosting(hostName = android.os.Build.MODEL)
+        }
+    }
     
     // Handle becoming a client after transfer
     LaunchedEffect(transferStatus) {
