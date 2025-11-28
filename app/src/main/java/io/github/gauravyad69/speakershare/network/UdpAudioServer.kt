@@ -26,7 +26,7 @@ class UdpAudioServer @Inject constructor(
         private const val DEFAULT_DISCOVERY_PORT = 9089
         private const val DISCOVERY_INTERVAL_MS = 5000L
         private const val HEARTBEAT_INTERVAL_MS = 10000L
-        private const val CLIENT_TIMEOUT_MS = 30000L
+        private const val CLIENT_TIMEOUT_MS = 300000L  // 5 minutes - increased since HTTP clients are passive receivers
         private const val MAX_RETRY_ATTEMPTS = 3
     }
 
@@ -194,6 +194,8 @@ class UdpAudioServer @Inject constructor(
                             socket.send(packet)
                         }
                         successCount++
+                        // Refresh lastSeen for passive HTTP-connected clients on successful send
+                        clientLastSeen[client.clientId] = System.currentTimeMillis()
                         if (seqNum % 100 == 0L) {
                             Log.d(TAG, "Sent audio packet seq=$seqNum to ${client.address}:${client.audioPort}")
                         }
@@ -214,7 +216,9 @@ class UdpAudioServer @Inject constructor(
     }
     
     /**
-     * Add a client to the server
+     * Add a client to the server.
+     * HTTP-connected clients are passive receivers - they don't send heartbeats.
+     * The lastSeen timestamp is refreshed on successful audio broadcasts.
      */
     fun addClient(clientId: String, clientAddress: InetAddress, clientPort: Int) {
         val client = UdpClient(
@@ -231,7 +235,7 @@ class UdpAudioServer @Inject constructor(
             _serverEvents.emit(UdpServerEvent.ClientConnected(clientId, clientAddress.hostAddress))
         }
         
-        Log.d(TAG, "Client connected: $clientId from ${clientAddress.hostAddress}:$clientPort")
+        Log.i(TAG, "Client connected: $clientId from ${clientAddress.hostAddress}:$clientPort (total: ${connectedClients.size})")
     }
     
     /**
@@ -378,14 +382,21 @@ class UdpAudioServer @Inject constructor(
                 val staleClients = mutableListOf<String>()
                 
                 clientLastSeen.forEach { (clientId, lastSeen) ->
-                    if (currentTime - lastSeen > CLIENT_TIMEOUT_MS) {
+                    val timeSinceLastSeen = currentTime - lastSeen
+                    if (timeSinceLastSeen > CLIENT_TIMEOUT_MS) {
                         staleClients.add(clientId)
+                        Log.d(TAG, "Client $clientId timed out after ${timeSinceLastSeen/1000}s")
                     }
                 }
                 
                 staleClients.forEach { clientId ->
-                    Log.w(TAG, "Removing stale client: $clientId")
+                    Log.w(TAG, "Removing stale client: $clientId (remaining: ${connectedClients.size - 1})")
                     removeClient(clientId)
+                }
+                
+                // Log client status periodically
+                if (connectedClients.isNotEmpty()) {
+                    Log.d(TAG, "Connected clients: ${connectedClients.size}, monitoring active")
                 }
                 
                 delay(HEARTBEAT_INTERVAL_MS)
