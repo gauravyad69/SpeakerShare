@@ -347,4 +347,189 @@ Before declaring audio streaming working:
 
 ---
 
-*Last Updated: During initial end-to-end testing*
+## 6. UDP SessionId Truncation in Packets
+
+### Problem
+Client disconnect was not being properly processed by the host. Even after the client sent a DISCONNECT control packet, the host still showed the client as connected. On reconnection, duplicate clients appeared.
+
+### Root Cause
+`UdpPacketHandler.createControlPacket()` truncates the sessionId to **8 characters**:
+
+```kotlin
+// UdpPacketHandler.kt line ~231
+val paddedSessionId = sessionId.take(8).padEnd(8, '\u0000').toByteArray(Charsets.UTF_8)
+```
+
+So a UUID like `43b4d7ad-b4d5-4a18-9d28-12101b1f3d9e` becomes `43b4d7ad` in the packet. But clients are registered with the full UUID, so the lookup failed.
+
+### Solution
+Add **IP address fallback matching** when sessionId lookup fails:
+
+```kotlin
+UdpPacketHandler.CONTROL_DISCONNECT -> {
+    val removed = removeClient(packet.sessionId)
+    if (!removed) {
+        // SessionId in UDP packets is truncated to 8 chars, 
+        // so fall back to IP matching
+        val matchingClient = connectedClients.entries.find { 
+            it.value.address == senderAddress 
+        }
+        if (matchingClient != null) {
+            removeClient(matchingClient.key)
+        }
+    }
+}
+```
+
+### Key Lesson
+> **UDP packet sessionId is limited to 8 characters. When matching clients for disconnect or other operations, always have an IP address fallback.**
+
+---
+
+## 7. Client Reconnection Buffer Cleanup
+
+### Problem
+After client disconnected and reconnected, audio was lagging/skipping with old buffered data.
+
+### Root Cause
+Buffers in `AudioPlaybackService` and `AudioDecoder` still contained stale audio data from the previous connection.
+
+### Solution
+Add `clearBuffers()` methods and call them on reconnection:
+
+```kotlin
+// AudioPlaybackService.kt
+suspend fun clearBuffers(): Result<Unit> {
+    playbackBufferMutex.withLock { playbackBufferQueue.clear() }
+    _playbackState.value = _playbackState.value.copy(bufferLevel = 0f, underrunCount = 0)
+    return Result.success(Unit)
+}
+
+// AudioDecoder.kt
+suspend fun clearBuffers(): Result<Unit> {
+    inputPacketMutex.withLock { inputPacketQueue.clear() }
+    // Reset stats
+    return Result.success(Unit)
+}
+
+// ClientManager.kt - on reconnect
+audioDecoder.clearBuffers()
+audioPlaybackService.clearBuffers()
+```
+
+### Key Lesson
+> **Always clear audio buffers on reconnection to prevent stale data from causing lag or skipping.**
+
+---
+
+## 8. HostService Not Observing Disconnect Events
+
+### Problem
+Even when UdpAudioServer properly removed the client, HostService's `_connectedClients` list wasn't updated.
+
+### Root Cause
+HostService wasn't observing `UdpServerEvent.ClientDisconnected` events.
+
+### Solution
+Add event handling in `observeServerEvents()`:
+
+```kotlin
+private fun observeServerEvents() {
+    serviceScope.launch {
+        udpAudioServer.serverEvents.collect { event ->
+            when (event) {
+                is UdpServerEvent.ClientDisconnected -> {
+                    Log.d(TAG, "Client disconnected: ${event.clientId}")
+                    val updated = _connectedClients.value.filter { it.clientId != event.clientId }
+                    _connectedClients.value = updated
+                    _currentSession.value = _currentSession.value?.copy(connectedClients = updated)
+                }
+                // ... other events
+            }
+        }
+    }
+}
+```
+
+### Key Lesson
+> **All state holders must observe relevant events. HostService, being the source of truth for `connectedClients`, must handle disconnect events from UdpAudioServer.**
+
+---
+
+## 9. ClientManager Job Tracking for Proper Cleanup
+
+### Problem
+After stopping playback and restarting, observer coroutines weren't properly cleaned up, causing duplicate observers.
+
+### Root Cause
+Coroutine jobs for `udpEventJob` and `decodedAudioJob` weren't tracked.
+
+### Solution
+Track jobs and cancel them on stop:
+
+```kotlin
+class ClientManager {
+    private var udpEventJob: Job? = null
+    private var decodedAudioJob: Job? = null
+    
+    private fun startObservers() {
+        udpEventJob = clientScope.launch { /* observe UDP events */ }
+        decodedAudioJob = clientScope.launch { /* observe decoded audio */ }
+    }
+    
+    private fun stopObservers() {
+        udpEventJob?.cancel()
+        udpEventJob = null
+        decodedAudioJob?.cancel()
+        decodedAudioJob = null
+    }
+    
+    private suspend fun startAudioPlayback() {
+        audioDecoder.clearBuffers()
+        audioPlaybackService.clearBuffers()
+        startObservers()
+        // ...
+    }
+    
+    private suspend fun stopAudioPlayback() {
+        stopObservers()  // Cancel FIRST
+        // Then stop services...
+    }
+}
+```
+
+### Key Lesson
+> **Always track coroutine Jobs for observers and cancel them before stopping services to prevent leaks and duplicates.**
+
+---
+
+## 10. Sample Rate Synchronization Between Host and Client
+
+### Problem
+Client was using a different sample rate than the host's actual streaming configuration.
+
+### Root Cause
+Host could start with latency config's sample rate (e.g., 44100Hz), but client was assuming a fixed rate.
+
+### Solution
+Include sample rate in session info and propagate to client:
+
+```kotlin
+// HostService.kt - use latency config's sample rate
+val latencyConfig = audioStreamManager.latencyConfig.value
+val effectiveQuality = quality.copy(
+    sampleRate = latencyConfig.sampleRate,
+    encoding = latencyConfig.encoding
+)
+
+// Client uses sample rate from host response
+val sampleRate = joinResponse.sessionInfo.sampleRate
+val decoderConfig = AudioDecoder.DecoderConfig(sampleRate = sampleRate)
+```
+
+### Key Lesson
+> **Sample rate must be communicated from host to client. Don't assume fixed values.**
+
+---
+
+*Last Updated: December 1, 2025 - Added disconnect handling, buffer cleanup, and sample rate sync learnings*
