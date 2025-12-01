@@ -18,7 +18,9 @@ import io.github.gauravyad69.speakershare.network.UdpAudioServer
 import io.github.gauravyad69.speakershare.network.WebRTCManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,7 +55,10 @@ class AudioStreamManager @Inject constructor(
     private val _latencyConfig = MutableStateFlow(LatencyConfig.fromProfile(LatencyProfile.BALANCED))
     val latencyConfig: StateFlow<LatencyConfig> = _latencyConfig.asStateFlow()
     
-    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    // Coroutine scope and jobs for cleanup
+    private var streamingScope: CoroutineScope? = null
+    private var pcmCollectorJob: Job? = null
+    private var encoderCollectorJob: Job? = null
     
     companion object {
         private const val TAG = "AudioStreamManager"
@@ -135,6 +140,11 @@ class AudioStreamManager @Inject constructor(
         val config = _latencyConfig.value
         Log.d(TAG, "Starting UDP streaming with latency profile: ${config.profile}")
         
+        // Create a new scope for this streaming session
+        streamingScope?.cancel()
+        streamingScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        val scope = streamingScope!!
+        
         // 1. Start UDP Server
         if (!udpAudioServer.startServer(streamId, "Host")) {
              throw RuntimeException("Failed to start UDP server")
@@ -147,12 +157,12 @@ class AudioStreamManager @Inject constructor(
             // PCM Mode: Skip encoding, send raw PCM directly
             Log.d(TAG, "Using PCM mode (no codec) for lowest latency")
             
-            scope.launch {
+            pcmCollectorJob = scope.launch {
                 Log.d(TAG, "Starting direct PCM pipeline")
                 audioCaptureService.audioDataFlow.collect { pcmData ->
                     if (!_isMuted.value) {
-                        // Directly broadcast raw PCM data
-                        udpAudioServer.broadcastAudio(pcmData)
+                        // Directly broadcast raw PCM data with isPcm=true flag
+                        udpAudioServer.broadcastAudio(pcmData, isPcm = true)
                     }
                 }
             }
@@ -170,7 +180,7 @@ class AudioStreamManager @Inject constructor(
             // 3. Set up pipeline collectors BEFORE starting capture
             Log.d(TAG, "Setting up audio data pipeline")
             
-            scope.launch {
+            pcmCollectorJob = scope.launch {
                 Log.d(TAG, "Starting audioDataFlow collector")
                 audioCaptureService.audioDataFlow.collect { pcmData ->
                     // Only process audio if not muted
@@ -181,7 +191,7 @@ class AudioStreamManager @Inject constructor(
                 }
             }
             
-            scope.launch {
+            encoderCollectorJob = scope.launch {
                 Log.d(TAG, "Starting encodedPacketFlow collector")
                 audioEncoder.encodedPacketFlow.collect { packet ->
                     // Only broadcast if not muted
@@ -208,21 +218,41 @@ class AudioStreamManager @Inject constructor(
         return try {
             Log.d(TAG, "Stopping audio stream")
             
+            // Cancel all collector jobs first to stop the pipeline
+            Log.d(TAG, "Canceling collector jobs...")
+            pcmCollectorJob?.cancel()
+            pcmCollectorJob = null
+            encoderCollectorJob?.cancel()
+            encoderCollectorJob = null
+            
+            // Cancel the streaming scope
+            streamingScope?.cancel()
+            streamingScope = null
+            
             _currentStream.value?.let { stream ->
                 if (stream.transport == StreamTransport.WEBRTC) {
                     webRTCManager.stopBroadcasting()
-                    audioCaptureService.stopCapture() // Stop visualization capture
-                } else {
-                    udpAudioServer.stopServer()
-                    audioEncoder.stopEncoding()
                     audioCaptureService.stopCapture()
+                } else {
+                    // Stop in correct order: capture -> encoder -> server
+                    Log.d(TAG, "Stopping audio capture...")
+                    audioCaptureService.stopCapture()
+                    
+                    Log.d(TAG, "Stopping audio encoder...")
+                    audioEncoder.stopEncoding()
+                    
+                    Log.d(TAG, "Stopping UDP server...")
+                    udpAudioServer.stopServer()
                 }
                 
                 // Update state
                 _currentStream.value = stream.copy(state = StreamState.STOPPED, isActive = false)
                 _isStreaming.value = false
                 
-                // Clear current stream after a delay
+                // Reset mute state
+                _isMuted.value = false
+                
+                // Clear current stream
                 _currentStream.value = null
             }
             

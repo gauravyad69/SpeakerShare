@@ -68,6 +68,20 @@ class AudioPlaybackService @Inject constructor(
     private var savedVolumeBeforeFocusLoss = 1.0f  // Save volume before transient focus loss
 
     /**
+     * Clear all audio buffers - useful before reconnecting
+     */
+    suspend fun clearBuffers() {
+        playbackBufferMutex.withLock {
+            playbackBufferQueue.clear()
+        }
+        _playbackState.value = _playbackState.value.copy(
+            bufferLevel = 0.0f,
+            underrunCount = 0
+        )
+        android.util.Log.d("AudioPlaybackService", "Buffers cleared")
+    }
+
+    /**
      * Start audio playback with specified configuration
      */
     suspend fun startPlayback(config: PlaybackConfig = PlaybackConfig()): Result<Unit> {
@@ -75,6 +89,9 @@ class AudioPlaybackService @Inject constructor(
             if (_playbackState.value.isPlaying) {
                 stopPlayback()
             }
+
+            // Clear any stale buffers before starting
+            clearBuffers()
 
             // Request audio focus
             requestAudioFocus()

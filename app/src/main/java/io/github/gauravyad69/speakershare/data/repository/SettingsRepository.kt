@@ -6,6 +6,7 @@ import io.github.gauravyad69.speakershare.data.model.UserSettings
 import io.github.gauravyad69.speakershare.data.model.AudioSource
 import io.github.gauravyad69.speakershare.data.model.AudioQuality
 import io.github.gauravyad69.speakershare.data.model.AudioEncoding
+import io.github.gauravyad69.speakershare.data.model.LatencyProfile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,6 +54,7 @@ class SettingsRepository @Inject constructor(
         private const val KEY_MAX_CLIENTS = "max_clients"
         private const val KEY_CONNECTION_TIMEOUT = "connection_timeout"
         private const val KEY_DISCOVERY_TIMEOUT = "discovery_timeout"
+        private const val KEY_LATENCY_PROFILE = "latency_profile"
         
         // Default values
         private const val DEFAULT_USER_NAME = "SpeakerShare User"
@@ -255,6 +257,27 @@ class SettingsRepository @Inject constructor(
      */
     fun isKeepScreenOnEnabled(): Boolean {
         return _userSettings.value.keepScreenOn
+    }
+    
+    /**
+     * Get latency profile from SharedPreferences
+     */
+    fun getLatencyProfile(): LatencyProfile {
+        return try {
+            val profileName = sharedPreferences.getString(KEY_LATENCY_PROFILE, LatencyProfile.BALANCED.name)
+            LatencyProfile.valueOf(profileName!!)
+        } catch (e: Exception) {
+            Log.w(TAG, "Invalid latency profile, using default", e)
+            LatencyProfile.BALANCED
+        }
+    }
+    
+    /**
+     * Save latency profile to SharedPreferences
+     */
+    fun saveLatencyProfile(profile: LatencyProfile) {
+        Log.d(TAG, "Saving latency profile: $profile")
+        sharedPreferences.edit().putString(KEY_LATENCY_PROFILE, profile.name).apply()
     }
     
     /**

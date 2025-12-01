@@ -124,6 +124,22 @@ class AudioDecoder @Inject constructor() {
     }
 
     /**
+     * Clear all decoder buffers - useful before reconnecting
+     */
+    suspend fun clearBuffers() {
+        inputPacketMutex.withLock {
+            inputPacketQueue.clear()
+        }
+        _decoderState.value = _decoderState.value.copy(
+            packetsDecoded = 0,
+            bytesDecoded = 0,
+            errorCount = 0,
+            bufferUnderrunCount = 0
+        )
+        android.util.Log.d("AudioDecoder", "Buffers cleared")
+    }
+
+    /**
      * Stop the AAC decoder
      */
     suspend fun stopDecoding(): Result<Unit> {
@@ -141,9 +157,8 @@ class AudioDecoder @Inject constructor() {
             }
             mediaCodec = null
 
-            inputPacketMutex.withLock {
-                inputPacketQueue.clear()
-            }
+            // Clear all buffers
+            clearBuffers()
 
             _decoderState.value = _decoderState.value.copy(isDecoding = false)
 

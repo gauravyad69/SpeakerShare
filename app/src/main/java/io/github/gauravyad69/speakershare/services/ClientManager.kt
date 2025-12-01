@@ -27,7 +27,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import javax.inject.Inject
@@ -51,14 +53,19 @@ class ClientManager @Inject constructor(
     
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     
+    // Track observer jobs for proper cleanup
+    private var udpEventJob: Job? = null
+    private var decodedAudioJob: Job? = null
+    
     init {
-        observeUdpEvents()
-        observeDecodedAudio()
+        // Observers are started when connecting, not at init
     }
     
-    private fun observeDecodedAudio() {
-        // Listen for decoded PCM data and send to playback service
-        serviceScope.launch {
+    private fun startObservers() {
+        // Cancel any existing observers first
+        stopObservers()
+        
+        decodedAudioJob = serviceScope.launch {
             var receivedCount = 0
             audioDecoder.decodedAudioFlow.collect { decodedData ->
                 receivedCount++
@@ -68,10 +75,8 @@ class ClientManager @Inject constructor(
                 audioPlaybackService.queueAudioData(decodedData.pcmData)
             }
         }
-    }
-
-    private fun observeUdpEvents() {
-        serviceScope.launch {
+        
+        udpEventJob = serviceScope.launch {
             udpAudioClient.clientEvents.collect { event ->
                 when (event) {
                     is UdpClientEvent.AudioDataReceived -> {
@@ -83,6 +88,11 @@ class ClientManager @Inject constructor(
                             isKeyFrame = true
                         )
                         audioDecoder.decodeAACPacket(encodedPacket)
+                    }
+                    is UdpClientEvent.PcmDataReceived -> {
+                        // Raw PCM data - bypass decoder and send directly to playback
+                        // This is the lowest latency path (NO_LATENCY profile)
+                        audioPlaybackService.queueAudioData(event.pcmData)
                     }
                     is UdpClientEvent.Connected -> {
                         Log.d(TAG, "UDP Client connected")
@@ -115,6 +125,15 @@ class ClientManager @Inject constructor(
                 }
             }
         }
+        Log.d(TAG, "Started UDP event and decoded audio observers")
+    }
+    
+    private fun stopObservers() {
+        udpEventJob?.cancel()
+        udpEventJob = null
+        decodedAudioJob?.cancel()
+        decodedAudioJob = null
+        Log.d(TAG, "Stopped UDP event and decoded audio observers")
     }
     
     private val _discoveredHosts = MutableStateFlow<List<HostSession>>(emptyList())
@@ -481,21 +500,27 @@ class ClientManager @Inject constructor(
     }
     
     private suspend fun startAudioPlayback(hostSession: HostSession, sampleRate: Int, clientId: String) {
-        // Audio stream uses 22050Hz sample rate (configured in AudioCaptureService/AudioEncoder)
-        val actualSampleRate = 22050
-        Log.d(TAG, "Starting audio playback for session ${hostSession.sessionId} at ${actualSampleRate}Hz with clientId=$clientId")
+        // Use the sample rate from the host's response
+        Log.d(TAG, "Starting audio playback for session ${hostSession.sessionId} at ${sampleRate}Hz with clientId=$clientId")
         
-        // Start decoder with matching sample rate (host uses 22050Hz for encoding)
+        // Clear any stale buffers from previous connections
+        audioDecoder.clearBuffers()
+        audioPlaybackService.clearBuffers()
+        
+        // Start observers to receive audio data
+        startObservers()
+        
+        // Start decoder with matching sample rate from host
         val decoderConfig = AudioDecoder.DecoderConfig(
-            sampleRate = actualSampleRate,  // Must match encoder sample rate
+            sampleRate = sampleRate,  // Must match encoder sample rate on host
             channelCount = 1,
             bufferTimeoutUs = 10000L
         )
         audioDecoder.startDecoding(decoderConfig)
-        Log.d(TAG, "Audio decoder started")
+        Log.d(TAG, "Audio decoder started at ${sampleRate}Hz")
         
         // Start playback with matching sample rate 
-        audioPlaybackService.startPlayback(AudioPlaybackService.PlaybackConfig(sampleRate = actualSampleRate))
+        audioPlaybackService.startPlayback(AudioPlaybackService.PlaybackConfig(sampleRate = sampleRate))
         
         // Start UDP client to receive audio with clientId for heartbeat identification
         // The host will send audio to CLIENT_AUDIO_PORT on this device
@@ -505,9 +530,20 @@ class ClientManager @Inject constructor(
     
     private suspend fun stopAudioPlayback() {
         Log.d(TAG, "Stopping audio playback")
-        audioPlaybackService.stopPlayback()
+        
+        // Stop observers first to prevent processing new data
+        stopObservers()
+        
+        // Stop receiving UDP data
+        udpAudioClient.disconnect()
+        
+        // Stop decoder
         audioDecoder.stopDecoding()
-        udpAudioClient.disconnect()  // This will clean up and stop listening
+        
+        // Stop playback last
+        audioPlaybackService.stopPlayback()
+        
+        Log.d(TAG, "Audio playback stopped completely")
     }
     
     private fun startForegroundService(hostName: String, hostIp: String) {

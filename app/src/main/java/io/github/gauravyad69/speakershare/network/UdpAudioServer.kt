@@ -151,8 +151,9 @@ class UdpAudioServer @Inject constructor(
     
     /**
      * Broadcast audio data to all connected clients
+     * @param isPcm If true, sends as raw PCM packet (no codec). If false, sends as AAC packet.
      */
-    suspend fun broadcastAudio(audioData: ByteArray): Boolean {
+    suspend fun broadcastAudio(audioData: ByteArray, isPcm: Boolean = false): Boolean {
         if (!isRunning.get() || connectedClients.isEmpty()) {
             // Log occasionally to avoid spamming
             if (sequenceNumber.get() % 100 == 0L) {
@@ -167,18 +168,28 @@ class UdpAudioServer @Inject constructor(
                 val timestamp = System.currentTimeMillis()
                 
                 // Create audio packets (may be fragmented)
-                val packets = packetHandler.createAudioPacket(
-                    sessionId = sessionId,
-                    sequenceNumber = seqNum,
-                    timestamp = timestamp,
-                    audioData = audioData
-                )
+                // Use PCM packet type for raw audio, AAC packet type for encoded
+                val packets = if (isPcm) {
+                    packetHandler.createPcmAudioPacket(
+                        sessionId = sessionId,
+                        sequenceNumber = seqNum,
+                        timestamp = timestamp,
+                        pcmData = audioData
+                    )
+                } else {
+                    packetHandler.createAudioPacket(
+                        sessionId = sessionId,
+                        sequenceNumber = seqNum,
+                        timestamp = timestamp,
+                        audioData = audioData
+                    )
+                }
                 
                 // Debug first few packets to verify format
                 if (seqNum <= 5) {
                     packets.forEachIndexed { index, packetData ->
                         val hexDump = packetData.take(32).joinToString(" ") { String.format("%02X", it) }
-                        Log.d(TAG, "Packet $seqNum/$index before send (size=${packetData.size}): $hexDump...")
+                        Log.d(TAG, "Packet $seqNum/$index (${if (isPcm) "PCM" else "AAC"}) before send (size=${packetData.size}): $hexDump...")
                     }
                 }
                 
@@ -199,7 +210,7 @@ class UdpAudioServer @Inject constructor(
                         }
                         successCount++
                         if (seqNum % 100 == 0L) {
-                            Log.d(TAG, "Sent audio packet seq=$seqNum to ${client.address}:${client.audioPort}")
+                            Log.d(TAG, "Sent ${if (isPcm) "PCM" else "AAC"} audio packet seq=$seqNum to ${client.address}:${client.audioPort}")
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to send audio to client ${client.clientId}", e)
@@ -242,16 +253,24 @@ class UdpAudioServer @Inject constructor(
     
     /**
      * Remove a client from the server
+     * @return true if client was found and removed, false otherwise
      */
-    fun removeClient(clientId: String) {
-        connectedClients.remove(clientId)?.let { client ->
+    fun removeClient(clientId: String): Boolean {
+        Log.d(TAG, "removeClient called for: $clientId, current clients: ${connectedClients.keys}")
+        val removed = connectedClients.remove(clientId)
+        if (removed != null) {
             clientLastSeen.remove(clientId)
             
             scope.launch {
                 _serverEvents.emit(UdpServerEvent.ClientDisconnected(clientId))
+                Log.d(TAG, "Emitted ClientDisconnected event for: $clientId")
             }
             
-            Log.d(TAG, "Client disconnected: $clientId")
+            Log.d(TAG, "Client disconnected: $clientId, remaining: ${connectedClients.size}")
+            return true
+        } else {
+            Log.w(TAG, "Client not found for removal: $clientId")
+            return false
         }
     }
     
@@ -384,7 +403,19 @@ class UdpAudioServer @Inject constructor(
             }
             
             UdpPacketHandler.CONTROL_DISCONNECT -> {
-                removeClient(packet.sessionId)
+                Log.d(TAG, "Received DISCONNECT from client: ${packet.sessionId} at ${senderAddress.hostAddress}")
+                // Try to find client by session ID first, then fall back to IP address
+                var removed = removeClient(packet.sessionId)
+                if (!removed) {
+                    // Session ID is truncated to 8 chars in packets, so try matching by IP
+                    val matchingClient = connectedClients.entries.find { 
+                        it.value.address == senderAddress 
+                    }
+                    if (matchingClient != null) {
+                        Log.d(TAG, "Found client by IP: ${matchingClient.key}")
+                        removeClient(matchingClient.key)
+                    }
+                }
             }
             
             UdpPacketHandler.CONTROL_ACK -> {

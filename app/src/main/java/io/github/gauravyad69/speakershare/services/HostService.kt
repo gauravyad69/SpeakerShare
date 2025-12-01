@@ -53,6 +53,17 @@ class HostService @Inject constructor(
         serviceScope.launch {
             udpAudioServer.serverEvents.collect { event ->
                 when (event) {
+                    is io.github.gauravyad69.speakershare.network.UdpServerEvent.ClientDisconnected -> {
+                        Log.d(TAG, "Client disconnected from UDP server: ${event.clientId}")
+                        // Remove client from our connected clients list
+                        val currentClients = _connectedClients.value
+                        val updatedClients = currentClients.filter { it.clientId != event.clientId }
+                        if (updatedClients.size != currentClients.size) {
+                            _connectedClients.value = updatedClients
+                            _currentSession.value = _currentSession.value?.copy(connectedClients = updatedClients)
+                            Log.d(TAG, "Removed client ${event.clientId}, ${updatedClients.size} clients remaining")
+                        }
+                    }
                     is io.github.gauravyad69.speakershare.network.UdpServerEvent.TransferAccepted -> {
                         Log.d(TAG, "Transfer accepted by ${event.clientId} at ${event.clientAddress}:${event.newServerPort}")
                         _transferEvents.value = TransferEvent.Accepted(
@@ -94,6 +105,13 @@ class HostService @Inject constructor(
                 return Result.failure(IllegalStateException("Already hosting a session"))
             }
             
+            // Get the current latency config for proper sample rate
+            val latencyConfig = audioStreamManager.latencyConfig.value
+            val effectiveQuality = quality.copy(
+                sampleRate = latencyConfig.sampleRate,
+                encoding = latencyConfig.encoding
+            )
+            
             val sessionId = UUID.randomUUID().toString()
             val networkInfo = NetworkInfo(
                 localIpAddress = getLocalIpAddress(),
@@ -104,14 +122,14 @@ class HostService @Inject constructor(
                 serviceName = "speakershare-$sessionId"
             )
             
-            Log.d(TAG, "Starting host session: $sessionId for $hostName")
+            Log.d(TAG, "Starting host session: $sessionId for $hostName with sampleRate=${effectiveQuality.sampleRate}, encoding=${effectiveQuality.encoding}")
             
             val hostSession = HostSession(
                 sessionId = sessionId,
                 sessionName = hostName, // Use hostName as sessionName for now
                 hostName = hostName,
                 audioSource = audioSource,
-                quality = quality,
+                quality = effectiveQuality,
                 isActive = false, // Will be activated after audio stream starts
                 startTime = System.currentTimeMillis(),
                 connectedClients = emptyList(),
@@ -121,7 +139,7 @@ class HostService @Inject constructor(
             
             // Start audio streaming
             val streamResult = audioStreamManager.startStreaming(
-                sessionId, audioSource, quality, "UDP"
+                sessionId, audioSource, effectiveQuality, "UDP"
             )
             
             if (streamResult.isFailure) {
@@ -146,12 +164,12 @@ class HostService @Inject constructor(
             hostSessionRepository.createSession(
                 hostName = hostName,
                 audioSource = audioSource,
-                quality = quality,
+                quality = effectiveQuality,
                 networkInfo = networkInfo
             )
             hostSessionRepository.startBroadcasting()
             
-            Log.d(TAG, "Host session started successfully")
+            Log.d(TAG, "Host session started successfully with sampleRate=${effectiveQuality.sampleRate}")
             Result.success(activeSession)
             
         } catch (e: Exception) {

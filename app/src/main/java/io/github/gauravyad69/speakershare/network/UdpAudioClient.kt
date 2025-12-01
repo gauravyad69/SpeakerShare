@@ -422,7 +422,16 @@ class UdpAudioClient @Inject constructor(
                     
                     when {
                         udpPacket?.isAudioPacket() == true -> {
-                            handleAudioPacket(udpPacket)
+                            if (packetCount <= 5) {
+                                Log.d(TAG, "Received AAC packet #$packetCount")
+                            }
+                            handleAudioPacket(udpPacket, isPcm = false)
+                        }
+                        udpPacket?.isPcmAudioPacket() == true -> {
+                            if (packetCount <= 5) {
+                                Log.d(TAG, "Received PCM packet #$packetCount (raw audio, bypassing decoder)")
+                            }
+                            handleAudioPacket(udpPacket, isPcm = true)
                         }
                         udpPacket?.isHeartbeatPacket() == true -> {
                             // Host is alive, no action needed
@@ -454,7 +463,7 @@ class UdpAudioClient @Inject constructor(
     /**
      * Handle received audio packet
      */
-    private suspend fun handleAudioPacket(packet: UdpPacket) {
+    private suspend fun handleAudioPacket(packet: UdpPacket, isPcm: Boolean) {
         // Handle fragmented packets
         if (packet.totalFragments > 1) {
             // Store fragment in buffer
@@ -470,15 +479,23 @@ class UdpAudioClient @Inject constructor(
                 val completeAudioData = reconstructAudioData(fragmentMap, packet.totalFragments)
                 audioPacketBuffer.remove(packet.sequenceNumber)
                 
-                // Emit complete audio data
+                // Emit complete audio data - use PCM event for raw audio, AAC event for encoded
                 scope.launch {
-                    _clientEvents.emit(UdpClientEvent.AudioDataReceived(completeAudioData, packet.timestamp))
+                    if (isPcm) {
+                        _clientEvents.emit(UdpClientEvent.PcmDataReceived(completeAudioData, packet.timestamp))
+                    } else {
+                        _clientEvents.emit(UdpClientEvent.AudioDataReceived(completeAudioData, packet.timestamp))
+                    }
                 }
             }
         } else {
             // Single packet, emit directly
             scope.launch {
-                _clientEvents.emit(UdpClientEvent.AudioDataReceived(packet.payload, packet.timestamp))
+                if (isPcm) {
+                    _clientEvents.emit(UdpClientEvent.PcmDataReceived(packet.payload, packet.timestamp))
+                } else {
+                    _clientEvents.emit(UdpClientEvent.AudioDataReceived(packet.payload, packet.timestamp))
+                }
             }
         }
         
@@ -795,6 +812,7 @@ sealed class UdpClientEvent {
     data class ConnectionError(val message: String) : UdpClientEvent()
     
     data class AudioDataReceived(val audioData: ByteArray, val timestamp: Long) : UdpClientEvent()
+    data class PcmDataReceived(val pcmData: ByteArray, val timestamp: Long) : UdpClientEvent()  // Raw PCM (no decoding needed)
     object HostMuted : UdpClientEvent()
     data class ReceiveError(val message: String) : UdpClientEvent()
     

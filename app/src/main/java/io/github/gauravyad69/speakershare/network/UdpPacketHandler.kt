@@ -31,6 +31,7 @@ class UdpPacketHandler @Inject constructor() {
         const val PACKET_TYPE_CONTROL = 0x02.toByte()
         const val PACKET_TYPE_DISCOVERY = 0x03.toByte()
         const val PACKET_TYPE_HEARTBEAT = 0x04.toByte()
+        const val PACKET_TYPE_PCM_AUDIO = 0x05.toByte()  // Raw PCM audio (no codec)
         
         // Control commands
         const val CONTROL_CONNECT = 0x01.toByte()
@@ -86,6 +87,57 @@ class UdpPacketHandler @Inject constructor() {
                 
                 val packet = createSinglePacket(
                     PACKET_TYPE_AUDIO,
+                    sessionId,
+                    sequenceNumber,
+                    timestamp,
+                    fragmentData,
+                    i,
+                    fragmentCount,
+                    i == fragmentCount - 1
+                )
+                
+                packets.add(packet)
+                offset += fragmentSize
+            }
+        }
+        
+        return packets
+    }
+    
+    /**
+     * Create raw PCM audio packet (no codec, for lowest latency)
+     */
+    fun createPcmAudioPacket(
+        sessionId: String,
+        sequenceNumber: Long,
+        timestamp: Long,
+        pcmData: ByteArray
+    ): List<ByteArray> {
+        val packets = mutableListOf<ByteArray>()
+        
+        if (pcmData.size <= MAX_PAYLOAD_SIZE) {
+            val packet = createSinglePacket(
+                PACKET_TYPE_PCM_AUDIO,
+                sessionId,
+                sequenceNumber,
+                timestamp,
+                pcmData,
+                0,
+                1,
+                true
+            )
+            packets.add(packet)
+        } else {
+            // Fragment into multiple packets
+            val fragmentCount = (pcmData.size + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE
+            var offset = 0
+            
+            for (i in 0 until fragmentCount) {
+                val fragmentSize = minOf(MAX_PAYLOAD_SIZE, pcmData.size - offset)
+                val fragmentData = pcmData.copyOfRange(offset, offset + fragmentSize)
+                
+                val packet = createSinglePacket(
+                    PACKET_TYPE_PCM_AUDIO,
                     sessionId,
                     sequenceNumber,
                     timestamp,
@@ -400,6 +452,8 @@ data class UdpPacket(
     val isLastFragment: Boolean = true
 ) {
     fun isAudioPacket(): Boolean = packetType == UdpPacketHandler.PACKET_TYPE_AUDIO
+    fun isPcmAudioPacket(): Boolean = packetType == UdpPacketHandler.PACKET_TYPE_PCM_AUDIO
+    fun isAnyAudioPacket(): Boolean = isAudioPacket() || isPcmAudioPacket()
     fun isControlPacket(): Boolean = packetType == UdpPacketHandler.PACKET_TYPE_CONTROL
     fun isDiscoveryPacket(): Boolean = packetType == UdpPacketHandler.PACKET_TYPE_DISCOVERY
     fun isHeartbeatPacket(): Boolean = packetType == UdpPacketHandler.PACKET_TYPE_HEARTBEAT

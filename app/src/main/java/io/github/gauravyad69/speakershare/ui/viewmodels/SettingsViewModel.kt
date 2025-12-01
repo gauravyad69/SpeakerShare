@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.gauravyad69.speakershare.data.model.*
-import io.github.gauravyad69.speakershare.data.repository.UserSettingsRepository
+import io.github.gauravyad69.speakershare.data.repository.SettingsRepository
 import io.github.gauravyad69.speakershare.services.AudioStreamManager
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -16,7 +16,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val userSettingsRepository: UserSettingsRepository,
+    private val settingsRepository: SettingsRepository,
     private val audioStreamManager: AudioStreamManager
 ) : ViewModel() {
 
@@ -93,7 +93,18 @@ class SettingsViewModel @Inject constructor(
 
     init {
         loadSettings()
+        loadLatencyProfile()
         observeSettingsChanges()
+    }
+    
+    /**
+     * Load latency profile from settings repository
+     */
+    private fun loadLatencyProfile() {
+        val savedProfile = settingsRepository.getLatencyProfile()
+        _latencyProfile.value = savedProfile
+        _latencyConfig.value = LatencyConfig.fromProfile(savedProfile)
+        audioStreamManager.setLatencyProfile(savedProfile)
     }
 
     /**
@@ -103,7 +114,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                userSettingsRepository.getUserSettings().collect { settings ->
+                settingsRepository.getUserSettings().collect { settings ->
                     settings?.let {
                         _userSettings.value = it
                         updateUIStateFromSettings(it)
@@ -133,7 +144,7 @@ class SettingsViewModel @Inject constructor(
                 maxClients = 0
             )
             
-            val result = userSettingsRepository.updateSettings(defaultSettings)
+            val result = settingsRepository.updateSettings(defaultSettings)
             result.onSuccess {
                 _userSettings.value = defaultSettings
             }.onFailure { e ->
@@ -184,6 +195,9 @@ class SettingsViewModel @Inject constructor(
     fun setLatencyProfile(profile: LatencyProfile) {
         _latencyProfile.value = profile
         _latencyConfig.value = LatencyConfig.fromProfile(profile)
+        
+        // Save to persistent storage
+        settingsRepository.saveLatencyProfile(profile)
         
         // Apply the latency profile to the audio stream manager
         audioStreamManager.setLatencyProfile(profile)
@@ -268,7 +282,7 @@ class SettingsViewModel @Inject constructor(
                         showNetworkMetrics = _showNotifications.value // Map showNotifications to showNetworkMetrics
                     )
                     
-                    val result = userSettingsRepository.updateSettings(updatedSettings)
+                    val result = settingsRepository.updateSettings(updatedSettings)
                     result.onSuccess {
                         _userSettings.value = updatedSettings
                         _hasUnsavedChanges.value = false
