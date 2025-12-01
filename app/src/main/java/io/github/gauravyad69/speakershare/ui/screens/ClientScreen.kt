@@ -1,32 +1,40 @@
 package io.github.gauravyad69.speakershare.ui.screens
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import io.github.gauravyad69.speakershare.data.model.ConnectionStatus
+import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import io.github.gauravyad69.speakershare.network.discovery.DiscoveredHost
 import io.github.gauravyad69.speakershare.services.TransferRequest
-import io.github.gauravyad69.speakershare.ui.viewmodels.ClientViewModel
 import io.github.gauravyad69.speakershare.ui.components.ScreenViewer
-
-import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
+import io.github.gauravyad69.speakershare.ui.theme.*
+import io.github.gauravyad69.speakershare.ui.viewmodels.ClientViewModel
 
 /**
- * Client Screen for connecting to hosts and controlling playback
+ * Modern Client Screen with improved UI/UX
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,6 +61,7 @@ fun ClientScreen(
     val currentScreenFrame by viewModel.currentScreenFrame.collectAsState()
     
     val context = LocalContext.current
+    val scrollState = rememberScrollState()
 
     // Set up callback for when user becomes host
     LaunchedEffect(Unit) {
@@ -64,16 +73,14 @@ fun ClientScreen(
 
     LaunchedEffect(initialHostIp, initialHostPort, initialHostName) {
         if (initialHostIp != null && initialHostPort != null && initialHostName != null) {
-            if (connectionState == io.github.gauravyad69.speakershare.data.model.ConnectionStatus.DISCONNECTED) {
-                // Use retry on failure when this is a reconnection after host transfer
-                // The new host may not be ready yet
+            if (connectionState == ConnectionStatus.DISCONNECTED) {
                 viewModel.connectToHost(
                     NetworkInfo(
                         localIpAddress = initialHostIp,
                         port = initialHostPort,
                         networkInterface = "wlan0",
                         isHotspot = false,
-                        discoveryMethod = DiscoveryMethod.MDNS, // Default
+                        discoveryMethod = DiscoveryMethod.MDNS,
                         serviceName = initialHostName
                     ),
                     retryOnFailure = isTransferReconnect
@@ -84,11 +91,10 @@ fun ClientScreen(
     
     // Check screen share availability when connected
     LaunchedEffect(connectionState) {
-        if (connectionState == io.github.gauravyad69.speakershare.data.model.ConnectionStatus.CONNECTED) {
-            // Periodically check if screen sharing becomes available
+        if (connectionState == ConnectionStatus.CONNECTED) {
             while (true) {
                 viewModel.checkScreenShareAvailable()
-                kotlinx.coroutines.delay(5000) // Check every 5 seconds
+                kotlinx.coroutines.delay(5000)
             }
         } else {
             viewModel.stopScreenViewing()
@@ -96,109 +102,121 @@ fun ClientScreen(
     }
 
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("SpeakerShare Client") },
+                title = { 
+                    Column {
+                        Text(
+                            "Client Mode",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
+                        connectedHost?.serviceName?.let {
+                            Text(
+                                it,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { /* TODO: Implement refresh discovery */ },
-                        enabled = !uiState.isLoading
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    if (connectionState == ConnectionStatus.CONNECTED) {
+                        IconButton(onClick = { viewModel.disconnect() }) {
+                            Icon(
+                                Icons.Outlined.LinkOff,
+                                contentDescription = "Disconnect",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scrollState)
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Connection Status Card
             ConnectionStatusCard(
-                isConnected = connectionState == io.github.gauravyad69.speakershare.data.model.ConnectionStatus.CONNECTED,
+                connectionState = connectionState,
                 connectedHost = connectedHost,
-                connectionStatus = connectionState.toString(),
                 onDisconnect = { viewModel.disconnect() }
             )
-
+            
             // Audio Controls (shown when connected)
-            if (connectionState == io.github.gauravyad69.speakershare.data.model.ConnectionStatus.CONNECTED) {
-                AudioControlsCard(
-                    volume = volume,
-                    isMuted = isMuted,
-                    onVolumeChange = { viewModel.setVolume(it) },
-                    onMuteToggle = { viewModel.toggleMute() }
-                )
-
-                // Audio Visualizer
-                Card(
-                    modifier = Modifier.fillMaxWidth()
+            AnimatedVisibility(
+                visible = connectionState == ConnectionStatus.CONNECTED,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Text(
-                            text = "Audio Visualizer",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        AudioVisualizer(level = audioLevel)
-                    }
+                    // Audio Controls
+                    AudioControlsCard(
+                        volume = volume,
+                        isMuted = isMuted,
+                        audioLevel = audioLevel,
+                        onVolumeChange = { viewModel.setVolume(it) },
+                        onMuteToggle = { viewModel.toggleMute() }
+                    )
+                    
+                    // Screen Viewer
+                    ScreenViewer(
+                        screenFrame = currentScreenFrame,
+                        isScreenAvailable = isScreenShareAvailable,
+                        isStreaming = isScreenStreaming,
+                        onStartViewing = { viewModel.startScreenViewing() },
+                        onStopViewing = { viewModel.stopScreenViewing() },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
-
-                // Audio Visualizer
-                AudioVisualizer(level = volume)
-                
-                // Screen Viewer - always show when connected
-                val isScreenShareAvailable by viewModel.isScreenShareAvailable.collectAsState()
-                val currentScreenFrame by viewModel.currentScreenFrame.collectAsState()
-                val isScreenStreaming by viewModel.isScreenStreaming.collectAsState()
-                
-                ScreenViewer(
-                    screenFrame = currentScreenFrame,
-                    isScreenAvailable = isScreenShareAvailable,
-                    isStreaming = isScreenStreaming,
-                    onStartViewing = { viewModel.startScreenViewing() },
-                    onStopViewing = { viewModel.stopScreenViewing() },
-                    modifier = Modifier.fillMaxWidth()
-                )
             }
-
-            // Discovery Section
-            if (connectionState != io.github.gauravyad69.speakershare.data.model.ConnectionStatus.CONNECTED) {
-                DiscoverySection(
-                    isDiscovering = uiState.isLoading,
-                    discoveredHosts = emptyList(), // TODO: Integrate with DiscoveryViewModel
-                    onConnectToHost = { host -> 
-                        // TODO: Convert DiscoveredHost to NetworkInfo or change ClientViewModel.connectToHost signature
-                        // viewModel.connectToHost(host)
-                    },
-                    onRefreshDiscovery = { /* TODO: Implement refresh discovery */ }
-                )
+            
+            // Connecting state
+            AnimatedVisibility(
+                visible = connectionState == ConnectionStatus.CONNECTING,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                ConnectingCard()
             }
-
-            // Connection Statistics (when connected)
-            // TODO: Add connection statistics when available
-            // if (connectionState == io.github.gauravyad69.speakershare.data.model.ConnectionStatus.CONNECTED) {
-            //     ConnectionStatsCard(stats = connectionStats)
-            // }
+            
+            // Disconnected state with discovery hint
+            AnimatedVisibility(
+                visible = connectionState == ConnectionStatus.DISCONNECTED && initialHostIp == null,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                NoHostCard(onNavigateBack = onNavigateBack)
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 
     // Handle connection errors
     uiState.error?.let { error ->
         LaunchedEffect(error) {
-            // Show error snackbar or dialog
+            // Could show snackbar here
         }
     }
     
@@ -206,6 +224,14 @@ fun ClientScreen(
     pendingTransferRequest?.let { request ->
         AlertDialog(
             onDismissRequest = { viewModel.rejectTransferRequest() },
+            icon = {
+                Icon(
+                    Icons.Filled.SwapHoriz,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(48.dp)
+                )
+            },
             title = { 
                 Text(
                     text = "Become Host?",
@@ -213,23 +239,39 @@ fun ClientScreen(
                 )
             },
             text = { 
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("The current host wants to transfer control to you.")
-                    Text(
-                        text = "If you accept, you will become the new host and start broadcasting audio to all connected clients.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Note: This requires screen recording permission to capture system audio.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Outlined.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "You'll start broadcasting audio to all connected clients.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
                 Button(
-                    onClick = { viewModel.acceptTransferRequest() }
+                    onClick = { viewModel.acceptTransferRequest() },
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -237,90 +279,124 @@ fun ClientScreen(
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { viewModel.rejectTransferRequest() }) {
+                OutlinedButton(
+                    onClick = { viewModel.rejectTransferRequest() },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
                     Text("Decline")
                 }
-            }
+            },
+            shape = RoundedCornerShape(24.dp)
         )
     }
 }
 
 @Composable
 private fun ConnectionStatusCard(
-    isConnected: Boolean,
+    connectionState: ConnectionStatus,
     connectedHost: NetworkInfo?,
-    connectionStatus: String,
     onDisconnect: () -> Unit
 ) {
+    val isConnected = connectionState == ConnectionStatus.CONNECTED
+    val statusColor = when (connectionState) {
+        ConnectionStatus.CONNECTED -> Success
+        ConnectionStatus.CONNECTING -> Warning
+        ConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
+        ConnectionStatus.KICKED -> Error
+        ConnectionStatus.ERROR -> Error
+    }
+    val statusText = when (connectionState) {
+        ConnectionStatus.CONNECTED -> "Connected"
+        ConnectionStatus.CONNECTING -> "Connecting..."
+        ConnectionStatus.DISCONNECTED -> "Disconnected"
+        ConnectionStatus.KICKED -> "Kicked from Session"
+        ConnectionStatus.ERROR -> "Connection Error"
+    }
+    
     Card(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isConnected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // Status Icon
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(statusColor, statusColor.copy(alpha = 0.3f))
+                        )
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "Connection Status",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                Icon(
+                    when (connectionState) {
+                        ConnectionStatus.CONNECTED -> Icons.Filled.Headphones
+                        ConnectionStatus.CONNECTING -> Icons.Outlined.Sync
+                        ConnectionStatus.KICKED -> Icons.Filled.Block
+                        else -> Icons.Outlined.HeadsetOff
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.size(36.dp),
+                    tint = if (isConnected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                
-                if (isConnected) {
-                    Icon(
-                        Icons.Default.CheckCircle,
-                        contentDescription = "Connected",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                } else {
-                    Icon(
-                        Icons.Default.Cancel,
-                        contentDescription = "Disconnected",
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
             }
-
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
             Text(
-                text = connectionStatus,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                text = statusText,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
             )
-
-            if (connectedHost != null) {
-                Divider()
-                
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = "Service: ${connectedHost.serviceName}",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        text = "IP: ${connectedHost.localIpAddress}:${connectedHost.port}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Discovery: ${connectedHost.discoveryMethod}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
+            
+            if (connectedHost != null && isConnected) {
                 Spacer(modifier = Modifier.height(8.dp))
                 
-                Button(
-                    onClick = onDisconnect,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = null)
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = connectedHost.serviceName,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "${connectedHost.localIpAddress}:${connectedHost.port}",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                OutlinedButton(
+                    onClick = onDisconnect,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = Error
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Error)
+                ) {
+                    Icon(Icons.Filled.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Disconnect")
                 }
@@ -333,296 +409,214 @@ private fun ConnectionStatusCard(
 private fun AudioControlsCard(
     volume: Float,
     isMuted: Boolean,
+    audioLevel: Float,
     onVolumeChange: (Float) -> Unit,
     onMuteToggle: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(
-                text = "Audio Controls",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
+                Text(
+                    text = "Audio Controls",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 18.sp
+                )
+                
+                // Mute button
+                FilledTonalIconButton(
                     onClick = onMuteToggle,
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = if (isMuted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surface,
-                        contentColor = if (isMuted) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurface
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = if (isMuted) Error.copy(alpha = 0.15f) else MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = if (isMuted) Error else MaterialTheme.colorScheme.onSecondaryContainer
                     )
                 ) {
                     Icon(
-                        if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                        if (isMuted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
                         contentDescription = if (isMuted) "Unmute" else "Mute"
                     )
                 }
-
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = "Volume: ${(volume * 100).toInt()}%",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    
-                    Slider(
-                        value = volume,
-                        onValueChange = onVolumeChange,
-                        enabled = !isMuted,
-                        valueRange = 0f..1f,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
             }
-        }
-    }
-}
-
-@Composable
-private fun DiscoverySection(
-    isDiscovering: Boolean,
-    discoveredHosts: List<DiscoveredHost>,
-    onConnectToHost: (DiscoveredHost) -> Unit,
-    onRefreshDiscovery: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Available Hosts",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-
-                if (isDiscovering) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp
-                    )
-                }
-            }
-
-            if (discoveredHosts.isEmpty() && !isDiscovering) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 24.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "No hosts found",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedButton(onClick = onRefreshDiscovery) {
-                        Icon(Icons.Default.Refresh, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Scan Again")
-                    }
-                }
-            } else if (discoveredHosts.isNotEmpty()) {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.heightIn(max = 300.dp)
-                ) {
-                    items(discoveredHosts) { host ->
-                        HostListItem(
-                            host = host,
-                            onConnect = { onConnectToHost(host) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HostListItem(
-    host: DiscoveredHost,
-    onConnect: () -> Unit
-) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = host.hostName,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Medium
-                )
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (host.discoveryMethod.contains("WEBRTC", ignoreCase = true)) {
-                        Icon(
-                            Icons.Default.Wifi,
-                            contentDescription = "WebRTC",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    if (host.discoveryMethod.contains("UDP", ignoreCase = true)) {
-                        Icon(
-                            Icons.Default.Router,
-                            contentDescription = "UDP",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.secondary
-                        )
-                    }
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "${host.ipAddress}:${host.port}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Clients: ${host.connectedClients}/${if (host.maxClients > 0) host.maxClients else "∞"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Button(
-                    onClick = onConnect,
-                    enabled = host.isAcceptingClients,
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Text("Connect")
-                }
-            }
-
-            if (!host.isAcceptingClients) {
-                Text(
-                    text = "Not accepting new clients",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConnectionStatsCard(
-    stats: Map<String, Any>
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "Connection Statistics",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-
-            stats.entries.forEach { (key, value) ->
+            
+            // Volume Slider
+            Column {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = key,
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = "Volume",
+                        fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = value.toString(),
-                        style = MaterialTheme.typography.bodyMedium
+                        text = "${(volume * 100).toInt()}%",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
+                
+                Slider(
+                    value = volume,
+                    onValueChange = onVolumeChange,
+                    enabled = !isMuted,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = SliderDefaults.colors(
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        thumbColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+            }
+            
+            // Audio Visualizer
+            ModernAudioVisualizer(
+                level = if (isMuted) 0f else audioLevel,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModernAudioVisualizer(
+    level: Float,
+    modifier: Modifier = Modifier
+) {
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val surfaceColor = MaterialTheme.colorScheme.surfaceVariant
+    
+    Canvas(modifier = modifier.clip(RoundedCornerShape(8.dp))) {
+        val barCount = 40
+        val gap = 3.dp.toPx()
+        val barWidth = (size.width - gap * (barCount - 1)) / barCount
+        val maxBarHeight = size.height
+        
+        for (i in 0 until barCount) {
+            val center = barCount / 2f
+            val dist = kotlin.math.abs(i - center) / center
+            val waveScale = 1f - dist * 0.5f
+            
+            val randomFactor = 0.7f + kotlin.random.Random.nextFloat() * 0.6f
+            val targetHeight = maxBarHeight * level * waveScale * randomFactor
+            val barHeight = targetHeight.coerceIn(4.dp.toPx(), maxBarHeight)
+            
+            val alpha = if (level > 0.01f) 0.8f else 0.3f
+            val color = if (level > 0.01f) {
+                primaryColor.copy(alpha = alpha)
+            } else {
+                surfaceColor
+            }
+            
+            val x = i * (barWidth + gap)
+            val y = (maxBarHeight - barHeight) / 2
+            
+            drawRoundRect(
+                color = color,
+                topLeft = androidx.compose.ui.geometry.Offset(x, y),
+                size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConnectingCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(32.dp),
+                strokeWidth = 3.dp
+            )
+            
+            Column {
+                Text(
+                    text = "Connecting to host...",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp
+                )
+                Text(
+                    text = "Please wait",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
 }
 
 @Composable
-fun AudioVisualizer(
-    level: Float,
-    modifier: Modifier = Modifier
+private fun NoHostCard(
+    onNavigateBack: () -> Unit
 ) {
-    Canvas(modifier = modifier.fillMaxWidth().height(60.dp)) {
-        val barCount = 30
-        val barWidth = size.width / barCount
-        val maxBarHeight = size.height
-        
-        for (i in 0 until barCount) {
-            val center = barCount / 2f
-            val dist = kotlin.math.abs(i - center) / center
-            val scale = 1f - dist * 0.5f
-            
-            val barHeight = maxBarHeight * level * scale * (0.8f + kotlin.random.Random.nextFloat() * 0.4f)
-            val clampedHeight = barHeight.coerceIn(2.dp.toPx(), maxBarHeight)
-            
-            val color = Color(
-                red = 0.2f,
-                green = 0.8f + (level * 0.2f),
-                blue = 0.4f,
-                alpha = 0.8f
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                Icons.Outlined.SearchOff,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
             
-            drawRect(
-                color = color,
-                topLeft = androidx.compose.ui.geometry.Offset(
-                    x = i * barWidth,
-                    y = (maxBarHeight - clampedHeight) / 2
-                ),
-                size = androidx.compose.ui.geometry.Size(
-                    width = barWidth * 0.8f,
-                    height = clampedHeight
-                )
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Text(
+                text = "No Host Selected",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 18.sp
             )
+            
+            Text(
+                text = "Go back and select a host from the discovery screen",
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Button(
+                onClick = onNavigateBack,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Filled.Search, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Find Hosts")
+            }
         }
     }
 }
