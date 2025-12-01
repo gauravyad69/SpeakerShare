@@ -38,12 +38,16 @@ class AudioForegroundService : Service() {
         const val ACTION_PAUSE_BROADCAST = "PAUSE_BROADCAST"
         const val ACTION_RESUME_BROADCAST = "RESUME_BROADCAST"
         const val ACTION_TOGGLE_MUTE = "TOGGLE_MUTE"
+        const val ACTION_INIT_MEDIA_PROJECTION = "INIT_MEDIA_PROJECTION"
+        const val ACTION_SWITCH_TO_SYSTEM_AUDIO = "SWITCH_TO_SYSTEM_AUDIO"
         
         private const val EXTRA_SESSION_NAME = "session_name"
         private const val EXTRA_AUDIO_SOURCE = "audio_source"
         private const val EXTRA_MAX_CLIENTS = "max_clients"
         private const val EXTRA_REQUIRE_PASSWORD = "require_password"
         private const val EXTRA_PASSWORD = "password"
+        private const val EXTRA_RESULT_CODE = "result_code"
+        private const val EXTRA_PROJECTION_DATA = "projection_data"
 
         fun startBroadcast(
             context: Context,
@@ -84,6 +88,20 @@ class AudioForegroundService : Service() {
         fun toggleMute(context: Context): Intent {
             return Intent(context, AudioForegroundService::class.java).apply {
                 action = ACTION_TOGGLE_MUTE
+            }
+        }
+        
+        fun initMediaProjection(context: Context, resultCode: Int, data: Intent): Intent {
+            return Intent(context, AudioForegroundService::class.java).apply {
+                action = ACTION_INIT_MEDIA_PROJECTION
+                putExtra(EXTRA_RESULT_CODE, resultCode)
+                putExtra(EXTRA_PROJECTION_DATA, data)
+            }
+        }
+        
+        fun switchToSystemAudio(context: Context): Intent {
+            return Intent(context, AudioForegroundService::class.java).apply {
+                action = ACTION_SWITCH_TO_SYSTEM_AUDIO
             }
         }
     }
@@ -182,6 +200,97 @@ class AudioForegroundService : Service() {
             ACTION_PAUSE_BROADCAST -> pauseBroadcasting()
             ACTION_RESUME_BROADCAST -> resumeBroadcasting()
             ACTION_TOGGLE_MUTE -> toggleMute()
+            ACTION_INIT_MEDIA_PROJECTION -> {
+                val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
+                val projectionData = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(EXTRA_PROJECTION_DATA, Intent::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(EXTRA_PROJECTION_DATA)
+                }
+                if (projectionData != null) {
+                    initializeMediaProjection(resultCode, projectionData)
+                }
+            }
+            ACTION_SWITCH_TO_SYSTEM_AUDIO -> {
+                switchToSystemAudio()
+            }
+        }
+    }
+    
+    private suspend fun initializeMediaProjection(resultCode: Int, data: Intent) {
+        Log.d(TAG, "Initializing MediaProjection in foreground service")
+        
+        // On Android 10+, we must start foreground with FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        // before calling getMediaProjection()
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            // Create notification - use existing session if available, otherwise create a basic one
+            val notification = _currentSession.value?.let { session ->
+                notificationManager.createBroadcastingNotification(
+                    session = session,
+                    connectedClients = session.connectedClients.size,
+                    isAudioMuted = _isAudioMuted.value,
+                    startTime = startTime
+                )
+            } ?: run {
+                // Create a basic notification if no session exists yet
+                createBasicNotification()
+            }
+            
+            // Use ServiceCompat.startForeground with MEDIA_PROJECTION type
+            try {
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    notification,
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    } else {
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                    }
+                )
+                Log.d(TAG, "Started foreground with MEDIA_PROJECTION type")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start foreground with MEDIA_PROJECTION type", e)
+            }
+        }
+        
+        val result = audioCaptureService.initializeMediaProjection(resultCode, data)
+        if (result.isSuccess) {
+            Log.d(TAG, "MediaProjection initialized successfully")
+        } else {
+            Log.e(TAG, "Failed to initialize MediaProjection", result.exceptionOrNull())
+        }
+    }
+    
+    private fun createBasicNotification(): android.app.Notification {
+        val channelId = CHANNEL_ID
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                channelId,
+                "Audio Broadcast",
+                android.app.NotificationManager.IMPORTANCE_LOW
+            )
+            val notificationManager = getSystemService(android.app.NotificationManager::class.java)
+            notificationManager?.createNotificationChannel(channel)
+        }
+        return NotificationCompat.Builder(this, channelId)
+            .setContentTitle("SpeakerShare")
+            .setContentText("Preparing system audio capture...")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
+    }
+    
+    private suspend fun switchToSystemAudio() {
+        Log.d(TAG, "Switching to system audio")
+        try {
+            audioCaptureService.switchAudioSource(io.github.gauravyad69.speakershare.data.model.AudioSource.SYSTEM_AUDIO)
+            Log.d(TAG, "Switched to system audio successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to switch to system audio", e)
         }
     }
 

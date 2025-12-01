@@ -9,6 +9,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -42,6 +50,33 @@ fun HostScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val transferStatus by viewModel.transferStatus.collectAsStateWithLifecycle()
     val pendingTransferClientId by viewModel.pendingTransferClientId.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val mediaProjectionManager = remember { context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager }
+
+    val mediaProjectionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            android.util.Log.d("HostScreen", "MediaProjection permission granted, initializing via foreground service")
+            // Initialize MediaProjection via the foreground service which has the proper context
+            val initIntent = io.github.gauravyad69.speakershare.services.AudioForegroundService.initMediaProjection(
+                context, result.resultCode, result.data!!
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(initIntent)
+            } else {
+                context.startService(initIntent)
+            }
+            // After a brief delay for initialization, switch to system audio
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                val switchIntent = io.github.gauravyad69.speakershare.services.AudioForegroundService.switchToSystemAudio(context)
+                context.startService(switchIntent)
+                viewModel.updateAudioSourceState(AudioSource.SYSTEM_AUDIO)
+            }, 500)
+        } else {
+            android.util.Log.d("HostScreen", "MediaProjection permission denied or cancelled")
+        }
+    }
     
     // State for showing client action menu
     var showClientMenu by remember { mutableStateOf<String?>(null) }
@@ -256,7 +291,19 @@ fun HostScreen(
                     )
                     
                     FilterChip(
-                        onClick = { viewModel.switchAudioSource(AudioSource.SYSTEM_AUDIO) },
+                        onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                // Request MediaProjection permission first
+                                mediaProjectionManager?.let { mpm ->
+                                    val intent = mpm.createScreenCaptureIntent()
+                                    mediaProjectionLauncher.launch(intent)
+                                } ?: run {
+                                    viewModel.switchAudioSource(AudioSource.SYSTEM_AUDIO)
+                                }
+                            } else {
+                                viewModel.switchAudioSource(AudioSource.SYSTEM_AUDIO)
+                            }
+                        },
                         label = { Text("System Audio") },
                         selected = uiState.audioSource == AudioSource.SYSTEM_AUDIO,
                         leadingIcon = {

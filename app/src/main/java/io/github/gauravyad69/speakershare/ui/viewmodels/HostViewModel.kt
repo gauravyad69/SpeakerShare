@@ -11,6 +11,7 @@ import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import android.content.Intent
 
 /**
  * ViewModel for Host mode functionality.
@@ -251,6 +252,38 @@ class HostViewModel @Inject constructor(
             } catch (e: Exception) {
                 _error.value = "Failed to switch audio source: ${e.message}"
                 android.util.Log.e("HostViewModel", "Failed to switch audio source", e)
+            }
+        }
+    }
+    
+    /**
+     * Update audio source state without calling service (used when foreground service handles the switch)
+     */
+    fun updateAudioSourceState(source: AudioSource) {
+        viewModelScope.launch {
+            _audioSource.value = source
+            hostSessionRepository.updateAudioSource(source)
+            android.util.Log.d("HostViewModel", "Audio source state updated to $source")
+        }
+    }
+
+    /**
+     * Initialize MediaProjection using the result from the permission activity.
+     * This delegates to HostService which will forward to the AudioCaptureService.
+     */
+    fun initializeMediaProjection(resultCode: Int, data: Intent) {
+        viewModelScope.launch {
+            try {
+                val result = hostService.initializeMediaProjection(resultCode, data)
+                if (result.isSuccess) {
+                    android.util.Log.d("HostViewModel", "MediaProjection initialized successfully")
+                } else {
+                    _error.value = "Failed to initialize MediaProjection: ${result.exceptionOrNull()?.message}"
+                    android.util.Log.e("HostViewModel", "Failed to initialize MediaProjection", result.exceptionOrNull())
+                }
+            } catch (e: Exception) {
+                _error.value = "Failed to initialize MediaProjection: ${e.message}"
+                android.util.Log.e("HostViewModel", "Failed to initialize MediaProjection", e)
             }
         }
     }

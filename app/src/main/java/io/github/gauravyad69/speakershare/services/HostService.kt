@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 import android.util.Log
+import android.content.Intent
 import java.net.InetAddress
 import java.util.UUID
 
@@ -433,6 +434,14 @@ class HostService @Inject constructor(
      */
     fun getAudioLevel(): StateFlow<Float> {
         return audioStreamManager.getAudioLevel()
+    }
+
+    /**
+     * Initialize MediaProjection for system audio capture. Delegates to
+     * the AudioStreamManager which forwards to AudioCaptureService.
+     */
+    fun initializeMediaProjection(resultCode: Int, data: Intent): Result<Unit> {
+        return audioStreamManager.initializeMediaProjection(resultCode, data)
     }
     
     // Private helper methods

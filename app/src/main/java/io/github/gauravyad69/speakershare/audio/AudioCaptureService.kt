@@ -125,8 +125,9 @@ class AudioCaptureService @Inject constructor(
 
     /**
      * Stop audio capture
+     * @param preserveMediaProjection If true, don't release MediaProjection (used when switching sources)
      */
-    suspend fun stopCapture(): Result<Unit> {
+    suspend fun stopCapture(preserveMediaProjection: Boolean = false): Result<Unit> {
         return try {
             captureJob?.cancel()
             captureJob = null
@@ -142,8 +143,10 @@ class AudioCaptureService @Inject constructor(
             audioPlayback?.release()
             audioPlayback = null
 
-            mediaProjection?.stop()
-            mediaProjection = null
+            if (!preserveMediaProjection) {
+                mediaProjection?.stop()
+                mediaProjection = null
+            }
 
             _captureState.value = _captureState.value.copy(isCapturing = false)
 
@@ -161,7 +164,8 @@ class AudioCaptureService @Inject constructor(
         return try {
             if (_captureState.value.isCapturing) {
                 val currentSampleRate = _captureState.value.sampleRate
-                stopCapture()
+                // Preserve MediaProjection when switching - we might need it for system audio
+                stopCapture(preserveMediaProjection = true)
                 delay(100) // Brief pause for cleanup
                 startCapture(newSource, currentSampleRate)
             } else {
@@ -203,11 +207,47 @@ class AudioCaptureService @Inject constructor(
      */
     @RequiresApi(Build.VERSION_CODES.Q)
     private suspend fun startSystemAudioCapture(sampleRate: Int) {
-        // Note: In real implementation, MediaProjection would be initialized
-        // with user permission via MediaProjectionManager.createScreenCaptureIntent()
-        // For now, we'll simulate system audio capture
+        val projection = mediaProjection
+        if (projection == null) {
+            android.util.Log.e(TAG, "MediaProjection not initialized - user needs to grant screen capture permission")
+            throw IllegalStateException("MediaProjection not initialized. Please grant screen capture permission first.")
+        }
+        
+        android.util.Log.d(TAG, "Starting system audio capture with AudioPlaybackCapture")
         
         val config = AudioCaptureConfig(sampleRate = sampleRate)
+        
+        // Build AudioPlaybackCaptureConfiguration
+        val audioPlaybackCaptureConfig = AudioPlaybackCaptureConfiguration.Builder(projection)
+            .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+            .addMatchingUsage(AudioAttributes.USAGE_GAME)
+            .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+            .build()
+        
+        // Create AudioRecord with AudioPlaybackCapture
+        val bufferSize = AudioRecord.getMinBufferSize(sampleRate, CHANNELS, ENCODING) * BUFFER_SIZE_MULTIPLIER
+        
+        audioRecord = AudioRecord.Builder()
+            .setAudioPlaybackCaptureConfig(audioPlaybackCaptureConfig)
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(ENCODING)
+                    .setSampleRate(sampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                    .build()
+            )
+            .setBufferSizeInBytes(bufferSize)
+            .build()
+        
+        if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+            android.util.Log.e(TAG, "Failed to initialize AudioRecord for system audio capture")
+            throw IllegalStateException("Failed to initialize AudioRecord for system audio capture")
+        }
+        
+        audioRecord?.startRecording()
+        android.util.Log.d(TAG, "System audio AudioRecord started")
+        
+        // Use the same capture loop as microphone
         captureJob = captureScope.launch {
             captureSystemAudioLoop(config)
         }
@@ -263,31 +303,39 @@ class AudioCaptureService @Inject constructor(
     }
 
     /**
-     * System audio capture loop (simulated for test environment)
+     * System audio capture loop using AudioPlaybackCapture
      */
     @RequiresApi(Build.VERSION_CODES.Q)
     private suspend fun captureSystemAudioLoop(config: AudioCaptureConfig) {
-        // In real implementation, this would use AudioPlaybackCapture
-        // with MediaProjection to capture system audio
-        // For testing, we'll simulate system audio data
+        val buffer = ByteArray(config.bufferSizeBytes)
+        var emitCounter = 0
         
-        val simulatedBuffer = ByteArray(config.bufferSizeBytes)
+        android.util.Log.d(TAG, "Starting system audio capture loop")
         
-        while (currentCoroutineContext().isActive) {
+        while (currentCoroutineContext().isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
             try {
-                // Simulate system audio data (silence for testing)
-                simulatedBuffer.fill(0)
-                _audioDataFlow.tryEmit(simulatedBuffer.clone())
+                val bytesRead = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                 
-                // Maintain real-time timing
-                delay(config.bufferSizeBytes * 1000L / (config.sampleRate * 2)) // 16-bit = 2 bytes per sample
+                if (bytesRead > 0) {
+                    val audioData = buffer.copyOf(bytesRead)
+                    val emitted = _audioDataFlow.tryEmit(audioData)
+                    emitCounter++
+                    if (emitCounter % 50 == 0) {
+                        android.util.Log.d(TAG, "System audio captured $emitCounter chunks, last $bytesRead bytes, emitted=$emitted")
+                    }
+                    calculateAudioLevel(audioData)
+                }
+                
+                // Yield to prevent blocking
+                yield()
             } catch (e: Exception) {
                 if (currentCoroutineContext().isActive) {
-                    println("System audio capture error: ${e.message}")
+                    android.util.Log.e(TAG, "System audio capture error: ${e.message}")
                 }
                 break
             }
         }
+        android.util.Log.d(TAG, "System audio capture loop ended")
     }
 
     /**

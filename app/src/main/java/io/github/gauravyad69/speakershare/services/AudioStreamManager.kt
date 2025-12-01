@@ -1,6 +1,7 @@
 package io.github.gauravyad69.speakershare.services
 
 import android.Manifest
+import android.content.Intent
 import android.util.Log
 import androidx.annotation.RequiresPermission
 import io.github.gauravyad69.speakershare.audio.AudioCaptureService
@@ -254,5 +255,14 @@ class AudioStreamManager @Inject constructor(
      */
     fun getAudioLevel(): StateFlow<Float> {
         return audioCaptureService.currentAudioLevel
+    }
+
+    /**
+     * Initialize MediaProjection for system audio capture by delegating
+     * to the underlying AudioCaptureService. This should be called with
+     * the result received from the MediaProjection permission activity.
+     */
+    fun initializeMediaProjection(resultCode: Int, data: Intent): Result<Unit> {
+        return audioCaptureService.initializeMediaProjection(resultCode, data)
     }
 }
