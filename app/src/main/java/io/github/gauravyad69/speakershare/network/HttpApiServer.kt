@@ -26,7 +26,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class HttpApiServer @Inject constructor(
-    private val hostApiHandler: HostApiHandler
+    private val hostApiHandler: HostApiHandler,
+    private val screenCaptureService: io.github.gauravyad69.speakershare.screen.ScreenCaptureService
 ) {
     companion object {
         private const val TAG = "HttpApiServer"
@@ -133,6 +134,9 @@ class HttpApiServer @Inject constructor(
                 configureHostRoutes()
                 configureSessionRoutes()
             }
+            
+            // Screen streaming routes (outside API_BASE_PATH for simpler URLs)
+            configureScreenRoutes()
             
             // Health check endpoint
             get("/health") {
@@ -336,6 +340,77 @@ class HttpApiServer @Inject constructor(
                         HttpStatusCode.InternalServerError,
                         ErrorResponse("Internal server error", "STATUS_ERROR")
                     )
+                }
+            }
+        }
+    }
+    
+    /**
+     * Configure screen streaming endpoints
+     */
+    private fun Routing.configureScreenRoutes() {
+        route("/api/screen") {
+            // Check if screen sharing is available
+            get("/status") {
+                val isCapturing = screenCaptureService.captureState.value.isCapturing
+                call.respond(HttpStatusCode.OK, mapOf(
+                    "available" to isCapturing,
+                    "width" to screenCaptureService.captureState.value.width,
+                    "height" to screenCaptureService.captureState.value.height,
+                    "fps" to screenCaptureService.captureState.value.fps
+                ))
+            }
+            
+            // Get single frame (polling approach - simpler and more reliable)
+            get("/frame") {
+                if (!screenCaptureService.captureState.value.isCapturing) {
+                    call.respond(HttpStatusCode.ServiceUnavailable, mapOf(
+                        "error" to "Screen sharing not active"
+                    ))
+                    return@get
+                }
+                
+                // Get the latest frame
+                val frame = screenCaptureService.getLatestFrame()
+                if (frame != null) {
+                    call.respondBytes(frame, ContentType.Image.JPEG)
+                } else {
+                    call.respond(HttpStatusCode.NoContent)
+                }
+            }
+            
+            // Stream screen frames (SSE-style for continuous streaming)
+            get("/stream") {
+                if (!screenCaptureService.captureState.value.isCapturing) {
+                    call.respond(HttpStatusCode.ServiceUnavailable, mapOf(
+                        "error" to "Screen sharing not active"
+                    ))
+                    return@get
+                }
+                
+                call.respondOutputStream(ContentType.Application.OctetStream) {
+                    try {
+                        // Collect and send frames
+                        screenCaptureService.screenFrameFlow.collect { frameBytes ->
+                            try {
+                                // Send frame length (4 bytes, big-endian)
+                                val lengthBytes = ByteArray(4)
+                                lengthBytes[0] = ((frameBytes.size shr 24) and 0xFF).toByte()
+                                lengthBytes[1] = ((frameBytes.size shr 16) and 0xFF).toByte()
+                                lengthBytes[2] = ((frameBytes.size shr 8) and 0xFF).toByte()
+                                lengthBytes[3] = (frameBytes.size and 0xFF).toByte()
+                                
+                                write(lengthBytes)
+                                write(frameBytes)
+                                flush()
+                            } catch (e: Exception) {
+                                Log.d(TAG, "Client disconnected from screen stream")
+                                throw e
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.d(TAG, "Screen stream ended: ${e.message}")
+                    }
                 }
             }
         }

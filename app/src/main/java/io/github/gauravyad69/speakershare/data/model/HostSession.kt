@@ -24,7 +24,8 @@ data class HostSession(
  */
 enum class AudioSource {
     MICROPHONE,
-    SYSTEM_AUDIO
+    SYSTEM_AUDIO,
+    SCREEN_AND_AUDIO  // Combined screen mirroring with system audio
 }
 
 /**

@@ -368,6 +368,7 @@ class AudioNotificationManager @Inject constructor(
         return when (source) {
             io.github.gauravyad69.speakershare.data.model.AudioSource.MICROPHONE -> "Microphone"
             io.github.gauravyad69.speakershare.data.model.AudioSource.SYSTEM_AUDIO -> "System Audio"
+            io.github.gauravyad69.speakershare.data.model.AudioSource.SCREEN_AND_AUDIO -> "Screen & Audio"
         }
     }
 

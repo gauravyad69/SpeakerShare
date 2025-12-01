@@ -40,6 +40,7 @@ class AudioForegroundService : Service() {
         const val ACTION_TOGGLE_MUTE = "TOGGLE_MUTE"
         const val ACTION_INIT_MEDIA_PROJECTION = "INIT_MEDIA_PROJECTION"
         const val ACTION_SWITCH_TO_SYSTEM_AUDIO = "SWITCH_TO_SYSTEM_AUDIO"
+        const val ACTION_SWITCH_TO_SCREEN_AND_AUDIO = "SWITCH_TO_SCREEN_AND_AUDIO"
         
         private const val EXTRA_SESSION_NAME = "session_name"
         private const val EXTRA_AUDIO_SOURCE = "audio_source"
@@ -104,6 +105,12 @@ class AudioForegroundService : Service() {
                 action = ACTION_SWITCH_TO_SYSTEM_AUDIO
             }
         }
+        
+        fun switchToScreenAndAudio(context: Context): Intent {
+            return Intent(context, AudioForegroundService::class.java).apply {
+                action = ACTION_SWITCH_TO_SCREEN_AND_AUDIO
+            }
+        }
     }
 
     @Inject
@@ -120,6 +127,9 @@ class AudioForegroundService : Service() {
 
     @Inject
     lateinit var audioCaptureService: AudioCaptureService
+
+    @Inject
+    lateinit var screenCaptureService: io.github.gauravyad69.speakershare.screen.ScreenCaptureService
 
     @Inject
     lateinit var notificationManager: AudioNotificationManager
@@ -215,6 +225,9 @@ class AudioForegroundService : Service() {
             ACTION_SWITCH_TO_SYSTEM_AUDIO -> {
                 switchToSystemAudio()
             }
+            ACTION_SWITCH_TO_SCREEN_AND_AUDIO -> {
+                switchToScreenAndAudio()
+            }
         }
     }
     
@@ -291,6 +304,28 @@ class AudioForegroundService : Service() {
             Log.d(TAG, "Switched to system audio successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to switch to system audio", e)
+        }
+    }
+    
+    private suspend fun switchToScreenAndAudio() {
+        Log.d(TAG, "Switching to screen and audio")
+        try {
+            // First switch audio to system audio (uses same MediaProjection)
+            audioCaptureService.switchAudioSource(io.github.gauravyad69.speakershare.data.model.AudioSource.SCREEN_AND_AUDIO)
+            
+            // Share MediaProjection with screen capture service and start screen capture
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val projection = audioCaptureService.getMediaProjection()
+                if (projection != null) {
+                    screenCaptureService.setMediaProjection(projection)
+                    screenCaptureService.startCapture()
+                    Log.d(TAG, "Switched to screen and audio successfully")
+                } else {
+                    Log.e(TAG, "MediaProjection not available for screen capture")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to switch to screen and audio", e)
         }
     }
 

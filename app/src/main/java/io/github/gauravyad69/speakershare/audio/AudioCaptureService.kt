@@ -85,6 +85,11 @@ class AudioCaptureService @Inject constructor(
     private val captureScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     /**
+     * Get current MediaProjection (for sharing with ScreenCaptureService)
+     */
+    fun getMediaProjection(): MediaProjection? = mediaProjection
+
+    /**
      * Start audio capture from the specified source
      */
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
@@ -101,7 +106,10 @@ class AudioCaptureService @Inject constructor(
                 io.github.gauravyad69.speakershare.data.model.AudioSource.MICROPHONE -> {
                     startMicrophoneCapture(sampleRate)
                 }
-                io.github.gauravyad69.speakershare.data.model.AudioSource.SYSTEM_AUDIO -> {
+                io.github.gauravyad69.speakershare.data.model.AudioSource.SYSTEM_AUDIO,
+                io.github.gauravyad69.speakershare.data.model.AudioSource.SCREEN_AND_AUDIO -> {
+                    // Both SYSTEM_AUDIO and SCREEN_AND_AUDIO use system audio capture
+                    // The difference is that SCREEN_AND_AUDIO also captures the screen via ScreenCaptureService
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         startSystemAudioCapture(sampleRate)
                     } else {

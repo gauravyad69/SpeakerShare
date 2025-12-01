@@ -1,5 +1,6 @@
 package io.github.gauravyad69.speakershare.ui.viewmodels
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,7 +14,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import java.util.*
-import android.util.Log
+import io.github.gauravyad69.speakershare.network.ScreenStreamClient
+import android.graphics.Bitmap
 
 private const val TAG = "ClientViewModel"
 
@@ -23,7 +25,8 @@ private const val TAG = "ClientViewModel"
 @HiltViewModel
 class ClientViewModel @Inject constructor(
     private val clientManager: ClientManager,
-    private val userSettingsRepository: UserSettingsRepository
+    private val userSettingsRepository: UserSettingsRepository,
+    private val screenStreamClient: ScreenStreamClient
 ) : ViewModel() {
 
     // Current client connection
@@ -61,6 +64,23 @@ class ClientViewModel @Inject constructor(
     // UI state
     private val _uiState = MutableStateFlow(ClientUiState())
     val uiState: StateFlow<ClientUiState> = _uiState.asStateFlow()
+    
+    // Screen streaming state
+    val isScreenStreaming: StateFlow<Boolean> = screenStreamClient.isStreaming
+    val isScreenShareAvailable: StateFlow<Boolean> = screenStreamClient.isScreenShareAvailable
+    
+    // Current screen frame
+    private val _currentScreenFrame = MutableStateFlow<Bitmap?>(null)
+    val currentScreenFrame: StateFlow<Bitmap?> = _currentScreenFrame.asStateFlow()
+    
+    init {
+        // Collect screen frames
+        viewModelScope.launch {
+            screenStreamClient.screenFrameFlow.collect { bitmap ->
+                _currentScreenFrame.value = bitmap
+            }
+        }
+    }
 
     // Actions
     fun connectToHost(hostInfo: NetworkInfo, retryOnFailure: Boolean = false) {
@@ -153,6 +173,34 @@ class ClientViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+    
+    // ========== Screen Streaming Methods ==========
+    
+    /**
+     * Check if screen sharing is available from host
+     */
+    fun checkScreenShareAvailable() {
+        val host = _connectedHost.value ?: return
+        viewModelScope.launch {
+            screenStreamClient.checkScreenShareAvailable(host.localIpAddress, host.port)
+        }
+    }
+    
+    /**
+     * Start viewing host's screen
+     */
+    fun startScreenViewing() {
+        val host = _connectedHost.value ?: return
+        screenStreamClient.startStreaming(host.localIpAddress, host.port)
+    }
+    
+    /**
+     * Stop viewing host's screen
+     */
+    fun stopScreenViewing() {
+        screenStreamClient.stopStreaming()
+        _currentScreenFrame.value = null
     }
     
     // ========== Host Transfer Methods ==========

@@ -53,11 +53,16 @@ fun HostScreen(
     val context = LocalContext.current
     val mediaProjectionManager = remember { context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager }
 
+    // Track which mode was requested when MediaProjection permission is granted
+    var pendingAudioSourceMode by remember { mutableStateOf<AudioSource?>(null) }
+
     val mediaProjectionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            android.util.Log.d("HostScreen", "MediaProjection permission granted, initializing via foreground service")
+            val requestedMode = pendingAudioSourceMode ?: AudioSource.SYSTEM_AUDIO
+            android.util.Log.d("HostScreen", "MediaProjection permission granted for mode: $requestedMode")
+            
             // Initialize MediaProjection via the foreground service which has the proper context
             val initIntent = io.github.gauravyad69.speakershare.services.AudioForegroundService.initMediaProjection(
                 context, result.resultCode, result.data!!
@@ -67,15 +72,21 @@ fun HostScreen(
             } else {
                 context.startService(initIntent)
             }
-            // After a brief delay for initialization, switch to system audio
+            // After a brief delay for initialization, switch to the requested mode
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                val switchIntent = io.github.gauravyad69.speakershare.services.AudioForegroundService.switchToSystemAudio(context)
+                val switchIntent = when (requestedMode) {
+                    AudioSource.SCREEN_AND_AUDIO -> 
+                        io.github.gauravyad69.speakershare.services.AudioForegroundService.switchToScreenAndAudio(context)
+                    else -> 
+                        io.github.gauravyad69.speakershare.services.AudioForegroundService.switchToSystemAudio(context)
+                }
                 context.startService(switchIntent)
-                viewModel.updateAudioSourceState(AudioSource.SYSTEM_AUDIO)
+                viewModel.updateAudioSourceState(requestedMode)
             }, 500)
         } else {
             android.util.Log.d("HostScreen", "MediaProjection permission denied or cancelled")
         }
+        pendingAudioSourceMode = null
     }
     
     // State for showing client action menu
@@ -272,6 +283,7 @@ fun HostScreen(
                 
                 Spacer(modifier = Modifier.height(12.dp))
                 
+                // First row: Microphone and System Audio
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -295,6 +307,7 @@ fun HostScreen(
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                 // Request MediaProjection permission first
                                 mediaProjectionManager?.let { mpm ->
+                                    pendingAudioSourceMode = AudioSource.SYSTEM_AUDIO
                                     val intent = mpm.createScreenCaptureIntent()
                                     mediaProjectionLauncher.launch(intent)
                                 } ?: run {
@@ -308,7 +321,7 @@ fun HostScreen(
                         selected = uiState.audioSource == AudioSource.SYSTEM_AUDIO,
                         leadingIcon = {
                             Icon(
-                                Icons.Default.Computer,
+                                Icons.Default.VolumeUp,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -316,6 +329,41 @@ fun HostScreen(
                         modifier = Modifier.weight(1f)
                     )
                 }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Second row: Screen & Audio (full width)
+                FilterChip(
+                    onClick = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            // Request MediaProjection permission first
+                            mediaProjectionManager?.let { mpm ->
+                                pendingAudioSourceMode = AudioSource.SCREEN_AND_AUDIO
+                                val intent = mpm.createScreenCaptureIntent()
+                                mediaProjectionLauncher.launch(intent)
+                            } ?: run {
+                                viewModel.switchAudioSource(AudioSource.SCREEN_AND_AUDIO)
+                            }
+                        } else {
+                            // Show message that this feature requires Android 10+
+                            android.widget.Toast.makeText(
+                                context, 
+                                "Screen sharing requires Android 10+", 
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    label = { Text("Screen & Audio") },
+                    selected = uiState.audioSource == AudioSource.SCREEN_AND_AUDIO,
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Tv,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
         

@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -19,6 +21,7 @@ import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import io.github.gauravyad69.speakershare.network.discovery.DiscoveredHost
 import io.github.gauravyad69.speakershare.services.TransferRequest
 import io.github.gauravyad69.speakershare.ui.viewmodels.ClientViewModel
+import io.github.gauravyad69.speakershare.ui.components.ScreenViewer
 
 import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
 
@@ -43,6 +46,12 @@ fun ClientScreen(
     val isMuted by viewModel.isMuted.collectAsState()
     val audioLevel by viewModel.audioLevel.collectAsState()
     val pendingTransferRequest by viewModel.pendingTransferRequest.collectAsState()
+    
+    // Screen streaming state
+    val isScreenStreaming by viewModel.isScreenStreaming.collectAsState()
+    val isScreenShareAvailable by viewModel.isScreenShareAvailable.collectAsState()
+    val currentScreenFrame by viewModel.currentScreenFrame.collectAsState()
+    
     val context = LocalContext.current
 
     // Set up callback for when user becomes host
@@ -72,6 +81,19 @@ fun ClientScreen(
             }
         }
     }
+    
+    // Check screen share availability when connected
+    LaunchedEffect(connectionState) {
+        if (connectionState == io.github.gauravyad69.speakershare.data.model.ConnectionStatus.CONNECTED) {
+            // Periodically check if screen sharing becomes available
+            while (true) {
+                viewModel.checkScreenShareAvailable()
+                kotlinx.coroutines.delay(5000) // Check every 5 seconds
+            }
+        } else {
+            viewModel.stopScreenViewing()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -97,7 +119,8 @@ fun ClientScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp),
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Connection Status Card
@@ -135,6 +158,20 @@ fun ClientScreen(
 
                 // Audio Visualizer
                 AudioVisualizer(level = volume)
+                
+                // Screen Viewer - always show when connected
+                val isScreenShareAvailable by viewModel.isScreenShareAvailable.collectAsState()
+                val currentScreenFrame by viewModel.currentScreenFrame.collectAsState()
+                val isScreenStreaming by viewModel.isScreenStreaming.collectAsState()
+                
+                ScreenViewer(
+                    screenFrame = currentScreenFrame,
+                    isScreenAvailable = isScreenShareAvailable,
+                    isStreaming = isScreenStreaming,
+                    onStartViewing = { viewModel.startScreenViewing() },
+                    onStopViewing = { viewModel.stopScreenViewing() },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             // Discovery Section
