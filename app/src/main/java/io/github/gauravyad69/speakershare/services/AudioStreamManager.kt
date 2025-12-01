@@ -6,9 +6,12 @@ import android.util.Log
 import androidx.annotation.RequiresPermission
 import io.github.gauravyad69.speakershare.audio.AudioCaptureService
 import io.github.gauravyad69.speakershare.audio.AudioEncoder
+import io.github.gauravyad69.speakershare.data.model.AudioEncoding
 import io.github.gauravyad69.speakershare.data.model.AudioQuality
 import io.github.gauravyad69.speakershare.data.model.AudioSource
 import io.github.gauravyad69.speakershare.data.model.AudioStream
+import io.github.gauravyad69.speakershare.data.model.LatencyConfig
+import io.github.gauravyad69.speakershare.data.model.LatencyProfile
 import io.github.gauravyad69.speakershare.data.model.StreamState
 import io.github.gauravyad69.speakershare.data.model.StreamTransport
 import io.github.gauravyad69.speakershare.network.UdpAudioServer
@@ -46,10 +49,22 @@ class AudioStreamManager @Inject constructor(
     private val _isMuted = MutableStateFlow(false)
     val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
     
+    // Current latency configuration
+    private val _latencyConfig = MutableStateFlow(LatencyConfig.fromProfile(LatencyProfile.BALANCED))
+    val latencyConfig: StateFlow<LatencyConfig> = _latencyConfig.asStateFlow()
+    
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
     companion object {
         private const val TAG = "AudioStreamManager"
+    }
+    
+    /**
+     * Set the latency profile for audio streaming
+     */
+    fun setLatencyProfile(profile: LatencyProfile) {
+        _latencyConfig.value = LatencyConfig.fromProfile(profile)
+        Log.d(TAG, "Latency profile set to: $profile")
     }
     
     /**
@@ -64,6 +79,7 @@ class AudioStreamManager @Inject constructor(
     ): Result<Unit> {
         return try {
             Log.d(TAG, "Starting audio stream: $streamId, source: $audioSource, transport: $transport")
+            Log.d(TAG, "Using latency config: ${_latencyConfig.value}")
             
             val transportType = if (transport == "WEBRTC") StreamTransport.WEBRTC else StreamTransport.UDP
             
@@ -98,6 +114,7 @@ class AudioStreamManager @Inject constructor(
             // Update state to active
             _currentStream.value = audioStream.copy(state = StreamState.ACTIVE, isActive = true)
             _isStreaming.value = true
+
             
             Log.d(TAG, "Audio stream started successfully")
             Result.success(Unit)
@@ -115,52 +132,73 @@ class AudioStreamManager @Inject constructor(
     }
     
     private suspend fun startUdpStreaming(streamId: String, audioSource: AudioSource, quality: AudioQuality) {
+        val config = _latencyConfig.value
+        Log.d(TAG, "Starting UDP streaming with latency profile: ${config.profile}")
+        
         // 1. Start UDP Server
         if (!udpAudioServer.startServer(streamId, "Host")) {
              throw RuntimeException("Failed to start UDP server")
         }
         
-        // 2. Start Encoder
-        val encoderConfig = audioEncoder.getQualityPreset(
-            when {
-                quality.bitrate <= 64000 -> AudioEncoder.AudioQuality.LOW
-                quality.bitrate <= 128000 -> AudioEncoder.AudioQuality.MEDIUM
-                quality.bitrate <= 256000 -> AudioEncoder.AudioQuality.HIGH
-                else -> AudioEncoder.AudioQuality.ULTRA
-            }
-        )
-        audioEncoder.startEncoding(encoderConfig)
+        // 2. Check if using PCM mode (NO_LATENCY profile)
+        val usePcmMode = config.encoding == AudioEncoding.PCM
         
-        // 3. Set up pipeline collectors BEFORE starting capture
-        Log.d(TAG, "Setting up audio data pipeline")
-        
-        scope.launch {
-            Log.d(TAG, "Starting audioDataFlow collector")
-            audioCaptureService.audioDataFlow.collect { pcmData ->
-                // Only process audio if not muted
-                if (!_isMuted.value) {
-                    Log.d(TAG, "Received PCM data: ${pcmData.size} bytes")
-                    audioEncoder.encodePCMData(pcmData)
+        if (usePcmMode) {
+            // PCM Mode: Skip encoding, send raw PCM directly
+            Log.d(TAG, "Using PCM mode (no codec) for lowest latency")
+            
+            scope.launch {
+                Log.d(TAG, "Starting direct PCM pipeline")
+                audioCaptureService.audioDataFlow.collect { pcmData ->
+                    if (!_isMuted.value) {
+                        // Directly broadcast raw PCM data
+                        udpAudioServer.broadcastAudio(pcmData)
+                    }
                 }
             }
-        }
-        
-        scope.launch {
-            Log.d(TAG, "Starting encodedPacketFlow collector")
-            audioEncoder.encodedPacketFlow.collect { packet ->
-                // Only broadcast if not muted
-                if (!_isMuted.value) {
-                    Log.d(TAG, "Broadcasting encoded packet: ${packet.size} bytes")
-                    udpAudioServer.broadcastAudio(packet.data)
+        } else {
+            // AAC Mode: Use encoder
+            // 2. Start Encoder with latency-optimized config
+            val encoderConfig = AudioEncoder.EncoderConfig(
+                sampleRate = config.sampleRate,
+                channelCount = 1,
+                bitrate = config.bitrate,
+                bufferTimeoutUs = config.codecTimeoutUs
+            )
+            audioEncoder.startEncoding(encoderConfig)
+            
+            // 3. Set up pipeline collectors BEFORE starting capture
+            Log.d(TAG, "Setting up audio data pipeline")
+            
+            scope.launch {
+                Log.d(TAG, "Starting audioDataFlow collector")
+                audioCaptureService.audioDataFlow.collect { pcmData ->
+                    // Only process audio if not muted
+                    if (!_isMuted.value) {
+                        Log.d(TAG, "Received PCM data: ${pcmData.size} bytes")
+                        audioEncoder.encodePCMData(pcmData)
+                    }
+                }
+            }
+            
+            scope.launch {
+                Log.d(TAG, "Starting encodedPacketFlow collector")
+                audioEncoder.encodedPacketFlow.collect { packet ->
+                    // Only broadcast if not muted
+                    if (!_isMuted.value) {
+                        Log.d(TAG, "Broadcasting encoded packet: ${packet.size} bytes")
+                        udpAudioServer.broadcastAudio(packet.data)
+                    }
                 }
             }
         }
         
         Log.d(TAG, "Audio data pipeline set up complete")
         
-        // 4. Start Capture AFTER pipeline is set up
-        Log.d(TAG, "Starting audio capture")
-        audioCaptureService.startCapture(audioSource, encoderConfig.sampleRate)
+        // 4. Start Capture AFTER pipeline is set up with latency-optimized sample rate
+        Log.d(TAG, "Starting audio capture with sample rate: ${config.sampleRate}")
+        audioCaptureService.startCapture(audioSource, config.sampleRate)
+
     }
     
     /**

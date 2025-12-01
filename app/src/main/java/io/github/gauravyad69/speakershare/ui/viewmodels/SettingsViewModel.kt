@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.data.repository.UserSettingsRepository
+import io.github.gauravyad69.speakershare.services.AudioStreamManager
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -15,7 +16,8 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val userSettingsRepository: UserSettingsRepository
+    private val userSettingsRepository: UserSettingsRepository,
+    private val audioStreamManager: AudioStreamManager
 ) : ViewModel() {
 
     // User settings state
@@ -31,6 +33,13 @@ class SettingsViewModel @Inject constructor(
 
     private val _bufferSize = MutableStateFlow(1024)
     val bufferSize: StateFlow<Int> = _bufferSize.asStateFlow()
+
+    // Latency profile
+    private val _latencyProfile = MutableStateFlow(LatencyProfile.BALANCED)
+    val latencyProfile: StateFlow<LatencyProfile> = _latencyProfile.asStateFlow()
+    
+    private val _latencyConfig = MutableStateFlow(LatencyConfig.fromProfile(LatencyProfile.BALANCED))
+    val latencyConfig: StateFlow<LatencyConfig> = _latencyConfig.asStateFlow()
 
     // Network settings
     private val _preferredTransport = MutableStateFlow(StreamTransport.WEBRTC)
@@ -170,6 +179,23 @@ class SettingsViewModel @Inject constructor(
 
     fun setDefaultAudioSource(source: AudioSource) {
         _defaultAudioSource.value = source
+    }
+
+    fun setLatencyProfile(profile: LatencyProfile) {
+        _latencyProfile.value = profile
+        _latencyConfig.value = LatencyConfig.fromProfile(profile)
+        
+        // Apply the latency profile to the audio stream manager
+        audioStreamManager.setLatencyProfile(profile)
+        
+        // Update related settings based on profile
+        val config = _latencyConfig.value
+        _audioQuality.value = _audioQuality.value.copy(
+            sampleRate = config.sampleRate,
+            bitrate = if (config.bitrate > 0) config.bitrate / 1000 else 128,
+            encoding = config.encoding
+        )
+        _bufferSize.value = config.captureBufferCapacity * 256 // Approximate mapping
     }
 
     fun setPreferredTransport(transport: StreamTransport) {

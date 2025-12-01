@@ -30,6 +30,8 @@ fun SettingsScreen(
     val settings by viewModel.userSettings.collectAsState()
     val audioQuality by viewModel.audioQuality.collectAsState()
     val bufferSize by viewModel.bufferSize.collectAsState()
+    val latencyProfile by viewModel.latencyProfile.collectAsState()
+    val latencyConfig by viewModel.latencyConfig.collectAsState()
     val preferredTransport by viewModel.preferredTransport.collectAsState()
     val maxClients by viewModel.maxClients.collectAsState()
     val keepScreenOn by viewModel.keepScreenOn.collectAsState()
@@ -38,6 +40,7 @@ fun SettingsScreen(
     val hasUnsavedChanges by viewModel.hasUnsavedChanges.collectAsState()
     
     var showAdvancedSettings by remember { mutableStateOf(false) }
+
 
     Scaffold(
         topBar = {
@@ -74,6 +77,16 @@ fun SettingsScreen(
                     title = "Audio Settings",
                     icon = Icons.Default.AudioFile
                 ) {
+                    // Latency Profile (Most Important Setting)
+                    LatencyProfileSettings(
+                        currentProfile = latencyProfile,
+                        onProfileChange = { viewModel.setLatencyProfile(it) }
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Divider()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
                     AudioQualitySettings(
                         bitrate = audioQuality.bitrate,
                         encoding = audioQuality.encoding.name,
@@ -235,6 +248,132 @@ private fun SettingsSectionCard(
             }
             
             content()
+        }
+    }
+}
+
+@Composable
+private fun LatencyProfileSettings(
+    currentProfile: io.github.gauravyad69.speakershare.data.model.LatencyProfile,
+    onProfileChange: (io.github.gauravyad69.speakershare.data.model.LatencyProfile) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = "Latency Profile",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Medium
+        )
+        
+        Text(
+            text = "Choose a preset that balances latency vs audio quality",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        
+        val profiles = listOf(
+            Triple(
+                io.github.gauravyad69.speakershare.data.model.LatencyProfile.NO_LATENCY,
+                "⚡ No Latency (~20-50ms)",
+                "Raw PCM streaming. May cause glitches on poor networks. Uses ~1.4 Mbps."
+            ),
+            Triple(
+                io.github.gauravyad69.speakershare.data.model.LatencyProfile.LOW_LATENCY,
+                "🚀 Low Latency (~50-100ms)",
+                "Minimal buffering with AAC. Good for real-time scenarios."
+            ),
+            Triple(
+                io.github.gauravyad69.speakershare.data.model.LatencyProfile.BALANCED,
+                "⚖️ Balanced (~100-200ms)",
+                "Recommended. Good trade-off between latency and stability."
+            ),
+            Triple(
+                io.github.gauravyad69.speakershare.data.model.LatencyProfile.HIGH_QUALITY,
+                "🎵 High Quality (~200-500ms)",
+                "Maximum stability and quality. Best for poor networks."
+            )
+        )
+        
+        Column(
+            modifier = Modifier.selectableGroup(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            profiles.forEach { (profile, title, description) ->
+                val isSelected = currentProfile == profile
+                
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = isSelected,
+                            onClick = { onProfileChange(profile) },
+                            role = Role.RadioButton
+                        ),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isSelected) 
+                            MaterialTheme.colorScheme.primaryContainer 
+                        else 
+                            MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    elevation = CardDefaults.cardElevation(
+                        defaultElevation = if (isSelected) 4.dp else 1.dp
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = null // handled by selectable
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                            Text(
+                                text = description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isSelected) 
+                                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Warning for NO_LATENCY mode
+        if (currentProfile == io.github.gauravyad69.speakershare.data.model.LatencyProfile.NO_LATENCY) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        text = "No Latency mode uses raw PCM audio which requires high bandwidth (~1.4 Mbps) and may cause audio glitches. Only use on excellent WiFi connections.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
         }
     }
 }
