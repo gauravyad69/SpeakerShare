@@ -256,6 +256,42 @@ class UdpAudioServer @Inject constructor(
     }
     
     /**
+     * Send kick command to a specific client
+     * This notifies the client that they have been kicked and removes them from the server
+     */
+    suspend fun sendKickCommand(clientId: String): Boolean {
+        val client = connectedClients[clientId] ?: return false
+        
+        return withContext(Dispatchers.IO) {
+            try {
+                val kickPacket = packetHandler.createControlPacket(
+                    sessionId = sessionId,
+                    sequenceNumber = sequenceNumber.incrementAndGet(),
+                    command = UdpPacketHandler.CONTROL_KICK
+                )
+                
+                val socket = audioSocket ?: return@withContext false
+                val packet = DatagramPacket(
+                    kickPacket,
+                    kickPacket.size,
+                    client.address,
+                    client.audioPort
+                )
+                socket.send(packet)
+                
+                // Remove client from connected list
+                removeClient(clientId)
+                
+                Log.i(TAG, "Sent kick command to client $clientId at ${client.address.hostAddress}")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send kick command to $clientId", e)
+                false
+            }
+        }
+    }
+    
+    /**
      * Send host transfer request to a specific client
      */
     suspend fun sendTransferRequest(clientId: String): Boolean {

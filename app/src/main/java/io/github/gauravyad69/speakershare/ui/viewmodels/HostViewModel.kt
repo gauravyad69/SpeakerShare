@@ -1,17 +1,21 @@
 package io.github.gauravyad69.speakershare.ui.viewmodels
 
+import android.content.Context
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.data.repository.*
 import io.github.gauravyad69.speakershare.network.api.HostApiHandler
+import io.github.gauravyad69.speakershare.services.AudioForegroundService
+import io.github.gauravyad69.speakershare.services.AudioStreamManager
 import io.github.gauravyad69.speakershare.services.HostService
 import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import android.content.Intent
 
 /**
  * ViewModel for Host mode functionality.
@@ -19,13 +23,15 @@ import android.content.Intent
  */
 @HiltViewModel
 class HostViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val hostSessionRepository: HostSessionRepository,
     private val clientConnectionRepository: ClientConnectionRepository,
     private val audioStreamRepository: AudioStreamRepository,
     private val userSettingsRepository: UserSettingsRepository,
     private val hostApiHandler: HostApiHandler,
     private val hostService: HostService,
-    private val networkDiscoveryService: NetworkDiscoveryService
+    private val networkDiscoveryService: NetworkDiscoveryService,
+    private val audioStreamManager: AudioStreamManager
 ) : ViewModel() {
 
     // Host session state
@@ -198,11 +204,13 @@ class HostViewModel @Inject constructor(
     fun toggleMute() {
         viewModelScope.launch {
             try {
-                val newMuteState = !_isMuted.value
+                // Toggle mute directly in AudioStreamManager
+                val newMuteState = audioStreamManager.toggleMute()
                 _isMuted.value = newMuteState
 
-                // TODO: Apply mute/unmute to actual audio stream
-                // This would interact with the audio service/manager
+                // Also notify the foreground service for notification update
+                val muteIntent = AudioForegroundService.toggleMute(context)
+                context.startService(muteIntent)
 
             } catch (e: Exception) {
                 _error.value = "Failed to toggle mute: ${e.message}"
@@ -312,8 +320,14 @@ class HostViewModel @Inject constructor(
     fun kickClient(clientId: String) {
         viewModelScope.launch {
             try {
-                // Use the correct repository method
-                clientConnectionRepository.kickClient(clientId)
+                // First kick via HostService (which sends UDP kick message)
+                val result = hostService.kickClient(clientId, "Kicked by host")
+                if (result.isSuccess) {
+                    // Also update local repository state
+                    clientConnectionRepository.kickClient(clientId)
+                } else {
+                    _error.value = "Failed to kick client: ${result.exceptionOrNull()?.message}"
+                }
 
             } catch (e: Exception) {
                 _error.value = "Failed to kick client: ${e.message}"

@@ -68,7 +68,7 @@ class AudioCaptureService @Inject constructor(
     // Audio data stream (PCM samples)
     private val _audioDataFlow = MutableSharedFlow<ByteArray>(
         replay = 0,
-        extraBufferCapacity = 10,
+        extraBufferCapacity = 5,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val audioDataFlow: SharedFlow<ByteArray> = _audioDataFlow.asSharedFlow()

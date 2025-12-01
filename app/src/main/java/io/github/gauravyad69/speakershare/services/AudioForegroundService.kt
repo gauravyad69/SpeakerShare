@@ -133,6 +133,9 @@ class AudioForegroundService : Service() {
 
     @Inject
     lateinit var notificationManager: AudioNotificationManager
+    
+    @Inject
+    lateinit var audioStreamManager: AudioStreamManager
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val binder = AudioServiceBinder()
@@ -485,13 +488,11 @@ class AudioForegroundService : Service() {
 
     private suspend fun toggleMute() {
         if (_serviceState.value == ServiceState.RUNNING) {
-            val wasMuted = _isAudioMuted.value
-            _isAudioMuted.value = !wasMuted
+            // Toggle mute in AudioStreamManager - this actually stops audio broadcasting
+            val newMuteState = audioStreamManager.toggleMute()
+            _isAudioMuted.value = newMuteState
             
-            // TODO: Implement actual mute/unmute functionality
-            // This could be done by pausing/resuming audio capture or setting volume to 0
-            // For now, we just track the mute state
-            
+            Log.d(TAG, "Audio mute toggled: $newMuteState")
             updateNotificationIfRunning()
         }
     }

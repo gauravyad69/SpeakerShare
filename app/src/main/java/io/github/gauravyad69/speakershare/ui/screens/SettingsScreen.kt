@@ -28,6 +28,15 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val settings by viewModel.userSettings.collectAsState()
+    val audioQuality by viewModel.audioQuality.collectAsState()
+    val bufferSize by viewModel.bufferSize.collectAsState()
+    val preferredTransport by viewModel.preferredTransport.collectAsState()
+    val maxClients by viewModel.maxClients.collectAsState()
+    val keepScreenOn by viewModel.keepScreenOn.collectAsState()
+    val enableAutoDiscovery by viewModel.enableAutoDiscovery.collectAsState()
+    val enableDebugLogging by viewModel.enableDebugLogging.collectAsState()
+    val hasUnsavedChanges by viewModel.hasUnsavedChanges.collectAsState()
+    
     var showAdvancedSettings by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -40,6 +49,11 @@ fun SettingsScreen(
                     }
                 },
                 actions = {
+                    if (hasUnsavedChanges) {
+                        IconButton(onClick = { viewModel.saveSettings() }) {
+                            Icon(Icons.Default.Save, contentDescription = "Save")
+                        }
+                    }
                     IconButton(onClick = { viewModel.resetToDefaults() }) {
                         Icon(Icons.Default.RestartAlt, contentDescription = "Reset to defaults")
                     }
@@ -60,21 +74,46 @@ fun SettingsScreen(
                     title = "Audio Settings",
                     icon = Icons.Default.AudioFile
                 ) {
-                    // TODO: Implement audio quality settings
-                    // AudioQualitySettings based on available UserSettings properties
-                    
-                    Text("Audio quality settings - Coming soon")
-                    
-                    /* TODO: Add back when ViewModel methods are available
                     AudioQualitySettings(
-                        bitrate = settings?.defaultQuality?.bitrate ?: 128,
-                        encoding = settings?.defaultQuality?.encoding ?: AudioEncoding.AAC,
-                        sampleRate = settings?.defaultQuality?.sampleRate ?: 44100,
-                        onBitrateChange = { /* TODO */ },
-                        onEncodingChange = { /* TODO */ },
-                        onSampleRateChange = { /* TODO */ }
+                        bitrate = audioQuality.bitrate,
+                        encoding = audioQuality.encoding.name,
+                        sampleRate = audioQuality.sampleRate,
+                        onBitrateChange = { newBitrate ->
+                            viewModel.setAudioQuality(audioQuality.copy(bitrate = newBitrate))
+                        },
+                        onEncodingChange = { newEncoding ->
+                            val encoding = try { 
+                                io.github.gauravyad69.speakershare.data.model.AudioEncoding.valueOf(newEncoding) 
+                            } catch (e: Exception) { 
+                                io.github.gauravyad69.speakershare.data.model.AudioEncoding.AAC 
+                            }
+                            viewModel.setAudioQuality(audioQuality.copy(encoding = encoding))
+                        },
+                        onSampleRateChange = { newRate ->
+                            viewModel.setAudioQuality(audioQuality.copy(sampleRate = newRate))
+                        }
                     )
-                    */
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    BufferSettings(
+                        bufferSize = bufferSize,
+                        latencyMode = when {
+                            bufferSize <= 512 -> "LOW"
+                            bufferSize <= 2048 -> "BALANCED"
+                            else -> "HIGH_QUALITY"
+                        },
+                        onBufferSizeChange = { viewModel.setBufferSize(it) },
+                        onLatencyModeChange = { mode ->
+                            val size = when (mode) {
+                                "LOW" -> 512
+                                "BALANCED" -> 1024
+                                "HIGH_QUALITY" -> 4096
+                                else -> 1024
+                            }
+                            viewModel.setBufferSize(size)
+                        }
+                    )
                 }
             }
 
@@ -84,8 +123,28 @@ fun SettingsScreen(
                     title = "Network Settings",
                     icon = Icons.Default.NetworkWifi
                 ) {
-                    Text("Network settings - Coming soon")
-                    // TODO: Implement network settings when available in UserSettings
+                    NetworkTransportSettings(
+                        preferredTransport = preferredTransport.name,
+                        fallbackEnabled = true,
+                        onTransportChange = { transport ->
+                            val streamTransport = try {
+                                io.github.gauravyad69.speakershare.data.model.StreamTransport.valueOf(transport)
+                            } catch (e: Exception) {
+                                io.github.gauravyad69.speakershare.data.model.StreamTransport.WEBRTC
+                            }
+                            viewModel.setPreferredTransport(streamTransport)
+                        },
+                        onFallbackChange = { /* TODO: Add fallback setting */ }
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    SwitchSetting(
+                        title = "Enable Auto Discovery",
+                        subtitle = "Automatically discover hosts on the network",
+                        checked = enableAutoDiscovery,
+                        onCheckedChange = { viewModel.setEnableAutoDiscovery(it) }
+                    )
                 }
             }
 
@@ -95,12 +154,12 @@ fun SettingsScreen(
                     title = "Host Settings",
                     icon = Icons.Default.Router
                 ) {
-                    // Basic settings that are available
-                    settings?.let { s ->
-                        Text("Max Clients: ${if (s.maxClients == 0) "Unlimited" else s.maxClients.toString()}")
-                        Text("Auto Start Host: ${if (s.autoStartHost) "Yes" else "No"}")
-                    }
-                    // TODO: Add controls when ViewModel methods are available
+                    HostLimitsSettings(
+                        maxClients = maxClients,
+                        requiresPassword = false,
+                        onMaxClientsChange = { viewModel.setMaxClients(it) },
+                        onPasswordRequiredChange = { /* TODO: Add password setting */ }
+                    )
                 }
             }
 
@@ -110,12 +169,12 @@ fun SettingsScreen(
                     title = "Interface & Behavior",
                     icon = Icons.Default.Tune
                 ) {
-                    // Available UI settings
-                    settings?.let { s ->
-                        Text("Keep Screen On: ${if (s.keepScreenOn) "Yes" else "No"}")
-                        Text("Show Network Metrics: ${if (s.showNetworkMetrics) "Yes" else "No"}")
-                    }
-                    // TODO: Add controls when ViewModel methods are available
+                    SwitchSetting(
+                        title = "Keep Screen On",
+                        subtitle = "Prevent screen from sleeping during broadcast",
+                        checked = keepScreenOn,
+                        onCheckedChange = { viewModel.setKeepScreenOn(it) }
+                    )
                 }
             }
 
@@ -435,6 +494,9 @@ private fun AdvancedSettingsSection(
     settings: UserSettings?,
     viewModel: SettingsViewModel
 ) {
+    val enableDebugLogging by viewModel.enableDebugLogging.collectAsState()
+    val autoStopTimer by viewModel.autoStopTimer.collectAsState()
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -473,16 +535,36 @@ private fun AdvancedSettingsSection(
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Debug and Advanced Settings - Coming soon")
-                    // TODO: Add debug settings when properties are available in UserSettings
-                    /*
                     SwitchSetting(
                         title = "Enable Debug Logging",
                         subtitle = "Log detailed network and audio information",
-                        checked = false, // TODO: Add to UserSettings
-                        onCheckedChange = { /* TODO: Add ViewModel method */ }
+                        checked = enableDebugLogging,
+                        onCheckedChange = { viewModel.setEnableDebugLogging(it) }
                     )
-                    */
+                    
+                    SliderSetting(
+                        title = "Auto-Stop Timer",
+                        value = autoStopTimer.toFloat(),
+                        valueRange = 0f..120f,
+                        steps = 11,
+                        valueText = if (autoStopTimer == 0) "Disabled" else "$autoStopTimer min",
+                        onValueChange = { viewModel.setAutoStopTimer(it.toInt()) }
+                    )
+                    
+                    Divider()
+                    
+                    Text(
+                        text = "Buffer Configuration",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    
+                    Text(
+                        text = "Smaller buffers = lower latency but may cause audio glitches. " +
+                               "Larger buffers = more stable but higher latency.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

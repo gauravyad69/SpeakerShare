@@ -499,7 +499,14 @@ class HostService @Inject constructor(
     
     private fun notifyClientKick(clientId: String, reason: String) {
         Log.d(TAG, "Notifying client $clientId of kick: $reason")
-        // TODO: Send HTTP notification to client and add to blacklist
+        serviceScope.launch {
+            val success = udpAudioServer.sendKickCommand(clientId)
+            if (success) {
+                Log.i(TAG, "Kick notification sent to client $clientId")
+            } else {
+                Log.w(TAG, "Failed to send kick notification to client $clientId - client may not be connected via UDP")
+            }
+        }
     }
     
     private fun cleanup() {

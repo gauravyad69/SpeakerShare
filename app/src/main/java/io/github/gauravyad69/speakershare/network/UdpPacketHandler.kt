@@ -38,6 +38,7 @@ class UdpPacketHandler @Inject constructor() {
         const val CONTROL_VOLUME = 0x03.toByte()
         const val CONTROL_MUTE = 0x04.toByte()
         const val CONTROL_ACK = 0x05.toByte()
+        const val CONTROL_KICK = 0x06.toByte()  // Host -> Client: "You have been kicked"
         
         // Host transfer commands
         const val CONTROL_TRANSFER_REQUEST = 0x10.toByte()   // Host -> Client: "Want to make you host"

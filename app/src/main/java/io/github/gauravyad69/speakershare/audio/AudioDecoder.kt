@@ -78,7 +78,7 @@ class AudioDecoder @Inject constructor() {
     // Decoded PCM stream
     private val _decodedAudioFlow = MutableSharedFlow<DecodedAudioData>(
         replay = 0,
-        extraBufferCapacity = 15,
+        extraBufferCapacity = 5,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val decodedAudioFlow: SharedFlow<DecodedAudioData> = _decodedAudioFlow.asSharedFlow()

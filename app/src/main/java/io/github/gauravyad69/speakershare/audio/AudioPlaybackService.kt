@@ -32,7 +32,7 @@ class AudioPlaybackService @Inject constructor(
         val sampleRate: Int = 44100,
         val channelConfig: Int = AudioFormat.CHANNEL_OUT_MONO,
         val audioFormat: Int = AudioFormat.ENCODING_PCM_16BIT,
-        val bufferSizeBytes: Int = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat) * 4,
+        val bufferSizeBytes: Int = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat) * 2,
         val streamType: Int = AudioManager.STREAM_MUSIC
     )
 
@@ -142,8 +142,8 @@ class AudioPlaybackService @Inject constructor(
             playbackBufferMutex.withLock {
                 playbackBufferQueue.addLast(pcmData.clone())
                 
-                // Prevent buffer overflow
-                while (playbackBufferQueue.size > 20) {
+                // Prevent buffer overflow - keep small queue for low latency
+                while (playbackBufferQueue.size > 8) {
                     playbackBufferQueue.removeFirstOrNull()
                 }
             }

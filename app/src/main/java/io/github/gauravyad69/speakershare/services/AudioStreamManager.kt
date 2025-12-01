@@ -42,6 +42,10 @@ class AudioStreamManager @Inject constructor(
     private val _isStreaming = MutableStateFlow(false)
     val isStreaming: StateFlow<Boolean> = _isStreaming.asStateFlow()
     
+    // Mute state - when true, audio is not broadcast
+    private val _isMuted = MutableStateFlow(false)
+    val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
+    
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
     companion object {
@@ -133,16 +137,22 @@ class AudioStreamManager @Inject constructor(
         scope.launch {
             Log.d(TAG, "Starting audioDataFlow collector")
             audioCaptureService.audioDataFlow.collect { pcmData ->
-                Log.d(TAG, "Received PCM data: ${pcmData.size} bytes")
-                audioEncoder.encodePCMData(pcmData)
+                // Only process audio if not muted
+                if (!_isMuted.value) {
+                    Log.d(TAG, "Received PCM data: ${pcmData.size} bytes")
+                    audioEncoder.encodePCMData(pcmData)
+                }
             }
         }
         
         scope.launch {
             Log.d(TAG, "Starting encodedPacketFlow collector")
             audioEncoder.encodedPacketFlow.collect { packet ->
-                Log.d(TAG, "Broadcasting encoded packet: ${packet.size} bytes")
-                udpAudioServer.broadcastAudio(packet.data)
+                // Only broadcast if not muted
+                if (!_isMuted.value) {
+                    Log.d(TAG, "Broadcasting encoded packet: ${packet.size} bytes")
+                    udpAudioServer.broadcastAudio(packet.data)
+                }
             }
         }
         
@@ -255,6 +265,25 @@ class AudioStreamManager @Inject constructor(
      */
     fun getAudioLevel(): StateFlow<Float> {
         return audioCaptureService.currentAudioLevel
+    }
+    
+    /**
+     * Toggle mute state for audio streaming
+     * When muted, audio is still captured but not broadcast to clients
+     */
+    fun toggleMute(): Boolean {
+        val newMuteState = !_isMuted.value
+        _isMuted.value = newMuteState
+        Log.d(TAG, "Audio mute toggled: $newMuteState")
+        return newMuteState
+    }
+    
+    /**
+     * Set mute state directly
+     */
+    fun setMuted(muted: Boolean) {
+        _isMuted.value = muted
+        Log.d(TAG, "Audio mute set to: $muted")
     }
 
     /**

@@ -90,6 +90,13 @@ class ClientManager @Inject constructor(
                     is UdpClientEvent.Disconnected -> {
                         Log.d(TAG, "UDP Client disconnected")
                     }
+                    is UdpClientEvent.Kicked -> {
+                        Log.w(TAG, "Kicked by host!")
+                        _isConnected.value = false
+                        _currentConnection.value = null
+                        // Notify UI that we were kicked
+                        _kickedByHost.value = true
+                    }
                     is UdpClientEvent.ConnectionError -> {
                         Log.e(TAG, "UDP Connection error: ${event.message}")
                     }
@@ -118,6 +125,10 @@ class ClientManager @Inject constructor(
     
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
+    
+    // Kicked by host notification
+    private val _kickedByHost = MutableStateFlow(false)
+    val kickedByHost: StateFlow<Boolean> = _kickedByHost.asStateFlow()
     
     private val _audioSettings = MutableStateFlow(ClientAudioSettings())
     val audioSettings: StateFlow<ClientAudioSettings> = _audioSettings.asStateFlow()
@@ -307,6 +318,13 @@ class ClientManager @Inject constructor(
             Log.e(TAG, "Failed to disconnect", e)
             Result.failure(e)
         }
+    }
+    
+    /**
+     * Clear the kicked state after user acknowledgment
+     */
+    fun clearKickedState() {
+        _kickedByHost.value = false
     }
     
     /**

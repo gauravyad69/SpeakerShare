@@ -497,6 +497,14 @@ class UdpAudioClient @Inject constructor(
                 disconnect()
             }
             
+            UdpPacketHandler.CONTROL_KICK -> {
+                Log.i(TAG, "Received kick command from host - you have been kicked!")
+                scope.launch {
+                    _clientEvents.emit(UdpClientEvent.Kicked)
+                }
+                disconnect()
+            }
+            
             UdpPacketHandler.CONTROL_MUTE -> {
                 scope.launch {
                     _clientEvents.emit(UdpClientEvent.HostMuted)
@@ -783,6 +791,7 @@ sealed class UdpClientEvent {
     
     data class Connected(val hostAddress: String, val audioPort: Int) : UdpClientEvent()
     object Disconnected : UdpClientEvent()
+    object Kicked : UdpClientEvent()  // Kicked by host
     data class ConnectionError(val message: String) : UdpClientEvent()
     
     data class AudioDataReceived(val audioData: ByteArray, val timestamp: Long) : UdpClientEvent()

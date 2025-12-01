@@ -75,7 +75,7 @@ class AudioEncoder @Inject constructor() {
     // Encoded packet stream
     private val _encodedPacketFlow = MutableSharedFlow<EncodedAudioPacket>(
         replay = 0,
-        extraBufferCapacity = 20,
+        extraBufferCapacity = 5,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val encodedPacketFlow: SharedFlow<EncodedAudioPacket> = _encodedPacketFlow.asSharedFlow()
