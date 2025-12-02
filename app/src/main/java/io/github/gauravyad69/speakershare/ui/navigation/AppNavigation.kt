@@ -88,20 +88,6 @@ sealed class Screen(
         unselectedIcon = Icons.Outlined.Podcasts
     )
     
-    data object AudioFilePlayer : Screen(
-        route = "file_player/audio",
-        title = "Audio Player",
-        selectedIcon = Icons.Filled.MusicNote,
-        unselectedIcon = Icons.Outlined.MusicNote
-    )
-
-    data object VideoFilePlayer : Screen(
-        route = "file_player/video",
-        title = "Video Player",
-        selectedIcon = Icons.Filled.VideoLibrary,
-        unselectedIcon = Icons.Outlined.VideoLibrary
-    )
-    
     // Synced File Player routes
     data object SyncedAudioPlayer : Screen(
         route = "synced_player/audio",
@@ -204,8 +190,6 @@ fun AppNavHost(
                 onHostModeSelected = { navController.navigate(Screen.Host.route) },
                 onClientModeSelected = { navController.navigate(Screen.Discovery.route) },
                 onSettingsClick = { navController.navigate(Screen.Settings.route) },
-                onAudioFilePlayerSelected = { navController.navigate(Screen.AudioFilePlayer.route) },
-                onVideoFilePlayerSelected = { navController.navigate(Screen.VideoFilePlayer.route) },
                 onSyncedAudioPlayerSelected = { navController.navigate(Screen.SyncedAudioPlayer.route) },
                 onSyncedVideoPlayerSelected = { navController.navigate(Screen.SyncedVideoPlayer.route) }
             )
@@ -316,21 +300,6 @@ fun AppNavHost(
         
         composable(Screen.Clients.route) {
             ClientsScreen(
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
-        
-        // File Player routes
-        composable(Screen.AudioFilePlayer.route) {
-            FilePlayerScreen(
-                mode = FilePlayerMode.AUDIO,
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
-        
-        composable(Screen.VideoFilePlayer.route) {
-            FilePlayerScreen(
-                mode = FilePlayerMode.VIDEO,
                 onNavigateBack = { navController.popBackStack() }
             )
         }

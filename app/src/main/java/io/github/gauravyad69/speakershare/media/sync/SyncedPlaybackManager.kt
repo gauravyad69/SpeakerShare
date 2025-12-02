@@ -2,7 +2,9 @@ package io.github.gauravyad69.speakershare.media.sync
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.util.Log
+import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
@@ -23,7 +25,8 @@ import javax.inject.Singleton
 @Singleton
 class SyncedPlaybackManager @Inject constructor(
     private val clockSync: ClockSynchronizer,
-    private val fileTransfer: SyncedFileTransfer
+    private val fileTransfer: SyncedFileTransfer,
+    private val discoveryService: NetworkDiscoveryService
 ) {
     companion object {
         private const val TAG = "SyncedPlaybackManager"
@@ -36,6 +39,9 @@ class SyncedPlaybackManager @Inject constructor(
         
         // Maximum acceptable drift before forcing resync
         const val MAX_DRIFT_MS = 50L
+        
+        // Port for synced playback HTTP server
+        const val SYNC_HTTP_PORT = 8765
     }
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -96,6 +102,14 @@ class SyncedPlaybackManager @Inject constructor(
             
             // Start clock sync
             clockSync.startAsHost()
+            
+            // Register for network discovery so clients can find us
+            val deviceName = "SyncedPlay-${Build.MODEL}"
+            discoveryService.registerHost(
+                hostName = deviceName,
+                port = SYNC_HTTP_PORT,
+                userName = sessionId
+            )
             
             // Start sync pulse job
             startSyncPulseJob()
@@ -405,6 +419,12 @@ class SyncedPlaybackManager @Inject constructor(
         syncJob?.cancel()
         syncJob = null
         clockSync.stop()
+        
+        // Unregister from discovery
+        scope.launch {
+            discoveryService.unregisterHost()
+        }
+        
         _sessionState.value = SyncSessionState.Idle
         _playbackState.value = SyncedPlaybackState()
         _clientReadiness.value = emptyMap()

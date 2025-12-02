@@ -5,6 +5,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.github.gauravyad69.speakershare.media.sync.*
+import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import javax.inject.Singleton
 
 /**
@@ -30,9 +31,10 @@ object SyncedMediaModule {
     @Singleton
     fun provideSyncedPlaybackManager(
         clockSync: ClockSynchronizer,
-        fileTransfer: SyncedFileTransfer
+        fileTransfer: SyncedFileTransfer,
+        discoveryService: NetworkDiscoveryService
     ): SyncedPlaybackManager {
-        return SyncedPlaybackManager(clockSync, fileTransfer)
+        return SyncedPlaybackManager(clockSync, fileTransfer, discoveryService)
     }
     
     @Provides

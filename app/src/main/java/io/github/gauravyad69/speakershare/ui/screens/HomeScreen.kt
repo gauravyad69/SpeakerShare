@@ -43,8 +43,6 @@ fun HomeScreen(
     onHostModeSelected: () -> Unit,
     onClientModeSelected: () -> Unit,
     onSettingsClick: () -> Unit,
-    onAudioFilePlayerSelected: () -> Unit = {},
-    onVideoFilePlayerSelected: () -> Unit = {},
     onSyncedAudioPlayerSelected: () -> Unit = {},
     onSyncedVideoPlayerSelected: () -> Unit = {},
     modifier: Modifier = Modifier
