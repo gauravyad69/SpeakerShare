@@ -192,6 +192,8 @@ class AudioForegroundService : Service() {
 
     override fun onDestroy() {
         serviceScope.launch {
+            // Fully release resources including MediaProjection since service is truly ending
+            audioCaptureService.stopCapture(preserveMediaProjection = false)
             stopBroadcasting()
         }
         serviceScope.cancel()
@@ -418,8 +420,8 @@ class AudioForegroundService : Service() {
         try {
             _serviceState.value = ServiceState.STOPPING
 
-            // Stop audio capture first
-            audioCaptureService.stopCapture()
+            // Stop audio capture but PRESERVE MediaProjection for restart scenarios
+            audioCaptureService.stopCapture(preserveMediaProjection = true)
 
             // Stop servers
             httpApiServer.stopServer()
@@ -449,8 +451,8 @@ class AudioForegroundService : Service() {
         }
 
         try {
-            // Pause audio capture
-            audioCaptureService.stopCapture()
+            // Pause audio capture but preserve MediaProjection for resume
+            audioCaptureService.stopCapture(preserveMediaProjection = true)
             
             // Keep servers running but mark session as paused
             _currentSession.value = _currentSession.value?.copy(isActive = false)

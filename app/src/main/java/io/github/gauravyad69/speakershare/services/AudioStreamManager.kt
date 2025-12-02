@@ -213,10 +213,11 @@ class AudioStreamManager @Inject constructor(
     
     /**
      * Stop current audio streaming
+     * @param preserveMediaProjection If true, keeps MediaProjection alive for restart scenarios
      */
-    suspend fun stopStreaming(): Result<Unit> {
+    suspend fun stopStreaming(preserveMediaProjection: Boolean = true): Result<Unit> {
         return try {
-            Log.d(TAG, "Stopping audio stream")
+            Log.d(TAG, "Stopping audio stream (preserveMediaProjection=$preserveMediaProjection)")
             
             // Cancel all collector jobs first to stop the pipeline
             Log.d(TAG, "Canceling collector jobs...")
@@ -232,11 +233,11 @@ class AudioStreamManager @Inject constructor(
             _currentStream.value?.let { stream ->
                 if (stream.transport == StreamTransport.WEBRTC) {
                     webRTCManager.stopBroadcasting()
-                    audioCaptureService.stopCapture()
+                    audioCaptureService.stopCapture(preserveMediaProjection = preserveMediaProjection)
                 } else {
                     // Stop in correct order: capture -> encoder -> server
-                    Log.d(TAG, "Stopping audio capture...")
-                    audioCaptureService.stopCapture()
+                    Log.d(TAG, "Stopping audio capture (preserveMediaProjection=$preserveMediaProjection)...")
+                    audioCaptureService.stopCapture(preserveMediaProjection = preserveMediaProjection)
                     
                     Log.d(TAG, "Stopping audio encoder...")
                     audioEncoder.stopEncoding()
@@ -277,8 +278,8 @@ class AudioStreamManager @Inject constructor(
             
             Log.d(TAG, "Switching audio source from ${currentStream.audioSource} to $newSource")
             
-            // Stop current capture
-            audioCaptureService.stopCapture()
+            // Stop current capture but preserve MediaProjection in case user switches back to system audio
+            audioCaptureService.stopCapture(preserveMediaProjection = true)
             
             // Initialize new capture
             audioCaptureService.startCapture(newSource, currentStream.quality.sampleRate)
@@ -361,5 +362,14 @@ class AudioStreamManager @Inject constructor(
      */
     fun initializeMediaProjection(resultCode: Int, data: Intent): Result<Unit> {
         return audioCaptureService.initializeMediaProjection(resultCode, data)
+    }
+    
+    /**
+     * Fully release all resources including MediaProjection.
+     * Call this only when the app is completely done (e.g., service destroyed).
+     */
+    suspend fun releaseAllResources() {
+        Log.d(TAG, "Releasing all audio resources including MediaProjection")
+        stopStreaming(preserveMediaProjection = false)
     }
 }
