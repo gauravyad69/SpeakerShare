@@ -231,86 +231,10 @@ fun HomeScreen(
             
             Spacer(modifier = Modifier.height(32.dp))
             
-            // Streaming Modes Section
+            // Synced Playback Section - Main Feature
             SectionHeader(
-                title = "Streaming Modes",
-                subtitle = "Choose how to broadcast",
-                icon = Icons.Outlined.Stream
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Column(
-                modifier = Modifier.padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                StreamingModeCard(
-                    icon = Icons.Filled.Mic,
-                    title = "Microphone",
-                    description = "Stream live audio from your device's microphone",
-                    accentColor = MicrophoneColor,
-                    onClick = onHostModeSelected
-                )
-                
-                StreamingModeCard(
-                    icon = Icons.Filled.VolumeUp,
-                    title = "System Audio",
-                    description = "Share audio playing on your device (music, videos, etc.)",
-                    accentColor = SystemAudioColor,
-                    onClick = onHostModeSelected,
-                    badge = "Android 10+"
-                )
-                
-                StreamingModeCard(
-                    icon = Icons.Filled.ScreenShare,
-                    title = "Screen & Audio",
-                    description = "Mirror your screen with audio to connected devices",
-                    accentColor = ScreenAudioColor,
-                    onClick = onHostModeSelected,
-                    badge = "New"
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            // File Player Section (Coming Soon)
-            SectionHeader(
-                title = "File Player",
-                subtitle = "Stream from local files",
-                icon = Icons.Outlined.FolderOpen
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Column(
-                modifier = Modifier.padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                StreamingModeCard(
-                    icon = Icons.Filled.MusicNote,
-                    title = "Audio Files",
-                    description = "Play and stream audio files (MP3, AAC, FLAC)",
-                    accentColor = FilePlayerColor,
-                    onClick = onAudioFilePlayerSelected,
-                    badge = "New"
-                )
-                
-                StreamingModeCard(
-                    icon = Icons.Filled.VideoFile,
-                    title = "Video Files",
-                    description = "Play videos and stream audio to connected devices",
-                    accentColor = VideoColor,
-                    onClick = onVideoFilePlayerSelected,
-                    badge = "New"
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            // Synced Playback Section
-            SectionHeader(
-                title = "Synced Playback",
-                subtitle = "Perfect sync across all devices",
+                title = "Synced File Playback",
+                subtitle = "All devices play the same file in perfect sync",
                 icon = Icons.Outlined.Sync
             )
             
@@ -323,7 +247,7 @@ fun HomeScreen(
                 StreamingModeCard(
                     icon = Icons.Filled.MusicNote,
                     title = "Synced Audio",
-                    description = "All devices play the same audio file in perfect sync",
+                    description = "Select audio files and play them perfectly synced across devices",
                     accentColor = SystemAudioColor,
                     onClick = onSyncedAudioPlayerSelected,
                     badge = "New"
@@ -332,7 +256,7 @@ fun HomeScreen(
                 StreamingModeCard(
                     icon = Icons.Filled.Videocam,
                     title = "Synced Video",
-                    description = "Watch videos together with perfectly synced audio",
+                    description = "Watch videos together with audio synced across devices",
                     accentColor = ScreenAudioColor,
                     onClick = onSyncedVideoPlayerSelected,
                     badge = "New"

@@ -7,8 +7,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +35,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import io.github.gauravyad69.speakershare.media.sync.SyncedMediaFile
 import io.github.gauravyad69.speakershare.media.sync.SyncSessionState
 import io.github.gauravyad69.speakershare.media.sync.TransferProgress
@@ -54,6 +57,7 @@ fun SyncedFilePlayerScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val selectedFiles by viewModel.selectedFiles.collectAsState()
+    val discoveredHosts by viewModel.discoveredHosts.collectAsState()
     
     var selectedTabIndex by remember { mutableStateOf(0) }
     val tabs = listOf("Host", "Client")
@@ -70,6 +74,15 @@ fun SyncedFilePlayerScreen(
     // Initialize player when screen is created
     LaunchedEffect(Unit) {
         viewModel.initializePlayer()
+    }
+    
+    // Start discovery when client tab is selected
+    LaunchedEffect(selectedTabIndex) {
+        if (selectedTabIndex == 1) {
+            viewModel.startDiscovery()
+        } else {
+            viewModel.stopDiscovery()
+        }
     }
     
     // Clean up when leaving screen
@@ -168,10 +181,12 @@ fun SyncedFilePlayerScreen(
                     1 -> ClientModeContent(
                         uiState = uiState,
                         mediaType = mediaType,
+                        discoveredHosts = discoveredHosts,
                         onJoinSession = { host, sessionId, files -> 
                             viewModel.joinSession(host, sessionId, files)
                         },
                         onLeaveSession = { viewModel.stopSession() },
+                        onRefreshDiscovery = { viewModel.startDiscovery() },
                         context = context
                     )
                 }
@@ -317,12 +332,15 @@ private fun HostModeContent(
 private fun ClientModeContent(
     uiState: SyncedPlayerUiState,
     mediaType: String,
+    discoveredHosts: List<NetworkInfo>,
     onJoinSession: (String, String, List<SyncedMediaFile>) -> Unit,
     onLeaveSession: () -> Unit,
+    onRefreshDiscovery: () -> Unit,
     context: Context
 ) {
     var hostAddress by remember { mutableStateOf("") }
     var sessionId by remember { mutableStateOf("") }
+    var showManualEntry by remember { mutableStateOf(false) }
     
     val isConnected = uiState.sessionState is SyncSessionState.ClientReady ||
                       uiState.sessionState is SyncSessionState.ClientJoining
@@ -346,29 +364,134 @@ private fun ClientModeContent(
             StatusBanner(
                 isActive = isConnected,
                 activeText = statusText,
-                inactiveText = "Not connected to any host",
+                inactiveText = "Searching for hosts...",
                 activeColor = MaterialTheme.colorScheme.secondary
             )
         }
         
-        // Connection Card
-        item {
-            ConnectionCard(
-                hostAddress = hostAddress,
-                sessionId = sessionId,
-                onHostAddressChange = { hostAddress = it },
-                onSessionIdChange = { sessionId = it },
-                isConnected = isConnected,
-                isLoading = uiState.isLoading,
-                onConnect = {
-                    if (hostAddress.isNotBlank() && sessionId.isNotBlank()) {
-                        onJoinSession(hostAddress, sessionId, emptyList())
-                    } else {
-                        Toast.makeText(context, "Enter host address and session ID", Toast.LENGTH_SHORT).show()
+        // Discovered Hosts Section
+        if (!isConnected) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Available Hosts",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            
+                            IconButton(onClick = onRefreshDiscovery) {
+                                if (uiState.isDiscovering) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                                }
+                            }
+                        }
+                        
+                        if (discoveredHosts.isEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (uiState.isDiscovering) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = "Searching for hosts on the network...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Outlined.WifiFind,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.outline
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "No hosts found",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                     }
-                },
-                onDisconnect = onLeaveSession
-            )
+                }
+            }
+            
+            // List of discovered hosts
+            items(discoveredHosts) { host ->
+                DiscoveredHostCard(
+                    host = host,
+                    onClick = {
+                        // Auto-fill and connect
+                        hostAddress = host.localIpAddress
+                        sessionId = host.serviceName ?: "default"
+                        onJoinSession(host.localIpAddress, sessionId, emptyList())
+                    },
+                    isLoading = uiState.isLoading
+                )
+            }
+            
+            // Manual entry toggle
+            item {
+                TextButton(
+                    onClick = { showManualEntry = !showManualEntry },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        if (showManualEntry) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (showManualEntry) "Hide Manual Entry" else "Enter Host Address Manually")
+                }
+            }
+            
+            // Manual Connection Card (expandable)
+            if (showManualEntry) {
+                item {
+                    ConnectionCard(
+                        hostAddress = hostAddress,
+                        sessionId = sessionId,
+                        onHostAddressChange = { hostAddress = it },
+                        onSessionIdChange = { sessionId = it },
+                        isConnected = isConnected,
+                        isLoading = uiState.isLoading,
+                        onConnect = {
+                            if (hostAddress.isNotBlank()) {
+                                onJoinSession(hostAddress, sessionId.ifBlank { "default" }, emptyList())
+                            } else {
+                                Toast.makeText(context, "Enter host address", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onDisconnect = onLeaveSession
+                    )
+                }
+            }
         }
         
         // Transfer Progress Card (when joining)
@@ -425,18 +548,93 @@ private fun ClientModeContent(
                     DriftIndicatorCard(driftMs = uiState.driftMs)
                 }
             }
+            
+            // Disconnect button
+            item {
+                Button(
+                    onClick = onLeaveSession,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.LinkOff, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Disconnect")
+                }
+            }
         }
         
         // Instructions Card
-        item {
-            InstructionsCard(
-                title = "How to Join",
-                instructions = listOf(
-                    "Get the host's IP address and session ID",
-                    "Enter the details and tap 'Connect'",
-                    "The app will download/verify the same files",
-                    "Playback will be controlled by the host"
+        if (!isConnected) {
+            item {
+                InstructionsCard(
+                    title = "How to Join",
+                    instructions = listOf(
+                        "Make sure you're on the same WiFi network as the host",
+                        "Wait for hosts to appear automatically, or enter the IP manually",
+                        "Tap on a host to connect",
+                        "Files will be downloaded/verified automatically"
+                    )
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoveredHostCard(
+    host: NetworkInfo,
+    onClick: () -> Unit,
+    isLoading: Boolean
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+        ),
+        enabled = !isLoading
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.Podcasts,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = host.serviceName ?: "SpeakerShare Host",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "${host.localIpAddress}:${host.port}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = "Connect",
+                tint = MaterialTheme.colorScheme.primary
             )
         }
     }

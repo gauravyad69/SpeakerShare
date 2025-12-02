@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.media.sync.*
+import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
+import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -22,7 +24,8 @@ class SyncedFilePlayerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val syncedPlaybackManager: SyncedPlaybackManager,
     private val fileTransfer: SyncedFileTransfer,
-    private val playerFactory: SyncedMediaPlayerFactory
+    private val playerFactory: SyncedMediaPlayerFactory,
+    private val discoveryService: NetworkDiscoveryService
 ) : ViewModel() {
     
     companion object {
@@ -39,6 +42,10 @@ class SyncedFilePlayerViewModel @Inject constructor(
     // Selected files
     private val _selectedFiles = MutableStateFlow<List<SyncedMediaFile>>(emptyList())
     val selectedFiles: StateFlow<List<SyncedMediaFile>> = _selectedFiles.asStateFlow()
+    
+    // Discovered hosts
+    private val _discoveredHosts = MutableStateFlow<List<NetworkInfo>>(emptyList())
+    val discoveredHosts: StateFlow<List<NetworkInfo>> = _discoveredHosts.asStateFlow()
     
     init {
         // Observe session state
@@ -74,12 +81,46 @@ class SyncedFilePlayerViewModel @Inject constructor(
             }
         }
         
+        // Observe discovered hosts
+        viewModelScope.launch {
+            discoveryService.discoveredHosts.collect { hosts ->
+                _discoveredHosts.value = hosts
+                _uiState.update { it.copy(isDiscovering = discoveryService.isDiscovering.value) }
+            }
+        }
+        
+        // Observe discovery state
+        viewModelScope.launch {
+            discoveryService.isDiscovering.collect { isDiscovering ->
+                _uiState.update { it.copy(isDiscovering = isDiscovering) }
+            }
+        }
+        
         // Observe playback commands (for client mode)
         viewModelScope.launch {
             syncedPlaybackManager.playbackCommands.collect { command ->
                 // Host broadcasts, clients receive via network
                 // This is handled by the network layer
             }
+        }
+    }
+    
+    /**
+     * Start discovering hosts on the network
+     */
+    fun startDiscovery() {
+        viewModelScope.launch {
+            Log.d(TAG, "Starting host discovery")
+            discoveryService.startDiscovery()
+        }
+    }
+    
+    /**
+     * Stop discovering hosts
+     */
+    fun stopDiscovery() {
+        viewModelScope.launch {
+            discoveryService.stopDiscovery()
         }
     }
     
@@ -338,6 +379,7 @@ data class SyncedPlayerUiState(
     val isLoading: Boolean = false,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
+    val isDiscovering: Boolean = false,
     val currentPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val driftMs: Long = 0L,
