@@ -121,12 +121,19 @@ class AudioPlaybackService @Inject constructor(
      */
     suspend fun stopPlayback(): Result<Unit> {
         return try {
+            // Cancel playback job and wait for it to complete
             playbackJob?.cancel()
+            playbackJob?.join()  // Wait for playback loop to actually stop
             playbackJob = null
 
+            // Safely stop and release AudioTrack after playback loop has stopped
             audioTrack?.apply {
                 if (state == AudioTrack.STATE_INITIALIZED) {
-                    stop()
+                    try {
+                        stop()
+                    } catch (e: IllegalStateException) {
+                        android.util.Log.w("AudioPlaybackService", "AudioTrack.stop() failed: ${e.message}")
+                    }
                 }
                 release()
             }

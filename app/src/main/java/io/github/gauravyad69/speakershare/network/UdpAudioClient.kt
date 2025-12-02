@@ -273,10 +273,16 @@ class UdpAudioClient @Inject constructor(
             
             isConnected.set(false)
             
-            // Stop background tasks
+            // Stop background tasks and wait for them to complete
             receiverJob?.cancel()
             heartbeatJob?.cancel()
             bufferCleanupJob?.cancel()
+            receiverJob?.join()
+            heartbeatJob?.join()
+            bufferCleanupJob?.join()
+            receiverJob = null
+            heartbeatJob = null
+            bufferCleanupJob = null
             
             // Clear buffers
             audioPacketBuffer.clear()

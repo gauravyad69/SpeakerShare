@@ -144,15 +144,22 @@ class AudioDecoder @Inject constructor() {
      */
     suspend fun stopDecoding(): Result<Unit> {
         return try {
+            // Cancel decoding job and wait for it to complete
             decodingJob?.cancel()
+            decodingJob?.join()  // Wait for decoding loop to actually stop
             decodingJob = null
 
-            mediaCodec?.apply {
+            // Safely stop and release MediaCodec after decoding loop has stopped
+            mediaCodec?.let { codec ->
                 try {
-                    stop()
-                    release()
+                    codec.stop()
+                } catch (e: IllegalStateException) {
+                    android.util.Log.w("AudioDecoder", "MediaCodec.stop() failed: ${e.message}")
+                }
+                try {
+                    codec.release()
                 } catch (e: Exception) {
-                    // Ignore cleanup errors
+                    android.util.Log.w("AudioDecoder", "MediaCodec.release() failed: ${e.message}")
                 }
             }
             mediaCodec = null

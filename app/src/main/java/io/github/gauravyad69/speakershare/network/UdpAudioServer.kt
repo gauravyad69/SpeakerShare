@@ -141,11 +141,19 @@ class UdpAudioServer @Inject constructor(
             
             isRunning.set(false)
             
-            // Stop background tasks
+            // Stop background tasks and wait for them to complete
             discoveryJob?.cancel()
             heartbeatJob?.cancel()
             clientMonitorJob?.cancel()
             controlReceiverJob?.cancel()
+            discoveryJob?.join()
+            heartbeatJob?.join()
+            clientMonitorJob?.join()
+            controlReceiverJob?.join()
+            discoveryJob = null
+            heartbeatJob = null
+            clientMonitorJob = null
+            controlReceiverJob = null
             
             // Clear clients
             connectedClients.clear()
