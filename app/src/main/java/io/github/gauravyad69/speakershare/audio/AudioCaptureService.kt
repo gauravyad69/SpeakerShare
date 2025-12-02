@@ -137,16 +137,25 @@ class AudioCaptureService @Inject constructor(
      */
     suspend fun stopCapture(preserveMediaProjection: Boolean = false): Result<Unit> {
         return try {
+            // Cancel capture job and wait for it to complete
             captureJob?.cancel()
+            captureJob?.join()  // Wait for capture loop to actually stop
             captureJob = null
 
-            audioRecord?.apply {
-                if (state == AudioRecord.STATE_INITIALIZED) {
-                    stop()
+            // Safely stop and release AudioRecord after capture loop has stopped
+            synchronized(this) {
+                audioRecord?.apply {
+                    if (state == AudioRecord.STATE_INITIALIZED) {
+                        try {
+                            stop()
+                        } catch (e: IllegalStateException) {
+                            android.util.Log.w(TAG, "AudioRecord.stop() failed: ${e.message}")
+                        }
+                    }
+                    release()
                 }
-                release()
+                audioRecord = null
             }
-            audioRecord = null
 
             audioPlayback?.release()
             audioPlayback = null

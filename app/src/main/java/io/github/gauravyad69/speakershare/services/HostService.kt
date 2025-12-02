@@ -10,6 +10,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 import android.util.Log
@@ -41,6 +43,9 @@ class HostService @Inject constructor(
     private val _isHosting = MutableStateFlow(false)
     val isHosting: StateFlow<Boolean> = _isHosting.asStateFlow()
     
+    // Mutex for thread-safe client list modifications
+    private val clientsMutex = Mutex()
+    
     // Transfer events from UDP server
     private val _transferEvents = MutableStateFlow<TransferEvent?>(null)
     val transferEvents: StateFlow<TransferEvent?> = _transferEvents.asStateFlow()
@@ -55,13 +60,15 @@ class HostService @Inject constructor(
                 when (event) {
                     is io.github.gauravyad69.speakershare.network.UdpServerEvent.ClientDisconnected -> {
                         Log.d(TAG, "Client disconnected from UDP server: ${event.clientId}")
-                        // Remove client from our connected clients list
-                        val currentClients = _connectedClients.value
-                        val updatedClients = currentClients.filter { it.clientId != event.clientId }
-                        if (updatedClients.size != currentClients.size) {
-                            _connectedClients.value = updatedClients
-                            _currentSession.value = _currentSession.value?.copy(connectedClients = updatedClients)
-                            Log.d(TAG, "Removed client ${event.clientId}, ${updatedClients.size} clients remaining")
+                        // Remove client from our connected clients list (thread-safe)
+                        clientsMutex.withLock {
+                            val currentClients = _connectedClients.value
+                            val updatedClients = currentClients.filter { it.clientId != event.clientId }
+                            if (updatedClients.size != currentClients.size) {
+                                _connectedClients.value = updatedClients
+                                _currentSession.value = _currentSession.value?.copy(connectedClients = updatedClients)
+                                Log.d(TAG, "Removed client ${event.clientId}, ${updatedClients.size} clients remaining")
+                            }
                         }
                     }
                     is io.github.gauravyad69.speakershare.network.UdpServerEvent.TransferAccepted -> {
@@ -237,33 +244,41 @@ class HostService @Inject constructor(
                 return Result.failure(IllegalStateException("No active session"))
             }
             
-            val currentClients = _connectedClients.value
-            if (currentClients.size >= session.maxClients) {
-                Log.w(TAG, "Client connection rejected: max clients reached")
+            // Thread-safe client list modification
+            val (accepted, updatedClients) = clientsMutex.withLock {
+                val currentClients = _connectedClients.value
+                if (currentClients.size >= session.maxClients) {
+                    Log.w(TAG, "Client connection rejected: max clients reached")
+                    return@withLock Pair(false, currentClients)
+                }
+                
+                if (currentClients.any { it.clientId == clientId }) {
+                    Log.w(TAG, "Client $clientId already connected")
+                    return@withLock Pair(true, currentClients)  // Already connected is success
+                }
+                
+                Log.d(TAG, "Accepting client connection: $clientId ($clientName)")
+                
+                val clientConnection = ClientConnection(
+                    clientId = clientId,
+                    clientName = clientName,
+                    ipAddress = clientIp,
+                    connectionTime = System.currentTimeMillis(),
+                    status = ConnectionStatus.CONNECTED,
+                    audioSettings = ClientAudioSettings(),
+                    networkMetrics = NetworkMetrics(latency = 0L, packetLoss = 0.0f, bandwidth = 0L)
+                )
+                
+                val newClients = currentClients + clientConnection
+                _connectedClients.value = newClients
+                Pair(true, newClients)
+            }
+            
+            if (!accepted) {
                 return Result.success(false)
             }
             
-            if (currentClients.any { it.clientId == clientId }) {
-                Log.w(TAG, "Client $clientId already connected")
-                return Result.success(true)
-            }
-            
-            Log.d(TAG, "Accepting client connection: $clientId ($clientName)")
-            
-            val clientConnection = ClientConnection(
-                clientId = clientId,
-                clientName = clientName,
-                ipAddress = clientIp,
-                connectionTime = System.currentTimeMillis(),
-                status = ConnectionStatus.CONNECTED,
-                audioSettings = ClientAudioSettings(),
-                networkMetrics = NetworkMetrics(latency = 0L, packetLoss = 0.0f, bandwidth = 0L)
-            )
-            
-            val updatedClients = currentClients + clientConnection
-            _connectedClients.value = updatedClients
-            
-            // Register client with UDP audio server for streaming
+            // Register client with UDP audio server for streaming (outside mutex - network I/O)
             try {
                 val clientAddress = InetAddress.getByName(clientIp)
                 udpAudioServer.addClient(clientId, clientAddress, clientAudioPort)
@@ -290,22 +305,21 @@ class HostService @Inject constructor(
      */
     suspend fun disconnectClient(clientId: String, reason: String = "Disconnected by host"): Result<Unit> {
         return try {
-            val currentClients = _connectedClients.value
-            val client = currentClients.find { it.clientId == clientId }
-                ?: return Result.failure(IllegalArgumentException("Client not found: $clientId"))
+            // Thread-safe client removal
+            val (client, updatedClients) = clientsMutex.withLock {
+                val currentClients = _connectedClients.value
+                val foundClient = currentClients.find { it.clientId == clientId }
+                    ?: return Result.failure(IllegalArgumentException("Client not found: $clientId"))
+                
+                Log.d(TAG, "Disconnecting client: ${foundClient.clientName} - $reason")
+                
+                val newClients = currentClients.filter { it.clientId != clientId }
+                _connectedClients.value = newClients
+                Pair(foundClient, newClients)
+            }
             
-            Log.d(TAG, "Disconnecting client: ${client.clientName} - $reason")
-            
-            // Remove from UDP audio server
+            // Remove from UDP audio server (outside mutex - network I/O)
             udpAudioServer.removeClient(clientId)
-            
-            // Update client status
-            val updatedClient = client.copy(status = ConnectionStatus.DISCONNECTED)
-            val updatedClients = currentClients.map { 
-                if (it.clientId == clientId) updatedClient else it 
-            }.filter { it.status != ConnectionStatus.DISCONNECTED }
-            
-            _connectedClients.value = updatedClients
             
             // Update session
             _currentSession.value = _currentSession.value?.copy(connectedClients = updatedClients)
@@ -327,19 +341,23 @@ class HostService @Inject constructor(
      */
     suspend fun kickClient(clientId: String, reason: String = "Kicked by host"): Result<Unit> {
         return try {
-            val currentClients = _connectedClients.value
-            val client = currentClients.find { it.clientId == clientId }
-                ?: return Result.failure(IllegalArgumentException("Client not found: $clientId"))
+            // Thread-safe client removal
+            val (client, updatedClients) = clientsMutex.withLock {
+                val currentClients = _connectedClients.value
+                val foundClient = currentClients.find { it.clientId == clientId }
+                    ?: return Result.failure(IllegalArgumentException("Client not found: $clientId"))
+                
+                Log.d(TAG, "Kicking client: ${foundClient.clientName} - $reason")
+                
+                val newClients = currentClients.filter { it.clientId != clientId }
+                _connectedClients.value = newClients
+                Pair(foundClient, newClients)
+            }
             
-            Log.d(TAG, "Kicking client: ${client.clientName} - $reason")
+            // Remove from UDP audio server (outside mutex - network I/O)
+            udpAudioServer.removeClient(clientId)
             
-            // Update client status to kicked
-            val updatedClient = client.copy(status = ConnectionStatus.KICKED)
-            val updatedClients = currentClients.map { 
-                if (it.clientId == clientId) updatedClient else it 
-            }.filter { it.status == ConnectionStatus.CONNECTED }
-            
-            _connectedClients.value = updatedClients
+            // Update session
             _currentSession.value = _currentSession.value?.copy(connectedClients = updatedClients)
             
             // TODO: Send kick message to client and add to blacklist

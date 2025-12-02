@@ -124,15 +124,23 @@ class AudioEncoder @Inject constructor() {
      */
     suspend fun stopEncoding(): Result<Unit> {
         return try {
+            // Cancel encoding job and wait for it to complete
             encodingJob?.cancel()
+            encodingJob?.join()  // Wait for encoding loop to actually stop
             encodingJob = null
 
-            mediaCodec?.apply {
+            // Safely stop and release MediaCodec after encoding loop has stopped
+            mediaCodec?.let { codec ->
                 try {
-                    stop()
-                    release()
+                    codec.stop()
+                } catch (e: IllegalStateException) {
+                    // Codec not in executing state - this is fine
+                    android.util.Log.w("AudioEncoder", "MediaCodec.stop() failed: ${e.message}")
+                }
+                try {
+                    codec.release()
                 } catch (e: Exception) {
-                    // Ignore cleanup errors
+                    android.util.Log.w("AudioEncoder", "MediaCodec.release() failed: ${e.message}")
                 }
             }
             mediaCodec = null

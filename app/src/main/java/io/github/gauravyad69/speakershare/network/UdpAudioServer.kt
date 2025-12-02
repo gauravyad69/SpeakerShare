@@ -74,22 +74,31 @@ class UdpAudioServer @Inject constructor(
         }
         
         return withContext(Dispatchers.IO) {
+            // Use temporary variables to ensure atomic assignment
+            // If either socket fails, we clean up properly
+            var tempAudioSocket: DatagramSocket? = null
+            var tempDiscoverySocket: DatagramSocket? = null
+            
             try {
                 this@UdpAudioServer.sessionId = sessionId
                 this@UdpAudioServer.hostName = hostName
                 this@UdpAudioServer.audioPort = audioPort
                 this@UdpAudioServer.discoveryPort = discoveryPort
                 
-                // Create and bind sockets
-                audioSocket = DatagramSocket(audioPort).apply {
+                // Create and bind sockets with proper cleanup on partial failure
+                tempAudioSocket = DatagramSocket(audioPort).apply {
                     broadcast = true
                     reuseAddress = true
                 }
                 
-                discoverySocket = DatagramSocket(discoveryPort).apply {
+                tempDiscoverySocket = DatagramSocket(discoveryPort).apply {
                     broadcast = true
                     reuseAddress = true
                 }
+                
+                // Atomically assign sockets only after both succeed
+                audioSocket = tempAudioSocket
+                discoverySocket = tempDiscoverySocket
                 
                 isRunning.set(true)
                 
@@ -108,6 +117,9 @@ class UdpAudioServer @Inject constructor(
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start UDP server", e)
+                // Clean up any partially created sockets
+                tempAudioSocket?.close()
+                tempDiscoverySocket?.close()
                 cleanup()
                 
                 scope.launch {
