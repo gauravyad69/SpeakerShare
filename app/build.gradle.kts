@@ -95,6 +95,12 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     
+    // Media3 / ExoPlayer for synchronized file playback
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
+    implementation(libs.media3.common)
+    implementation(libs.media3.session)
+    
     // Dependency Injection
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

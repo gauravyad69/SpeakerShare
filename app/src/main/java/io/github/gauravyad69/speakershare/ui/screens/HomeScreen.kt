@@ -45,6 +45,8 @@ fun HomeScreen(
     onSettingsClick: () -> Unit,
     onAudioFilePlayerSelected: () -> Unit = {},
     onVideoFilePlayerSelected: () -> Unit = {},
+    onSyncedAudioPlayerSelected: () -> Unit = {},
+    onSyncedVideoPlayerSelected: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -299,6 +301,40 @@ fun HomeScreen(
                     description = "Play videos and stream audio to connected devices",
                     accentColor = VideoColor,
                     onClick = onVideoFilePlayerSelected,
+                    badge = "New"
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            // Synced Playback Section
+            SectionHeader(
+                title = "Synced Playback",
+                subtitle = "Perfect sync across all devices",
+                icon = Icons.Outlined.Sync
+            )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StreamingModeCard(
+                    icon = Icons.Filled.MusicNote,
+                    title = "Synced Audio",
+                    description = "All devices play the same audio file in perfect sync",
+                    accentColor = SystemAudioColor,
+                    onClick = onSyncedAudioPlayerSelected,
+                    badge = "New"
+                )
+                
+                StreamingModeCard(
+                    icon = Icons.Filled.Videocam,
+                    title = "Synced Video",
+                    description = "Watch videos together with perfectly synced audio",
+                    accentColor = ScreenAudioColor,
+                    onClick = onSyncedVideoPlayerSelected,
                     badge = "New"
                 )
             }

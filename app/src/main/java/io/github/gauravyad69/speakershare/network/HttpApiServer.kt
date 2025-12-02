@@ -133,6 +133,7 @@ class HttpApiServer @Inject constructor(
                 configureClientRoutes()
                 configureHostRoutes()
                 configureSessionRoutes()
+                configureSyncRoutes()
             }
             
             // Screen streaming routes (outside API_BASE_PATH for simpler URLs)
@@ -346,6 +347,110 @@ class HttpApiServer @Inject constructor(
     }
     
     /**
+     * Configure synchronized playback endpoints (clock sync, file transfer, commands)
+     */
+    private fun Route.configureSyncRoutes() {
+        route("/sync") {
+            // Clock synchronization endpoint
+            get("/clock") {
+                try {
+                    val t1 = call.request.queryParameters["t1"]?.toLongOrNull() ?: 0L
+                    val t2 = System.currentTimeMillis()
+                    val t3 = System.currentTimeMillis()
+                    
+                    call.respond(HttpStatusCode.OK, mapOf(
+                        "t1" to t1,
+                        "t2" to t2,
+                        "t3" to t3
+                    ))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Clock sync error", e)
+                    call.respond(HttpStatusCode.InternalServerError, 
+                        ErrorResponse("Clock sync failed", "CLOCK_SYNC_ERROR"))
+                }
+            }
+            
+            // Get current synced playback session info
+            get("/session") {
+                try {
+                    // TODO: Get from SyncedPlaybackManager
+                    call.respond(HttpStatusCode.OK, mapOf(
+                        "sessionId" to "",
+                        "isActive" to false,
+                        "files" to emptyList<String>()
+                    ))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Session info error", e)
+                    call.respond(HttpStatusCode.InternalServerError,
+                        ErrorResponse("Failed to get session info", "SESSION_ERROR"))
+                }
+            }
+            
+            // Playback command endpoint (WebSocket would be better, but HTTP works for now)
+            post("/command") {
+                try {
+                    val command = call.receive<SyncPlaybackCommandRequest>()
+                    
+                    // Broadcast to all clients
+                    scope.launch {
+                        _serverEvents.emit(HttpServerEvent.SyncCommandReceived(command))
+                    }
+                    
+                    call.respond(HttpStatusCode.OK, mapOf("status" to "sent"))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Command error", e)
+                    call.respond(HttpStatusCode.BadRequest,
+                        ErrorResponse("Invalid command", "COMMAND_ERROR"))
+                }
+            }
+            
+            // Get pending commands (polling for clients)
+            get("/commands") {
+                try {
+                    // TODO: Return queued commands for client
+                    call.respond(HttpStatusCode.OK, emptyList<Any>())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Commands error", e)
+                    call.respond(HttpStatusCode.InternalServerError,
+                        ErrorResponse("Failed to get commands", "COMMANDS_ERROR"))
+                }
+            }
+        }
+        
+        // File serving for synced playback
+        route("/files") {
+            // Get file list for session
+            get {
+                try {
+                    // TODO: Get from SyncedPlaybackManager
+                    call.respond(HttpStatusCode.OK, emptyList<Any>())
+                } catch (e: Exception) {
+                    Log.e(TAG, "File list error", e)
+                    call.respond(HttpStatusCode.InternalServerError,
+                        ErrorResponse("Failed to get file list", "FILE_LIST_ERROR"))
+                }
+            }
+            
+            // Download file by hash (for clients to cache)
+            get("/{hash}") {
+                try {
+                    val hash = call.parameters["hash"]
+                        ?: return@get call.respond(HttpStatusCode.BadRequest,
+                            ErrorResponse("Missing file hash", "MISSING_HASH"))
+                    
+                    // TODO: Serve file from SyncedFileTransfer
+                    call.respond(HttpStatusCode.NotFound,
+                        ErrorResponse("File not found", "FILE_NOT_FOUND"))
+                } catch (e: Exception) {
+                    Log.e(TAG, "File download error", e)
+                    call.respond(HttpStatusCode.InternalServerError,
+                        ErrorResponse("Failed to serve file", "FILE_ERROR"))
+                }
+            }
+        }
+    }
+    
+    /**
      * Configure screen streaming endpoints
      */
     private fun Routing.configureScreenRoutes() {
@@ -476,4 +581,16 @@ sealed class HttpServerEvent {
     data class ClientKicked(val clientId: String) : HttpServerEvent()
     object HostSettingsUpdated : HttpServerEvent()
     data class ServerError(val message: String) : HttpServerEvent()
+    data class SyncCommandReceived(val command: SyncPlaybackCommandRequest) : HttpServerEvent()
 }
+
+/**
+ * Sync playback command request
+ */
+data class SyncPlaybackCommandRequest(
+    val type: String, // "play", "pause", "seek", "sync", "switch"
+    val timestamp: Long,
+    val positionMs: Long = 0L,
+    val fileIndex: Int = 0,
+    val resumePlayback: Boolean = false
+)

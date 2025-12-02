@@ -16,6 +16,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import io.github.gauravyad69.speakershare.ui.screens.*
+import io.github.gauravyad69.speakershare.ui.screens.synced.SyncedFilePlayerScreen
 
 /**
  * Navigation destinations for the app
@@ -93,16 +94,29 @@ sealed class Screen(
         selectedIcon = Icons.Filled.MusicNote,
         unselectedIcon = Icons.Outlined.MusicNote
     )
-    
+
     data object VideoFilePlayer : Screen(
         route = "file_player/video",
         title = "Video Player",
         selectedIcon = Icons.Filled.VideoLibrary,
         unselectedIcon = Icons.Outlined.VideoLibrary
     )
-}
-
-// Items to show in bottom navigation
+    
+    // Synced File Player routes
+    data object SyncedAudioPlayer : Screen(
+        route = "synced_player/audio",
+        title = "Synced Audio",
+        selectedIcon = Icons.Filled.MusicNote,
+        unselectedIcon = Icons.Outlined.MusicNote
+    )
+    
+    data object SyncedVideoPlayer : Screen(
+        route = "synced_player/video",
+        title = "Synced Video",
+        selectedIcon = Icons.Filled.VideoLibrary,
+        unselectedIcon = Icons.Outlined.VideoLibrary
+    )
+}// Items to show in bottom navigation
 val bottomNavItems = listOf(Screen.Home, Screen.Settings)
 
 @Composable
@@ -191,7 +205,9 @@ fun AppNavHost(
                 onClientModeSelected = { navController.navigate(Screen.Discovery.route) },
                 onSettingsClick = { navController.navigate(Screen.Settings.route) },
                 onAudioFilePlayerSelected = { navController.navigate(Screen.AudioFilePlayer.route) },
-                onVideoFilePlayerSelected = { navController.navigate(Screen.VideoFilePlayer.route) }
+                onVideoFilePlayerSelected = { navController.navigate(Screen.VideoFilePlayer.route) },
+                onSyncedAudioPlayerSelected = { navController.navigate(Screen.SyncedAudioPlayer.route) },
+                onSyncedVideoPlayerSelected = { navController.navigate(Screen.SyncedVideoPlayer.route) }
             )
         }
         
@@ -315,6 +331,21 @@ fun AppNavHost(
         composable(Screen.VideoFilePlayer.route) {
             FilePlayerScreen(
                 mode = FilePlayerMode.VIDEO,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // Synced File Player routes
+        composable(Screen.SyncedAudioPlayer.route) {
+            SyncedFilePlayerScreen(
+                mediaType = "audio",
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        composable(Screen.SyncedVideoPlayer.route) {
+            SyncedFilePlayerScreen(
+                mediaType = "video",
                 onNavigateBack = { navController.popBackStack() }
             )
         }
