@@ -360,16 +360,20 @@ class SyncedFileTransfer @Inject constructor() {
                                 when (frame) {
                                     is Frame.Binary -> {
                                         // Write binary data to file
-                                        output.write(frame.readBytes())
-                                        downloadedBytes += frame.readBytes().size
+                                        // IMPORTANT: readBytes() consumes the buffer, so we must only call it once!
+                                        val bytes = frame.readBytes()
+                                        output.write(bytes)
+                                        downloadedBytes += bytes.size
                                         
-                                        // Update progress
-                                        updateProgress(file.contentHash, TransferProgress(
-                                            fileName = file.name,
-                                            totalBytes = file.sizeBytes,
-                                            downloadedBytes = downloadedBytes,
-                                            status = TransferStatus.DOWNLOADING
-                                        ))
+                                        // Update progress every ~256KB
+                                        if (downloadedBytes % (256 * 1024) < 65536) {
+                                            updateProgress(file.contentHash, TransferProgress(
+                                                fileName = file.name,
+                                                totalBytes = file.sizeBytes,
+                                                downloadedBytes = downloadedBytes,
+                                                status = TransferStatus.DOWNLOADING
+                                            ))
+                                        }
                                     }
                                     is Frame.Text -> {
                                         val msg = parseJsonMap(frame.readText())
@@ -378,24 +382,29 @@ class SyncedFileTransfer @Inject constructor() {
                                                 // Server-sent progress (every 256KB)
                                                 val sent = (msg["sent"] as? Number)?.toLong() ?: downloadedBytes
                                                 downloadedBytes = sent
+                                                updateProgress(file.contentHash, TransferProgress(
+                                                    fileName = file.name,
+                                                    totalBytes = file.sizeBytes,
+                                                    downloadedBytes = downloadedBytes,
+                                                    status = TransferStatus.DOWNLOADING
+                                                ))
                                             }
                                             "file_complete" -> {
                                                 Timber.d("Server reports transfer complete")
                                                 success = true
-                                                break
                                             }
                                             "error" -> {
                                                 Timber.e("Transfer error: ${msg["message"]}")
-                                                break
                                             }
                                         }
                                     }
                                     is Frame.Close -> {
                                         Timber.d("WebSocket closed")
-                                        break
                                     }
                                     else -> {}
                                 }
+                                // Exit loop when complete
+                                if (success) break
                             }
                         }
                     }
@@ -406,6 +415,7 @@ class SyncedFileTransfer @Inject constructor() {
                 if (success) {
                     // Verify hash
                     val downloadedHash = calculateLocalFileHash(tempFile)
+                    Timber.d("WebSocket download hash check: expected=${file.contentHash.take(16)}..., got=${downloadedHash.take(16)}..., file size=${tempFile.length()}, expected=${file.sizeBytes}")
                     if (downloadedHash == file.contentHash) {
                         tempFile.renameTo(finalFile)
                         
@@ -419,7 +429,7 @@ class SyncedFileTransfer @Inject constructor() {
                         Timber.i("WebSocket download verified: ${file.name}")
                         return@withContext Uri.fromFile(finalFile)
                     } else {
-                        Timber.e("Hash mismatch after WebSocket download")
+                        Timber.e("Hash mismatch after WebSocket download: expected=${file.contentHash.take(16)}..., got=${downloadedHash.take(16)}..., downloaded=${tempFile.length()} bytes, expected=${file.sizeBytes} bytes")
                         tempFile.delete()
                     }
                 }

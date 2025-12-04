@@ -225,11 +225,11 @@ class SyncedPlaybackManager @Inject constructor(
                 downloadingFiles = missingFiles
             )
             
-            // Download missing files if needed (use WebSocket for better performance)
+            // Download missing files if needed
             if (missingFiles.isNotEmpty()) {
                 for (file in missingFiles) {
-                    // Try WebSocket first (faster, with progress), falls back to HTTP
-                    val downloaded = fileTransfer.downloadFileViaWebSocket(context, hostAddress, file)
+                    // Use HTTP download (WebSocket has hash verification issues)
+                    val downloaded = fileTransfer.downloadFile(context, hostAddress, file)
                     if (downloaded != null) {
                         localFiles.add(file.copy(localUri = downloaded))
                     } else {
