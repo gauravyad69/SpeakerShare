@@ -164,12 +164,30 @@ class ClockSynchronizer @Inject constructor() {
                 val recentSamples = driftSamples.takeLast(DRIFT_SAMPLES_FOR_ADJUSTMENT)
                 val avgDrift = recentSamples.sum() / recentSamples.size
                 
-                // Only adjust if drift is significant (> 5ms) but not too large (< 2000ms)
-                if (kotlin.math.abs(avgDrift) > 5 && kotlin.math.abs(avgDrift) < 2000) {
+                // Check if drift samples are consistent (same sign) to avoid oscillation
+                val allPositive = recentSamples.all { it > 0 }
+                val allNegative = recentSamples.all { it < 0 }
+                val consistentBias = allPositive || allNegative
+                
+                // Also check if drift values are converging (not oscillating wildly)
+                val maxDrift = recentSamples.maxOrNull() ?: 0L
+                val minDrift = recentSamples.minOrNull() ?: 0L
+                val range = maxDrift - minDrift
+                val isStable = range < 500 // Within 500ms range considered stable
+                
+                // Only adjust if:
+                // 1. Drift is significant (> 50ms) but not too large (< 2000ms)
+                // 2. Either drift samples are consistent (same sign) OR stable with low variance
+                // 3. This prevents oscillation when drift alternates between + and -
+                val absAvgDrift = kotlin.math.abs(avgDrift)
+                val shouldAdjust = absAvgDrift > 50 && absAvgDrift < 2000 && (consistentBias || isStable)
+                
+                if (shouldAdjust) {
                     // Adjust clock offset to compensate for drift
                     // If avgDrift is positive (we're behind), increase offset
                     // If avgDrift is negative (we're ahead), decrease offset
-                    val adjustment = avgDrift / 2 // Gradual adjustment to avoid overcorrection
+                    // Use smaller adjustment factor (1/3 instead of 1/2) to reduce oscillation
+                    val adjustment = avgDrift / 3 
                     val newOffset = clockOffset + adjustment
                     
                     // Bound the offset to prevent unbounded growth
@@ -184,6 +202,8 @@ class ClockSynchronizer @Inject constructor() {
                     
                     // Only clear samples after successful adjustment
                     driftSamples.clear()
+                } else if (absAvgDrift > 5) {
+                    Timber.d("Skipping adjustment: avgDrift=${avgDrift}ms, range=${range}ms, consistentBias=$consistentBias, isStable=$isStable")
                 }
                 
                 lastDriftAdjustmentTime = now

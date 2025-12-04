@@ -264,15 +264,27 @@ class SyncedFilePlayerViewModel @Inject constructor(
                 if (state is SyncSessionState.ClientReady) {
                     Timber.i("ClientReady state, localFiles: ${state.localFiles.size}")
                     
-                    // Use the file from playback state (matches host's current file index)
-                    val fileToLoad = playbackState.currentFile ?: state.localFiles.firstOrNull()
+                    // Find the matching local file with localUri
+                    // playbackState.currentFile is from host and has no localUri
+                    // We need to match it with our local downloaded file
+                    val hostFile = playbackState.currentFile
+                    val fileToLoad = if (hostFile != null) {
+                        // Find matching file by name or contentHash in our local files
+                        state.localFiles.find { it.name == hostFile.name || it.contentHash == hostFile.contentHash }
+                            ?: state.localFiles.firstOrNull().also {
+                                Timber.w("Could not match host file '${hostFile.name}' to local file, using first")
+                            }
+                    } else {
+                        state.localFiles.firstOrNull()
+                    }
+                    
                     fileToLoad?.let { file ->
                         Timber.i("Loading file: ${file.name}, localUri: ${file.localUri}")
                         
                         file.localUri?.let { uri ->
                             Timber.i("Loading media into player: $uri")
                             player?.loadMedia(uri)
-                        } ?: Timber.w("No localUri for file!")
+                        } ?: Timber.w("No localUri for file '${file.name}'! (Local files may not be downloaded)")
                     } ?: Timber.w("No files available!")
                 } else {
                     Timber.w("Not in ClientReady state, state is: ${state::class.simpleName}")
