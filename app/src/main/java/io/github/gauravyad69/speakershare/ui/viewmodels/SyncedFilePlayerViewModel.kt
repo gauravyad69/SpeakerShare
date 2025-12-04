@@ -104,9 +104,9 @@ class SyncedFilePlayerViewModel @Inject constructor(
             }
         }
         
-        // Observe discovered hosts
+        // Observe discovered SYNC hosts only (filter out streaming hosts)
         viewModelScope.launch {
-            discoveryService.discoveredHosts.collect { hosts ->
+            discoveryService.syncHosts.collect { hosts ->
                 _discoveredHosts.value = hosts
                 _uiState.update { it.copy(isDiscovering = discoveryService.isDiscovering.value) }
             }

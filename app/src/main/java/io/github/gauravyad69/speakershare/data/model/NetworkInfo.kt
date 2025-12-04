@@ -10,7 +10,8 @@ data class NetworkInfo(
     val networkInterface: String,    // Wi-Fi interface name
     val isHotspot: Boolean,         // Device is hotspot
     val discoveryMethod: DiscoveryMethod,
-    val serviceName: String         // mDNS service name
+    val serviceName: String,         // mDNS service name
+    val hostMode: HostMode = HostMode.STREAM  // sync or stream mode
 )
 
 /**
@@ -20,4 +21,12 @@ enum class DiscoveryMethod {
     MDNS,                           // Preferred method
     UDP_BROADCAST,                  // Fallback
     MANUAL_IP                       // User-entered IP
+}
+
+/**
+ * Host mode types for discovery filtering
+ */
+enum class HostMode {
+    STREAM,  // Audio streaming mode
+    SYNC     // Synced file playback mode
 }

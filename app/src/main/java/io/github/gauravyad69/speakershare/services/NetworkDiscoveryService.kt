@@ -7,6 +7,7 @@ import timber.log.Timber
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
+import io.github.gauravyad69.speakershare.data.model.HostMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -14,8 +15,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -42,6 +46,15 @@ class NetworkDiscoveryService @Inject constructor(
     private val _discoveredHosts = MutableStateFlow<List<NetworkInfo>>(emptyList())
     val discoveredHosts: StateFlow<List<NetworkInfo>> = _discoveredHosts.asStateFlow()
     
+    // Filtered views by mode
+    val syncHosts: StateFlow<List<NetworkInfo>> = _discoveredHosts
+        .map { hosts -> hosts.filter { it.hostMode == HostMode.SYNC } }
+        .stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
+    
+    val streamHosts: StateFlow<List<NetworkInfo>> = _discoveredHosts
+        .map { hosts -> hosts.filter { it.hostMode == HostMode.STREAM } }
+        .stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
+    
     private val _isDiscovering = MutableStateFlow(false)
     val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
     
@@ -66,6 +79,7 @@ class NetworkDiscoveryService @Inject constructor(
         private const val SERVICE_INFO_KEY_VERSION = "version"
         private const val SERVICE_INFO_KEY_CLIENTS = "clients"
         private const val SERVICE_INFO_KEY_MAX_CLIENTS = "maxClients"
+        private const val SERVICE_INFO_KEY_MODE = "mode" // "sync" or "stream"
     }
     
     /**
@@ -76,7 +90,8 @@ class NetworkDiscoveryService @Inject constructor(
         port: Int,
         userName: String,
         currentClients: Int = 0,
-        maxClients: Int = 50
+        maxClients: Int = 50,
+        mode: HostMode = HostMode.STREAM
     ): Result<Unit> = withContext(Dispatchers.IO) {
         Timber.d("Registering host: $hostName on port $port")
         
@@ -94,6 +109,7 @@ class NetworkDiscoveryService @Inject constructor(
                 setAttribute(SERVICE_INFO_KEY_VERSION, "1.0")
                 setAttribute(SERVICE_INFO_KEY_CLIENTS, currentClients.toString())
                 setAttribute(SERVICE_INFO_KEY_MAX_CLIENTS, maxClients.toString())
+                setAttribute(SERVICE_INFO_KEY_MODE, mode.name.lowercase())
             }
             
             val listener = object : NsdManager.RegistrationListener {
@@ -281,16 +297,26 @@ class NetworkDiscoveryService @Inject constructor(
             String(it).toIntOrNull() 
         } ?: 50
         
+        // Parse host mode (sync or stream)
+        val modeStr = serviceInfo.attributes?.get(SERVICE_INFO_KEY_MODE)?.let { 
+            String(it) 
+        } ?: "stream"
+        val hostMode = when (modeStr.lowercase()) {
+            "sync" -> HostMode.SYNC
+            else -> HostMode.STREAM
+        }
+        
         val networkInfo = NetworkInfo(
             localIpAddress = serviceInfo.host.hostAddress ?: "",
             port = serviceInfo.port,
             networkInterface = "wlan0", // Default Wi-Fi interface
             isHotspot = false,
             discoveryMethod = DiscoveryMethod.MDNS,
-            serviceName = serviceInfo.serviceName
+            serviceName = serviceInfo.serviceName,
+            hostMode = hostMode
         )
         
-        Timber.d("Adding discovered host: ${networkInfo.serviceName} at ${networkInfo.localIpAddress}:${networkInfo.port}")
+        Timber.d("Adding discovered host: ${networkInfo.serviceName} at ${networkInfo.localIpAddress}:${networkInfo.port} (mode=${hostMode.name})")
         
         val currentHosts = _discoveredHosts.value.toMutableList()
         

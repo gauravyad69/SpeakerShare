@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import timber.log.Timber
+import io.github.gauravyad69.speakershare.data.model.HostMode
 import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -150,12 +151,13 @@ class SyncedPlaybackManager @Inject constructor(
             // Start clock sync
             clockSync.startAsHost()
             
-            // Register for network discovery so clients can find us
+            // Register for network discovery so clients can find us (as SYNC mode)
             val deviceName = "SyncedPlay-${Build.MODEL}"
             discoveryService.registerHost(
                 hostName = deviceName,
                 port = SYNC_HTTP_PORT,
-                userName = sessionId
+                userName = sessionId,
+                mode = HostMode.SYNC
             )
             
             // Start sync pulse job
