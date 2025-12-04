@@ -301,17 +301,23 @@ class SyncedMediaPlayer(
         }
         
         // Drift = actual player position - expected (host) position
-        // Positive drift = we're ahead, negative = we're behind
+        // Positive drift = we're ahead of host, negative = we're behind host
         val drift = currentPosition - expectedPositionMs
         val absDrift = kotlin.math.abs(drift)
         
         // Record drift for dynamic clock adjustment
-        // Only record if drift is reasonable (not a clock sync issue)
-        if (absDrift < 5000 && currentPosition > 0) {
-            // signedDrift for clock adjustment: positive means we're behind host (need to increase offset)
-            // Our drift is (current - expected), so if we're behind (current < expected), drift is negative
-            // Clock offset adjustment expects positive = we're behind, so invert the sign
+        // Only record if:
+        // - drift is reasonable (not a clock sync issue)
+        // - player is actually playing (currentPosition > 0)
+        // - position has advanced beyond initial buffering
+        if (absDrift < 5000 && currentPosition > 1000) {
+            // ClockSynchronizer expects: positive = we're BEHIND host (need to INCREASE offset to catch up)
+            // Our drift: positive = we're AHEAD (current > expected)
+            // So we need to pass -drift:
+            //   - If we're ahead (drift > 0), pass negative → decrease offset → slow down
+            //   - If we're behind (drift < 0), pass positive → increase offset → speed up
             clockSync.recordDrift(-drift, currentPosition)
+            Timber.d("Recorded drift: local=$currentPosition, expected=$expectedPositionMs, drift=${drift}ms, sent=${-drift}ms")
         }
         
         if (absDrift > POSITION_TOLERANCE_MS) {

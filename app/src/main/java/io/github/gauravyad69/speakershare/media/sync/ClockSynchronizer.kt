@@ -47,6 +47,12 @@ class ClockSynchronizer @Inject constructor() {
         
         // How often to adjust offset based on drift (ms)
         const val DRIFT_ADJUSTMENT_INTERVAL_MS = 5_000L
+        
+        // Maximum allowed clock offset (prevent unbounded growth)
+        const val MAX_CLOCK_OFFSET_MS = 30_000L
+        
+        // Warmup period after joining session before drift adjustment starts
+        const val WARMUP_PERIOD_MS = 3_000L
     }
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -63,6 +69,9 @@ class ClockSynchronizer @Inject constructor() {
     // Drift samples for dynamic adjustment
     private val driftSamples = mutableListOf<Long>()
     private var lastDriftAdjustmentTime: Long = 0L
+    
+    // Session start time for warmup period
+    private var sessionStartTime: Long = 0L
     
     // Sync state
     private val _syncState = MutableStateFlow<ClockSyncState>(ClockSyncState.NotSynced)
@@ -108,6 +117,14 @@ class ClockSynchronizer @Inject constructor() {
     fun recordDrift(signedDrift: Long, localPosition: Long = -1L) {
         if (isHost) return // Host doesn't need drift adjustment
         
+        val now = System.currentTimeMillis()
+        
+        // Skip drift recording during warmup period (first 3 seconds after session start)
+        if (sessionStartTime > 0 && now - sessionStartTime < WARMUP_PERIOD_MS) {
+            Timber.d("Ignoring drift sample during warmup period (${now - sessionStartTime}ms elapsed)")
+            return
+        }
+        
         // If local position is 0 and drift is large, player probably isn't playing
         // Don't use this sample for adjustment
         if (localPosition == 0L && kotlin.math.abs(signedDrift) > 1000) {
@@ -140,7 +157,6 @@ class ClockSynchronizer @Inject constructor() {
             _currentDrift.value = kotlin.math.abs(signedDrift)
             
             // Check if it's time to adjust
-            val now = System.currentTimeMillis()
             if (now - lastDriftAdjustmentTime >= DRIFT_ADJUSTMENT_INTERVAL_MS 
                 && driftSamples.size >= DRIFT_SAMPLES_FOR_ADJUSTMENT) {
                 
@@ -154,14 +170,23 @@ class ClockSynchronizer @Inject constructor() {
                     // If avgDrift is positive (we're behind), increase offset
                     // If avgDrift is negative (we're ahead), decrease offset
                     val adjustment = avgDrift / 2 // Gradual adjustment to avoid overcorrection
-                    clockOffset += adjustment
+                    val newOffset = clockOffset + adjustment
                     
-                    Timber.i("Dynamic clock adjustment: avgDrift=${avgDrift}ms, adjustment=${adjustment}ms, newOffset=${clockOffset}ms")
+                    // Bound the offset to prevent unbounded growth
+                    clockOffset = newOffset.coerceIn(-MAX_CLOCK_OFFSET_MS, MAX_CLOCK_OFFSET_MS)
+                    
+                    if (clockOffset != newOffset) {
+                        Timber.w("Clock offset bounded: wanted ${newOffset}ms, clamped to ${clockOffset}ms")
+                    } else {
+                        Timber.i("Dynamic clock adjustment: avgDrift=${avgDrift}ms, adjustment=${adjustment}ms, newOffset=${clockOffset}ms")
+                    }
                     _syncState.value = ClockSyncState.Synced(clockOffset, roundTripTime)
+                    
+                    // Only clear samples after successful adjustment
+                    driftSamples.clear()
                 }
                 
                 lastDriftAdjustmentTime = now
-                driftSamples.clear() // Reset samples after adjustment
             }
         }
     }
@@ -228,6 +253,9 @@ class ClockSynchronizer @Inject constructor() {
             
             clockOffset = offsets[offsets.size / 2]
             roundTripTime = rtts[rtts.size / 2]
+            
+            // Mark session start time for warmup period
+            sessionStartTime = System.currentTimeMillis()
             
             _syncState.value = ClockSyncState.Synced(clockOffset, roundTripTime)
             

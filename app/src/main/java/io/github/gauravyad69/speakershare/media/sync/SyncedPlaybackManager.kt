@@ -526,6 +526,14 @@ class SyncedPlaybackManager @Inject constructor(
         return if (state.isPlaying && state.lastSyncTime > 0) {
             val syncTime = clockSync.getSynchronizedTime()
             val elapsed = syncTime - state.lastSyncTime
+            
+            // Sanity check: elapsed time shouldn't be hugely negative or positive
+            // If it is, there's likely a clock sync issue - just return stored position
+            if (elapsed < -5000 || elapsed > 3600_000) { // -5s to 1hr
+                Timber.w("calculateCurrentPosition: invalid elapsed time ${elapsed}ms, returning stored position ${state.positionMs}ms")
+                return state.positionMs
+            }
+            
             val calculatedPos = (state.positionMs + elapsed).coerceAtLeast(0).coerceAtMost(state.durationMs.coerceAtLeast(1))
             
             // Debug logging for position calculation
