@@ -34,19 +34,19 @@ class SyncedMediaPlayer(
         // How far ahead to buffer (ms)
         private const val BUFFER_AHEAD_MS = 5000L
         
-        // Acceptable position error before forcing seek (tightened for better sync)
-        private const val POSITION_TOLERANCE_MS = 100L
+        // Acceptable position error before forcing seek (relaxed to reduce oscillation)
+        // With WebSocket, we get low jitter - only correct large drifts
+        private const val POSITION_TOLERANCE_MS = 250L
         
-        // Minimum time between corrective seeks (reduced to allow faster correction)
-        private const val MIN_SEEK_INTERVAL_MS = 1000L
+        // Minimum time between corrective seeks (increased to let playback settle)
+        private const val MIN_SEEK_INTERVAL_MS = 3000L
         
         // Threshold for immediate seek (very large drift)
         private const val LARGE_DRIFT_THRESHOLD_MS = 500L
         
-        // Seek-ahead compensation (ms) - accounts for seek latency and buffering delay
-        // When corrective seeking, seek this much ahead of expected position
-        // Reduced from 250 to 100 to avoid oscillation/overshooting
-        private const val SEEK_AHEAD_COMPENSATION_MS = 100L
+        // Seek-ahead compensation disabled - WebSocket is fast enough
+        // Adding compensation was causing overshoot/oscillation
+        private const val SEEK_AHEAD_COMPENSATION_MS = 0L
     }
     
     private var player: ExoPlayer? = null

@@ -43,16 +43,18 @@ class ClockSynchronizer @Inject constructor() {
         const val SYNC_PORT = 9091
         
         // Number of drift samples to collect before adjusting offset
+        // With ~1 sync pulse per second, 5 samples = 5 seconds of data
         const val DRIFT_SAMPLES_FOR_ADJUSTMENT = 5
         
         // How often to adjust offset based on drift (ms)
+        // Check every 5 seconds - fast enough to correct, slow enough to avoid chasing noise
         const val DRIFT_ADJUSTMENT_INTERVAL_MS = 5_000L
         
         // Maximum allowed clock offset (prevent unbounded growth)
         const val MAX_CLOCK_OFFSET_MS = 30_000L
         
         // Warmup period after joining session before drift adjustment starts
-        const val WARMUP_PERIOD_MS = 3_000L
+        const val WARMUP_PERIOD_MS = 5_000L
     }
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -176,18 +178,36 @@ class ClockSynchronizer @Inject constructor() {
                 val isStable = range < 500 // Within 500ms range considered stable
                 
                 // Only adjust if:
-                // 1. Drift is significant (> 50ms) but not too large (< 2000ms)
-                // 2. Either drift samples are consistent (same sign) OR stable with low variance
-                // 3. This prevents oscillation when drift alternates between + and -
+                // 1. Drift is significant (> 100ms) but not too large (< 2000ms)
+                // 2. Drift samples are consistent (same sign) AND stable
+                // 3. This prevents oscillation and only adjusts for real clock drift
                 val absAvgDrift = kotlin.math.abs(avgDrift)
-                val shouldAdjust = absAvgDrift > 50 && absAvgDrift < 2000 && (consistentBias || isStable)
+                val shouldAdjust = absAvgDrift > 100 && absAvgDrift < 2000 && consistentBias && isStable
                 
                 if (shouldAdjust) {
-                    // Adjust clock offset to compensate for drift
-                    // If avgDrift is positive (we're behind), increase offset
-                    // If avgDrift is negative (we're ahead), decrease offset
-                    // Use smaller adjustment factor (1/3 instead of 1/2) to reduce oscillation
-                    val adjustment = avgDrift / 3 
+                    // IMPORTANT: Drift is calculated as (localPosition - expectedPosition)
+                    //   Negative drift = client is BEHIND expected
+                    //   Positive drift = client is AHEAD of expected
+                    //
+                    // The adjustment should:
+                    //   If client consistently BEHIND (negative drift): 
+                    //     This likely means our clock offset is too high, making expectedPos too high
+                    //     DECREASE offset → expectedPos comes down → drift approaches zero
+                    //   If client consistently AHEAD (positive drift):
+                    //     This likely means our clock offset is too low
+                    //     INCREASE offset → expectedPos goes up → drift approaches zero
+                    //
+                    // So: newOffset = offset + avgDrift (NOT + avgDrift, since we want opposite effect)
+                    // Wait, let's trace through:
+                    //   expectedPos = hostPos + (getSynchronizedTime() - hostTimestamp)
+                    //   getSynchronizedTime() = System.currentTimeMillis() + offset
+                    //   If we INCREASE offset → syncTime UP → expectedPos UP
+                    //   If drift is negative (behind), expectedPos is too HIGH
+                    //   So we need to DECREASE offset to bring expectedPos DOWN
+                    //   DECREASE offset = add negative adjustment = add avgDrift (which is negative)
+                    //
+                    // So: adjustment = avgDrift / 4 is CORRECT!
+                    val adjustment = avgDrift / 4 
                     val newOffset = clockOffset + adjustment
                     
                     // Bound the offset to prevent unbounded growth
