@@ -2,7 +2,7 @@ package io.github.gauravyad69.speakershare.ui.viewmodels
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
+import timber.log.Timber
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -10,6 +10,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.media.sync.*
 import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -29,7 +30,6 @@ class SyncedFilePlayerViewModel @Inject constructor(
 ) : ViewModel() {
     
     companion object {
-        private const val TAG = "SyncedFilePlayerVM"
     }
     
     // UI State
@@ -38,6 +38,9 @@ class SyncedFilePlayerViewModel @Inject constructor(
     
     // Player instance
     private var player: SyncedMediaPlayer? = null
+    
+    // Flag to prevent duplicate track-end handling
+    private var handlingTrackEnd = false
     
     // Selected files
     private val _selectedFiles = MutableStateFlow<List<SyncedMediaFile>>(emptyList())
@@ -74,6 +77,20 @@ class SyncedFilePlayerViewModel @Inject constructor(
             }
         }
         
+        // Periodically update sync stats
+        viewModelScope.launch {
+            while (true) {
+                delay(500) // Update stats every 500ms
+                _uiState.update { state ->
+                    state.copy(
+                        clockOffsetMs = syncedPlaybackManager.getClockOffset(),
+                        connectedClientsCount = syncedPlaybackManager.getConnectedClientsCount(),
+                        driftMs = syncedPlaybackManager.getCurrentDrift()
+                    )
+                }
+            }
+        }
+        
         // Observe file transfer progress
         viewModelScope.launch {
             fileTransfer.transferProgress.collect { progress ->
@@ -96,11 +113,11 @@ class SyncedFilePlayerViewModel @Inject constructor(
             }
         }
         
-        // Observe playback commands (for client mode)
+        // Observe incoming commands from host (for client mode)
         viewModelScope.launch {
-            syncedPlaybackManager.playbackCommands.collect { command ->
-                // Host broadcasts, clients receive via network
-                // This is handled by the network layer
+            syncedPlaybackManager.incomingCommands.collect { command ->
+                Timber.d("Received command from host: $command")
+                handleCommand(command)
             }
         }
     }
@@ -110,7 +127,7 @@ class SyncedFilePlayerViewModel @Inject constructor(
      */
     fun startDiscovery() {
         viewModelScope.launch {
-            Log.d(TAG, "Starting host discovery")
+            Timber.d("Starting host discovery")
             discoveryService.startDiscovery()
         }
     }
@@ -138,8 +155,27 @@ class SyncedFilePlayerViewModel @Inject constructor(
                         it.copy(
                             isBuffering = playerState.isBuffering,
                             playerError = playerState.error,
-                            driftMs = playerState.driftMs
+                            driftMs = playerState.driftMs,
+                            currentPositionMs = playerState.currentPositionMs,
+                            durationMs = playerState.durationMs
                         ) 
+                    }
+                    
+                    // If we're the host, update the manager's position so sync pulses are accurate
+                    if (_uiState.value.isHost && playerState.isPlaying) {
+                        syncedPlaybackManager.updatePlaybackPosition(
+                            playerState.currentPositionMs,
+                            playerState.durationMs
+                        )
+                        // Reset track-end flag when playing
+                        handlingTrackEnd = false
+                    }
+                    
+                    // Auto-advance to next track when current track ends (host only)
+                    if (_uiState.value.isHost && playerState.isEnded && !handlingTrackEnd) {
+                        handlingTrackEnd = true
+                        Timber.i("Track ended, auto-advancing to next track")
+                        nextTrack()
                     }
                 }
             }
@@ -156,7 +192,7 @@ class SyncedFilePlayerViewModel @Inject constructor(
             }
             _selectedFiles.value = _selectedFiles.value + files
             
-            Log.d(TAG, "Added ${files.size} files")
+            Timber.d("Added ${files.size} files")
         }
     }
     
@@ -164,8 +200,10 @@ class SyncedFilePlayerViewModel @Inject constructor(
      * Start hosting a synced playback session
      */
     fun startHostSession() {
+        Timber.i("=== startHostSession CALLED ===")
         viewModelScope.launch {
             val files = _selectedFiles.value
+            Timber.i("Files count: ${files.size}")
             if (files.isEmpty()) {
                 _uiState.update { it.copy(error = "No files selected") }
                 return@launch
@@ -173,10 +211,12 @@ class SyncedFilePlayerViewModel @Inject constructor(
             
             _uiState.update { it.copy(isLoading = true) }
             
+            Timber.i("Calling syncedPlaybackManager.startHostSession...")
             val result = syncedPlaybackManager.startHostSession(context, files)
+            Timber.i("syncedPlaybackManager.startHostSession returned: $result")
             
             result.onSuccess { sessionId ->
-                Log.i(TAG, "Host session started: $sessionId")
+                Timber.i("Host session started: $sessionId")
                 
                 // Load first file into player
                 files.firstOrNull()?.let { file ->
@@ -190,7 +230,7 @@ class SyncedFilePlayerViewModel @Inject constructor(
                     ) 
                 }
             }.onFailure { error ->
-                Log.e(TAG, "Failed to start host session", error)
+                Timber.e("Failed to start host session", error)
                 _uiState.update { 
                     it.copy(
                         isLoading = false,
@@ -213,14 +253,29 @@ class SyncedFilePlayerViewModel @Inject constructor(
             )
             
             result.onSuccess {
-                Log.i(TAG, "Joined session $sessionId")
+                Timber.i("Joined session $sessionId")
                 
-                // Load first local file
+                // Load the current file from playback state (which now has currentFile set)
+                val playbackState = syncedPlaybackManager.playbackState.value
                 val state = syncedPlaybackManager.sessionState.value
+                Timber.i("Session state after join: $state")
+                Timber.i("Playback state after join: currentFile=${playbackState.currentFile?.name}, isPlaying=${playbackState.isPlaying}")
+                
                 if (state is SyncSessionState.ClientReady) {
-                    state.localFiles.firstOrNull()?.localUri?.let { uri ->
-                        player?.loadMedia(uri)
-                    }
+                    Timber.i("ClientReady state, localFiles: ${state.localFiles.size}")
+                    
+                    // Use the file from playback state (matches host's current file index)
+                    val fileToLoad = playbackState.currentFile ?: state.localFiles.firstOrNull()
+                    fileToLoad?.let { file ->
+                        Timber.i("Loading file: ${file.name}, localUri: ${file.localUri}")
+                        
+                        file.localUri?.let { uri ->
+                            Timber.i("Loading media into player: $uri")
+                            player?.loadMedia(uri)
+                        } ?: Timber.w("No localUri for file!")
+                    } ?: Timber.w("No files available!")
+                } else {
+                    Timber.w("Not in ClientReady state, state is: ${state::class.simpleName}")
                 }
                 
                 _uiState.update { 
@@ -229,8 +284,25 @@ class SyncedFilePlayerViewModel @Inject constructor(
                         sessionId = sessionId
                     ) 
                 }
+                
+                // If host is already playing, wait for player to be ready then start playback
+                if (playbackState.isPlaying) {
+                    Timber.i("Host is already playing at ${playbackState.positionMs}ms, waiting for player ready")
+                    val isReady = player?.awaitReady(10000L) ?: false
+                    if (isReady) {
+                        Timber.i("Player ready, starting playback")
+                        val syncTime = syncedPlaybackManager.getSynchronizedTime()
+                        // Estimate current position based on time elapsed
+                        val timeSinceLastSync = syncTime - playbackState.lastSyncTime
+                        val estimatedPosition = playbackState.positionMs + timeSinceLastSync
+                        Timber.i("Starting at estimated position: $estimatedPosition (original: ${playbackState.positionMs}, elapsed: ${timeSinceLastSync}ms)")
+                        player?.playAtTime(syncTime + 100L, estimatedPosition)
+                    } else {
+                        Timber.e("Player failed to become ready, not starting playback")
+                    }
+                }
             }.onFailure { error ->
-                Log.e(TAG, "Failed to join session", error)
+                Timber.e("Failed to join session", error)
                 _uiState.update { 
                     it.copy(
                         isLoading = false,
@@ -272,8 +344,13 @@ class SyncedFilePlayerViewModel @Inject constructor(
      */
     fun seekTo(positionMs: Long) {
         viewModelScope.launch {
+            val wasPlaying = _uiState.value.isPlaying
             syncedPlaybackManager.seekTo(positionMs)
-            // Player will be updated when command is processed
+            // Apply seek to local player immediately for host
+            if (_uiState.value.isHost) {
+                val syncTime = syncedPlaybackManager.getSynchronizedTime()
+                player?.seekAtTime(syncTime + 200L, positionMs, wasPlaying)
+            }
         }
     }
     
@@ -286,8 +363,29 @@ class SyncedFilePlayerViewModel @Inject constructor(
             if (state is SyncSessionState.HostActive) {
                 val nextIndex = state.currentFileIndex + 1
                 if (nextIndex < state.mediaFiles.size) {
+                    val wasPlaying = _uiState.value.isPlaying
+                    Timber.i("Switching to next track: $nextIndex, wasPlaying=$wasPlaying")
+                    
+                    // Reset track-end flag for new track
+                    handlingTrackEnd = false
+                    
                     syncedPlaybackManager.switchFile(nextIndex)
                     player?.loadMedia(state.mediaFiles[nextIndex].uri)
+                    
+                    // Wait for player to be ready and auto-play if was playing
+                    if (wasPlaying) {
+                        val isReady = player?.awaitReady(5000L) ?: false
+                        if (isReady) {
+                            Timber.i("Player ready after track switch, resuming playback")
+                            syncedPlaybackManager.play()
+                            val playbackState = syncedPlaybackManager.playbackState.value
+                            player?.playAtTime(playbackState.lastSyncTime, 0L)
+                        }
+                    }
+                } else {
+                    Timber.i("Reached end of playlist, no more tracks")
+                    // Reset flag since there's no next track
+                    handlingTrackEnd = false
                 }
             }
         }
@@ -302,8 +400,22 @@ class SyncedFilePlayerViewModel @Inject constructor(
             if (state is SyncSessionState.HostActive) {
                 val prevIndex = state.currentFileIndex - 1
                 if (prevIndex >= 0) {
+                    val wasPlaying = _uiState.value.isPlaying
+                    Timber.i("Switching to previous track: $prevIndex, wasPlaying=$wasPlaying")
+                    
                     syncedPlaybackManager.switchFile(prevIndex)
                     player?.loadMedia(state.mediaFiles[prevIndex].uri)
+                    
+                    // Wait for player to be ready and auto-play if was playing
+                    if (wasPlaying) {
+                        val isReady = player?.awaitReady(5000L) ?: false
+                        if (isReady) {
+                            Timber.i("Player ready after track switch, resuming playback")
+                            syncedPlaybackManager.play()
+                            val playbackState = syncedPlaybackManager.playbackState.value
+                            player?.playAtTime(playbackState.lastSyncTime, 0L)
+                        }
+                    }
                 }
             }
         }
@@ -317,8 +429,10 @@ class SyncedFilePlayerViewModel @Inject constructor(
             syncedPlaybackManager.handleCommand(command)
             
             // Apply to local player
+            Timber.i("Handling command: ${command::class.simpleName}, player=${player != null}")
             when (command) {
                 is PlaybackCommand.Play -> {
+                    Timber.i("Calling player.playAtTime(${command.timestamp}, ${command.positionMs})")
                     player?.playAtTime(command.timestamp, command.positionMs)
                 }
                 is PlaybackCommand.Pause -> {
@@ -328,9 +442,37 @@ class SyncedFilePlayerViewModel @Inject constructor(
                     player?.seekAtTime(command.timestamp, command.positionMs, command.resumePlayback)
                 }
                 is PlaybackCommand.SyncPulse -> {
-                    player?.syncPosition(command.positionMs, command.timestamp)
+                    // Only sync if we're actually playing
+                    if (_uiState.value.isPlaying) {
+                        player?.syncPosition(command.positionMs, command.timestamp)
+                    }
                 }
-                else -> {}
+                is PlaybackCommand.SwitchFile -> {
+                    Timber.i("Switching to file index ${command.fileIndex}")
+                    val state = syncedPlaybackManager.sessionState.value
+                    if (state is SyncSessionState.ClientReady && command.fileIndex < state.localFiles.size) {
+                        val newFile = state.localFiles[command.fileIndex]
+                        Timber.i("Loading new file: ${newFile.name}")
+                        newFile.localUri?.let { uri ->
+                            player?.loadMedia(uri)
+                            // Wait for player to be ready, then auto-play if requested
+                            if (command.autoPlay) {
+                                val isReady = player?.awaitReady(5000L) ?: false
+                                if (isReady) {
+                                    Timber.i("Player ready after switch, auto-playing")
+                                    val syncTime = syncedPlaybackManager.getSynchronizedTime()
+                                    player?.playAtTime(syncTime + 100L, 0L)
+                                }
+                            }
+                        }
+                    }
+                }
+                is PlaybackCommand.Stop -> {
+                    player?.pause()
+                    // Seek to beginning
+                    val syncTime = syncedPlaybackManager.getSynchronizedTime()
+                    player?.seekAtTime(syncTime, 0L, false)
+                }
             }
         }
     }
@@ -388,5 +530,10 @@ data class SyncedPlayerUiState(
     val sessionState: SyncSessionState = SyncSessionState.Idle,
     val transferProgress: Map<String, TransferProgress> = emptyMap(),
     val error: String? = null,
-    val playerError: String? = null
+    val playerError: String? = null,
+    // Sync stats
+    val clockOffsetMs: Long = 0L,
+    val lastRttMs: Long = 0L,
+    val connectedClientsCount: Int = 0,
+    val syncPulseCount: Long = 0L
 )

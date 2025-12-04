@@ -1,6 +1,6 @@
 package io.github.gauravyad69.speakershare.network
 
-import android.util.Log
+import timber.log.Timber
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.zip.CRC32
@@ -15,7 +15,6 @@ import kotlin.experimental.and
 @Singleton
 class UdpPacketHandler @Inject constructor() {
     companion object {
-        private const val TAG = "UdpPacketHandler"
         
         // Packet structure constants
         private const val HEADER_SIZE = 28 // bytes (increased to fit timestamp and CRC)
@@ -283,7 +282,7 @@ class UdpPacketHandler @Inject constructor() {
         // Debug logging for first few packets
         if (sequenceNumber <= 3) {
             val hexDump = packet.take(32).joinToString(" ") { String.format("%02X", it) }
-            Log.d(TAG, "Created packet seq=$sequenceNumber: magic=${String.format("0x%08X", MAGIC_NUMBER)}, hex=$hexDump...")
+            Timber.d("Created packet seq=$sequenceNumber: magic=${String.format("0x%08X", MAGIC_NUMBER)}, hex=$hexDump...")
         }
         
         return packet
@@ -295,7 +294,7 @@ class UdpPacketHandler @Inject constructor() {
     fun parsePacket(packetData: ByteArray): UdpPacket? {
         return try {
             if (packetData.size < HEADER_SIZE) {
-                Log.w(TAG, "Packet too small: ${packetData.size} bytes, need at least $HEADER_SIZE")
+                Timber.w("Packet too small: ${packetData.size} bytes, need at least $HEADER_SIZE")
                 return null
             }
             
@@ -306,7 +305,7 @@ class UdpPacketHandler @Inject constructor() {
             val magic = buffer.getInt(position)
             if (magic != MAGIC_NUMBER) {
                 if (magic != 0x53504B52) { // Only log if not just wrong endian
-                    Log.w(TAG, "Invalid magic number: 0x${magic.toString(16)} (expected 0x${MAGIC_NUMBER.toString(16)})")
+                    Timber.w("Invalid magic number: 0x${magic.toString(16)} (expected 0x${MAGIC_NUMBER.toString(16)})")
                 }
                 return null
             }
@@ -315,7 +314,7 @@ class UdpPacketHandler @Inject constructor() {
             // Protocol version
             val version = buffer.get(position)
             if (version != PROTOCOL_VERSION.toByte()) {
-                Log.w(TAG, "Unsupported protocol version: $version")
+                Timber.w("Unsupported protocol version: $version")
                 return null
             }
             position += 1
@@ -365,7 +364,7 @@ class UdpPacketHandler @Inject constructor() {
             val actualCrc = crc32.value.toInt()
             
             if (actualCrc != expectedCrc) {
-                Log.w(TAG, "CRC32 mismatch. Expected: 0x${expectedCrc.toString(16)}, Actual: 0x${actualCrc.toString(16)}")
+                Timber.w("CRC32 mismatch. Expected: 0x${expectedCrc.toString(16)}, Actual: 0x${actualCrc.toString(16)}")
                 return null
             }
             
@@ -381,7 +380,7 @@ class UdpPacketHandler @Inject constructor() {
             )
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse packet", e)
+            Timber.e("Failed to parse packet", e)
             null
         }
     }
@@ -424,7 +423,7 @@ class UdpPacketHandler @Inject constructor() {
             
             DiscoveryInfo(hostName, port)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse discovery info", e)
+            Timber.e("Failed to parse discovery info", e)
             null
         }
     }

@@ -34,7 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import javax.inject.Inject
 import javax.inject.Singleton
-import android.util.Log
+import timber.log.Timber
 import java.util.UUID
 
 /**
@@ -70,7 +70,7 @@ class ClientManager @Inject constructor(
             audioDecoder.decodedAudioFlow.collect { decodedData ->
                 receivedCount++
                 if (receivedCount % 50 == 1) {
-                    Log.d(TAG, "Received decoded PCM #$receivedCount: ${decodedData.pcmData.size} bytes")
+                    Timber.d("Received decoded PCM #$receivedCount: ${decodedData.pcmData.size} bytes")
                 }
                 audioPlaybackService.queueAudioData(decodedData.pcmData)
             }
@@ -95,37 +95,37 @@ class ClientManager @Inject constructor(
                         audioPlaybackService.queueAudioData(event.pcmData)
                     }
                     is UdpClientEvent.Connected -> {
-                        Log.d(TAG, "UDP Client connected")
+                        Timber.d("UDP Client connected")
                     }
                     is UdpClientEvent.Disconnected -> {
-                        Log.d(TAG, "UDP Client disconnected")
+                        Timber.d("UDP Client disconnected")
                     }
                     is UdpClientEvent.Kicked -> {
-                        Log.w(TAG, "Kicked by host!")
+                        Timber.w("Kicked by host!")
                         _isConnected.value = false
                         _currentConnection.value = null
                         // Notify UI that we were kicked
                         _kickedByHost.value = true
                     }
                     is UdpClientEvent.ConnectionError -> {
-                        Log.e(TAG, "UDP Connection error: ${event.message}")
+                        Timber.e("UDP Connection error: ${event.message}")
                     }
                     is UdpClientEvent.ReceiveError -> {
-                        Log.e(TAG, "UDP Receive error: ${event.message}")
+                        Timber.e("UDP Receive error: ${event.message}")
                     }
                     is UdpClientEvent.HostTransferRequested -> {
-                        Log.d(TAG, "Host transfer requested from ${event.fromHostAddress}")
+                        Timber.d("Host transfer requested from ${event.fromHostAddress}")
                         _pendingTransferRequest.value = TransferRequest(event.fromHostAddress)
                     }
                     is UdpClientEvent.HostTransferRedirect -> {
-                        Log.d(TAG, "Redirecting to new host at ${event.newHostAddress}:${event.newHostPort}")
+                        Timber.d("Redirecting to new host at ${event.newHostAddress}:${event.newHostPort}")
                         handleHostRedirect(event.newHostAddress, event.newHostPort)
                     }
                     else -> {}
                 }
             }
         }
-        Log.d(TAG, "Started UDP event and decoded audio observers")
+        Timber.d("Started UDP event and decoded audio observers")
     }
     
     private fun stopObservers() {
@@ -133,7 +133,7 @@ class ClientManager @Inject constructor(
         udpEventJob = null
         decodedAudioJob?.cancel()
         decodedAudioJob = null
-        Log.d(TAG, "Stopped UDP event and decoded audio observers")
+        Timber.d("Stopped UDP event and decoded audio observers")
     }
     
     private val _discoveredHosts = MutableStateFlow<List<HostSession>>(emptyList())
@@ -166,7 +166,6 @@ class ClientManager @Inject constructor(
     private var onBecomeHostCallback: ((String) -> Unit)? = null
     
     companion object {
-        private const val TAG = "ClientManager"
         private const val DISCOVERY_TIMEOUT_MS = 10000L
         private const val CONNECTION_TIMEOUT_MS = 5000L
         private const val RECONNECT_DELAY_MS = 2000L
@@ -193,11 +192,11 @@ class ClientManager @Inject constructor(
     suspend fun startDiscovery(): Result<Unit> {
         return try {
             if (_isDiscovering.value) {
-                Log.w(TAG, "Discovery already in progress")
+                Timber.w("Discovery already in progress")
                 return Result.success(Unit)
             }
             
-            Log.d(TAG, "Starting host discovery")
+            Timber.d("Starting host discovery")
             _isDiscovering.value = true
             
             // Start network discovery service
@@ -226,7 +225,7 @@ class ClientManager @Inject constructor(
             
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start discovery", e)
+            Timber.e("Failed to start discovery", e)
             _isDiscovering.value = false
             Result.failure(e)
         }
@@ -236,7 +235,7 @@ class ClientManager @Inject constructor(
      * Stop host discovery
      */
     fun stopDiscovery() {
-        Log.d(TAG, "Stopping host discovery")
+        Timber.d("Stopping host discovery")
         _isDiscovering.value = false
         serviceScope.launch {
             networkDiscoveryService.stopDiscovery()
@@ -256,7 +255,7 @@ class ClientManager @Inject constructor(
             }
             
             val clientId = UUID.randomUUID().toString()
-            Log.d(TAG, "Connecting to host: ${hostSession.hostName} (${hostSession.sessionId})")
+            Timber.d("Connecting to host: ${hostSession.hostName} (${hostSession.sessionId})")
             
             // Create client connection
             val clientConnection = ClientConnection(
@@ -292,11 +291,11 @@ class ClientManager @Inject constructor(
             // Start audio playback with clientId for heartbeat identification
             startAudioPlayback(hostSession, response.sampleRate, clientId)
             
-            Log.d(TAG, "Connected to host successfully")
+            Timber.d("Connected to host successfully")
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect to host", e)
+            Timber.e("Failed to connect to host", e)
             _currentConnection.value = _currentConnection.value?.copy(status = ConnectionStatus.ERROR)
             Result.failure(e)
         }
@@ -312,7 +311,7 @@ class ClientManager @Inject constructor(
                 return Result.failure(IllegalStateException("Not connected to any host"))
             }
             
-            Log.d(TAG, "Disconnecting from host")
+            Timber.d("Disconnecting from host")
             
             // Stop foreground service
             stopForegroundService()
@@ -330,11 +329,11 @@ class ClientManager @Inject constructor(
             // Clear connection after a delay
             _currentConnection.value = null
             
-            Log.d(TAG, "Disconnected successfully")
+            Timber.d("Disconnected successfully")
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to disconnect", e)
+            Timber.e("Failed to disconnect", e)
             Result.failure(e)
         }
     }
@@ -355,7 +354,7 @@ class ClientManager @Inject constructor(
                 return Result.failure(IllegalArgumentException("Volume must be between 0.0 and 1.0"))
             }
             
-            Log.d(TAG, "Setting volume to $volume")
+            Timber.d("Setting volume to $volume")
             
             val newSettings = _audioSettings.value.copy(volume = volume)
             _audioSettings.value = newSettings
@@ -370,7 +369,7 @@ class ClientManager @Inject constructor(
             
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to set volume", e)
+            Timber.e("Failed to set volume", e)
             Result.failure(e)
         }
     }
@@ -383,7 +382,7 @@ class ClientManager @Inject constructor(
             val currentSettings = _audioSettings.value
             val newMuteState = !currentSettings.isMuted
             
-            Log.d(TAG, "Setting mute to $newMuteState")
+            Timber.d("Setting mute to $newMuteState")
             
             val newSettings = currentSettings.copy(isMuted = newMuteState)
             _audioSettings.value = newSettings
@@ -398,7 +397,7 @@ class ClientManager @Inject constructor(
             
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to toggle mute", e)
+            Timber.e("Failed to toggle mute", e)
             Result.failure(e)
         }
     }
@@ -413,7 +412,7 @@ class ClientManager @Inject constructor(
                 return Result.failure(IllegalStateException("No connection to recover"))
             }
             
-            Log.w(TAG, "Connection lost, attempting to reconnect")
+            Timber.w("Connection lost, attempting to reconnect")
             
             _currentConnection.value = connection.copy(status = ConnectionStatus.CONNECTING)
             _isConnected.value = false
@@ -422,30 +421,30 @@ class ClientManager @Inject constructor(
             var attempts = 0
             while (attempts < MAX_RECONNECT_ATTEMPTS) {
                 attempts++
-                Log.d(TAG, "Reconnection attempt $attempts/$MAX_RECONNECT_ATTEMPTS")
+                Timber.d("Reconnection attempt $attempts/$MAX_RECONNECT_ATTEMPTS")
                 
                 delay(RECONNECT_DELAY_MS * attempts)
                 
                 // Try to reconnect
                 val reconnectResult = attemptReconnection(connection)
                 if (reconnectResult.isSuccess) {
-                    Log.d(TAG, "Reconnected successfully")
+                    Timber.d("Reconnected successfully")
                     return Result.success(Unit)
                 }
                 
                 if (attempts < MAX_RECONNECT_ATTEMPTS) {
-                    Log.w(TAG, "Reconnection attempt $attempts failed, retrying...")
+                    Timber.w("Reconnection attempt $attempts failed, retrying...")
                 }
             }
             
             // All reconnection attempts failed
-            Log.e(TAG, "All reconnection attempts failed")
+            Timber.e("All reconnection attempts failed")
             _currentConnection.value = connection.copy(status = ConnectionStatus.ERROR)
             
             Result.failure(Exception("Failed to reconnect after $MAX_RECONNECT_ATTEMPTS attempts"))
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to handle connection loss", e)
+            Timber.e("Failed to handle connection loss", e)
             Result.failure(e)
         }
     }
@@ -464,7 +463,7 @@ class ClientManager @Inject constructor(
             val port = hostSession.networkInfo.port
             val url = "http://$hostIp:$port/api/v1/clients/connect"
             
-            Log.d(TAG, "Sending connection request to $url")
+            Timber.d("Sending connection request to $url")
             
             val request = ClientConnectRequest(
                 clientId = clientConnection.clientId,
@@ -480,20 +479,20 @@ class ClientManager @Inject constructor(
             }.body()
             
             if (response.status == "ACCEPTED") {
-                Log.d(TAG, "Connection accepted by host")
+                Timber.d("Connection accepted by host")
                 Result.success(response)
             } else {
-                Log.w(TAG, "Connection rejected: ${response.reason}")
+                Timber.w("Connection rejected: ${response.reason}")
                 Result.failure(Exception("Connection rejected: ${response.reason}"))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Connection request failed", e)
+            Timber.e("Connection request failed", e)
             Result.failure(e)
         }
     }
     
     private suspend fun sendDisconnectionRequest(connection: ClientConnection) {
-        Log.d(TAG, "Sending disconnection request")
+        Timber.d("Sending disconnection request")
         // TODO: Implement HTTP disconnection request
         // We need the host IP to send the request. 
         // For now, we'll just log it as we don't have the host session stored in this context easily.
@@ -501,7 +500,7 @@ class ClientManager @Inject constructor(
     
     private suspend fun startAudioPlayback(hostSession: HostSession, sampleRate: Int, clientId: String) {
         // Use the sample rate from the host's response
-        Log.d(TAG, "Starting audio playback for session ${hostSession.sessionId} at ${sampleRate}Hz with clientId=$clientId")
+        Timber.d("Starting audio playback for session ${hostSession.sessionId} at ${sampleRate}Hz with clientId=$clientId")
         
         // Clear any stale buffers from previous connections
         audioDecoder.clearBuffers()
@@ -517,19 +516,19 @@ class ClientManager @Inject constructor(
             bufferTimeoutUs = 10000L
         )
         audioDecoder.startDecoding(decoderConfig)
-        Log.d(TAG, "Audio decoder started at ${sampleRate}Hz")
+        Timber.d("Audio decoder started at ${sampleRate}Hz")
         
         // Start playback with matching sample rate 
         audioPlaybackService.startPlayback(AudioPlaybackService.PlaybackConfig(sampleRate = sampleRate))
         
         // Start UDP client to receive audio with clientId for heartbeat identification
         // The host will send audio to CLIENT_AUDIO_PORT on this device
-        Log.d(TAG, "Starting UDP audio client on port $CLIENT_AUDIO_PORT with clientId=$clientId")
+        Timber.d("Starting UDP audio client on port $CLIENT_AUDIO_PORT with clientId=$clientId")
         udpAudioClient.startListening(CLIENT_AUDIO_PORT, clientId)
     }
     
     private suspend fun stopAudioPlayback() {
-        Log.d(TAG, "Stopping audio playback")
+        Timber.d("Stopping audio playback")
         
         // Stop observers first to prevent processing new data
         stopObservers()
@@ -543,11 +542,11 @@ class ClientManager @Inject constructor(
         // Stop playback last
         audioPlaybackService.stopPlayback()
         
-        Log.d(TAG, "Audio playback stopped completely")
+        Timber.d("Audio playback stopped completely")
     }
     
     private fun startForegroundService(hostName: String, hostIp: String) {
-        Log.d(TAG, "Starting client foreground service for host: $hostName")
+        Timber.d("Starting client foreground service for host: $hostName")
         val intent = ClientForegroundService.startPlayback(context, hostName, hostIp)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(intent)
@@ -557,24 +556,24 @@ class ClientManager @Inject constructor(
     }
     
     private fun stopForegroundService() {
-        Log.d(TAG, "Stopping client foreground service")
+        Timber.d("Stopping client foreground service")
         val intent = ClientForegroundService.stopPlayback(context)
         context.startService(intent)
     }
     
     private suspend fun applyVolumeChange(volume: Float) {
-        Log.d(TAG, "Applying volume change: $volume")
+        Timber.d("Applying volume change: $volume")
         audioPlaybackService.setVolume(volume)
     }
     
     private suspend fun applyMuteChange(muted: Boolean) {
-        Log.d(TAG, "Applying mute change: $muted")
+        Timber.d("Applying mute change: $muted")
         audioPlaybackService.setMuted(muted)
     }
     
     private suspend fun attemptReconnection(connection: ClientConnection): Result<Unit> {
         return try {
-            Log.d(TAG, "Attempting to reconnect...")
+            Timber.d("Attempting to reconnect...")
             // TODO: Implement reconnection logic
             
             // For now, simulate reconnection attempt
@@ -586,7 +585,7 @@ class ClientManager @Inject constructor(
             
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Reconnection attempt failed", e)
+            Timber.e("Reconnection attempt failed", e)
             Result.failure(e)
         }
     }
@@ -611,7 +610,7 @@ class ClientManager @Inject constructor(
             val request = _pendingTransferRequest.value
                 ?: return Result.failure(IllegalStateException("No pending transfer request"))
             
-            Log.d(TAG, "Accepting transfer request from ${request.fromHostAddress}")
+            Timber.d("Accepting transfer request from ${request.fromHostAddress}")
             
             // Send accept message to current host
             udpAudioClient.sendTransferAccept(newServerPort)
@@ -621,7 +620,7 @@ class ClientManager @Inject constructor(
             
             // IMPORTANT: Disconnect from current host BEFORE becoming a host
             // This stops audio playback and UDP client to avoid conflicts
-            Log.d(TAG, "Disconnecting client connection before becoming host")
+            Timber.d("Disconnecting client connection before becoming host")
             stopAudioPlayback()
             udpAudioClient.disconnect()
             stopForegroundService()
@@ -633,7 +632,7 @@ class ClientManager @Inject constructor(
             
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to accept transfer request", e)
+            Timber.e("Failed to accept transfer request", e)
             Result.failure(e)
         }
     }
@@ -646,7 +645,7 @@ class ClientManager @Inject constructor(
             val request = _pendingTransferRequest.value
                 ?: return Result.failure(IllegalStateException("No pending transfer request"))
             
-            Log.d(TAG, "Rejecting transfer request from ${request.fromHostAddress}")
+            Timber.d("Rejecting transfer request from ${request.fromHostAddress}")
             
             // Send reject message to current host
             udpAudioClient.sendTransferReject()
@@ -656,7 +655,7 @@ class ClientManager @Inject constructor(
             
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to reject transfer request", e)
+            Timber.e("Failed to reject transfer request", e)
             Result.failure(e)
         }
     }
@@ -666,7 +665,7 @@ class ClientManager @Inject constructor(
      */
     private suspend fun handleHostRedirect(newHostAddress: String, newHostPort: Int) {
         try {
-            Log.d(TAG, "Handling redirect to new host: $newHostAddress:$newHostPort")
+            Timber.d("Handling redirect to new host: $newHostAddress:$newHostPort")
             
             // Stop current connection
             udpAudioClient.disconnect()
@@ -681,16 +680,16 @@ class ClientManager @Inject constructor(
             )
             
             if (success) {
-                Log.d(TAG, "Successfully reconnected to new host")
+                Timber.d("Successfully reconnected to new host")
                 // Update connection info in current session
                 _currentConnection.value = _currentConnection.value?.copy(
                     // Could add new host address here if needed
                 )
             } else {
-                Log.e(TAG, "Failed to connect to new host")
+                Timber.e("Failed to connect to new host")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to handle host redirect", e)
+            Timber.e("Failed to handle host redirect", e)
         }
     }
     

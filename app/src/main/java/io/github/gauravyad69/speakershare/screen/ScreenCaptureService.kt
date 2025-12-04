@@ -13,7 +13,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.DisplayMetrics
-import android.util.Log
+import timber.log.Timber
 import android.view.WindowManager
 import androidx.annotation.RequiresApi
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -40,7 +40,6 @@ class ScreenCaptureService @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     companion object {
-        private const val TAG = "ScreenCaptureService"
         private const val VIRTUAL_DISPLAY_NAME = "SpeakerShareScreen"
         private const val DEFAULT_FPS = 24 // Higher FPS for smoother playback
         private const val DEFAULT_QUALITY = 50 // Lower quality for faster encoding/transfer
@@ -106,7 +105,7 @@ class ScreenCaptureService @Inject constructor(
         screenHeight = (metrics.heightPixels * SCALE_FACTOR).toInt()
         screenDensity = metrics.densityDpi
         
-        Log.d(TAG, "Screen dimensions: ${screenWidth}x${screenHeight}, density: $screenDensity")
+        Timber.d("Screen dimensions: ${screenWidth}x${screenHeight}, density: $screenDensity")
     }
 
     /**
@@ -122,10 +121,10 @@ class ScreenCaptureService @Inject constructor(
                 return Result.failure(IllegalStateException("Failed to get MediaProjection"))
             }
             
-            Log.d(TAG, "MediaProjection initialized for screen capture")
+            Timber.d("MediaProjection initialized for screen capture")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize MediaProjection", e)
+            Timber.e("Failed to initialize MediaProjection", e)
             Result.failure(e)
         }
     }
@@ -138,7 +137,7 @@ class ScreenCaptureService @Inject constructor(
      */
     fun setMediaProjection(projection: MediaProjection?) {
         mediaProjection = projection
-        Log.d(TAG, "MediaProjection set externally: ${projection != null}")
+        Timber.d("MediaProjection set externally: ${projection != null}")
     }
 
     /**
@@ -148,13 +147,13 @@ class ScreenCaptureService @Inject constructor(
     fun startCapture(fps: Int = DEFAULT_FPS, quality: Int = DEFAULT_QUALITY): Result<Unit> {
         return try {
             if (_captureState.value.isCapturing) {
-                Log.w(TAG, "Screen capture already running")
+                Timber.w("Screen capture already running")
                 return Result.success(Unit)
             }
 
             val projection = mediaProjection
             if (projection == null) {
-                Log.e(TAG, "MediaProjection not initialized")
+                Timber.e("MediaProjection not initialized")
                 return Result.failure(IllegalStateException("MediaProjection not initialized"))
             }
 
@@ -166,12 +165,12 @@ class ScreenCaptureService @Inject constructor(
             // Must be done BEFORE createVirtualDisplay
             mediaProjectionCallback = object : MediaProjection.Callback() {
                 override fun onStop() {
-                    Log.d(TAG, "MediaProjection stopped via callback")
+                    Timber.d("MediaProjection stopped via callback")
                     stopCapture()
                 }
             }
             projection.registerCallback(mediaProjectionCallback!!, handler)
-            Log.d(TAG, "MediaProjection callback registered")
+            Timber.d("MediaProjection callback registered")
 
             // Create ImageReader
             imageReader = ImageReader.newInstance(
@@ -205,10 +204,10 @@ class ScreenCaptureService @Inject constructor(
                 fps = fps
             )
 
-            Log.d(TAG, "Screen capture started: ${screenWidth}x${screenHeight} @ ${fps}fps")
+            Timber.d("Screen capture started: ${screenWidth}x${screenHeight} @ ${fps}fps")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start screen capture", e)
+            Timber.e("Failed to start screen capture", e)
             stopCapture()
             Result.failure(e)
         }
@@ -265,7 +264,7 @@ class ScreenCaptureService @Inject constructor(
                         
                         frameCount++
                         if (frameCount % 30 == 0) {
-                            Log.d(TAG, "Screen captured $frameCount frames, last ${jpegBytes.size} bytes")
+                            Timber.d("Screen captured $frameCount frames, last ${jpegBytes.size} bytes")
                         }
                     } finally {
                         image.close()
@@ -276,7 +275,7 @@ class ScreenCaptureService @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Error capturing screen frame", e)
+                Timber.e("Error capturing screen frame", e)
                 delay(100) // Brief pause on error
             }
         }
@@ -312,10 +311,10 @@ class ScreenCaptureService @Inject constructor(
             }
 
             _captureState.value = ScreenCaptureState(isCapturing = false)
-            Log.d(TAG, "Screen capture stopped")
+            Timber.d("Screen capture stopped")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Error stopping screen capture", e)
+            Timber.e("Error stopping screen capture", e)
             Result.failure(e)
         }
     }

@@ -1,6 +1,7 @@
 package io.github.gauravyad69.speakershare.audio
 
 import android.media.AudioFormat
+import timber.log.Timber
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
@@ -136,7 +137,7 @@ class AudioDecoder @Inject constructor() {
             errorCount = 0,
             bufferUnderrunCount = 0
         )
-        android.util.Log.d("AudioDecoder", "Buffers cleared")
+        Timber.d("Buffers cleared")
     }
 
     /**
@@ -154,12 +155,12 @@ class AudioDecoder @Inject constructor() {
                 try {
                     codec.stop()
                 } catch (e: IllegalStateException) {
-                    android.util.Log.w("AudioDecoder", "MediaCodec.stop() failed: ${e.message}")
+                    Timber.w("MediaCodec.stop() failed: ${e.message}")
                 }
                 try {
                     codec.release()
                 } catch (e: Exception) {
-                    android.util.Log.w("AudioDecoder", "MediaCodec.release() failed: ${e.message}")
+                    Timber.w("MediaCodec.release() failed: ${e.message}")
                 }
             }
             mediaCodec = null
@@ -188,7 +189,7 @@ class AudioDecoder @Inject constructor() {
                 inputPacketQueue.addLast(packet)
                 
                 if (inputPacketQueue.size % 50 == 1) {
-                    android.util.Log.d("AudioDecoder", "Queued AAC packet, queue size: ${inputPacketQueue.size}, data size: ${packet.data.size}")
+                    Timber.d("Queued AAC packet, queue size: ${inputPacketQueue.size}, data size: ${packet.data.size}")
                 }
                 
                 // Prevent queue overflow
@@ -223,16 +224,16 @@ class AudioDecoder @Inject constructor() {
             // - remaining bits: 0
             val asc = createAudioSpecificConfig(config.sampleRate, config.channelCount)
             setByteBuffer("csd-0", java.nio.ByteBuffer.wrap(asc))
-            android.util.Log.d("AudioDecoder", "CSD-0 (ASC): ${asc.joinToString(" ") { String.format("%02X", it) }}")
+            Timber.d("CSD-0 (ASC): ${asc.joinToString(" ") { String.format("%02X", it) }}")
         }
         
-        android.util.Log.d("AudioDecoder", "Configuring decoder: sampleRate=${config.sampleRate}, channels=${config.channelCount}")
+        Timber.d("Configuring decoder: sampleRate=${config.sampleRate}, channels=${config.channelCount}")
 
         mediaCodec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_AAC).apply {
             configure(mediaFormat, null, null, 0)
             start()
         }
-        android.util.Log.d("AudioDecoder", "Decoder started successfully")
+        Timber.d("Decoder started successfully")
     }
     
     /**
@@ -339,7 +340,7 @@ class AudioDecoder @Inject constructor() {
                 // Occasional logging
                 val currentPackets = _decoderState.value.packetsDecoded
                 if (currentPackets % 100 == 0L) {
-                    android.util.Log.d("AudioDecoder", "Fed AAC packet #$currentPackets to decoder: ${inputPacket.data.size} bytes, queueSize=${inputPacketQueue.size}")
+                    Timber.d("Fed AAC packet #$currentPackets to decoder: ${inputPacket.data.size} bytes, queueSize=${inputPacketQueue.size}")
                 }
             }
         }
@@ -378,7 +379,7 @@ class AudioDecoder @Inject constructor() {
                     
                     // Log occasional PCM output
                     if (_decoderState.value.packetsDecoded % 50 == 1L) {
-                        android.util.Log.d("AudioDecoder", "Decoded PCM: ${pcmData.size} bytes, emitted=$emitted")
+                        Timber.d("Decoded PCM: ${pcmData.size} bytes, emitted=$emitted")
                     }
                 }
                 

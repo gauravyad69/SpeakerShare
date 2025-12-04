@@ -17,6 +17,7 @@ mockk = "1.13.8"
 ksp = "2.0.21-1.0.25"
 tablerIcons = "1.1.1"
 materialComponents = "1.13.0"
+timber = "5.0.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -73,6 +74,9 @@ hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-com
 # Testing
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+
+# Logging
+timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

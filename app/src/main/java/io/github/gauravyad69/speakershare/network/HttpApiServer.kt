@@ -1,6 +1,6 @@
 package io.github.gauravyad69.speakershare.network
 
-import android.util.Log
+import timber.log.Timber
 import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.network.api.*
 import io.ktor.http.*
@@ -30,7 +30,6 @@ class HttpApiServer @Inject constructor(
     private val screenCaptureService: io.github.gauravyad69.speakershare.screen.ScreenCaptureService
 ) {
     companion object {
-        private const val TAG = "HttpApiServer"
         private const val DEFAULT_PORT = 8080
         private const val API_BASE_PATH = "/api/v1"
     }
@@ -48,7 +47,7 @@ class HttpApiServer @Inject constructor(
      */
     fun startServer(port: Int = DEFAULT_PORT): Boolean {
         if (isRunning) {
-            Log.w(TAG, "Server already running")
+            Timber.w("Server already running")
             return true
         }
         
@@ -64,11 +63,11 @@ class HttpApiServer @Inject constructor(
                 _serverEvents.emit(HttpServerEvent.ServerStarted(port))
             }
             
-            Log.i(TAG, "HTTP server started on port $port")
+            Timber.i("HTTP server started on port $port")
             true
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start HTTP server", e)
+            Timber.e("Failed to start HTTP server", e)
             
             scope.launch {
                 _serverEvents.emit(HttpServerEvent.ServerError("Failed to start server: ${e.message}"))
@@ -92,10 +91,10 @@ class HttpApiServer @Inject constructor(
                 isRunning = false
                 
                 _serverEvents.emit(HttpServerEvent.ServerStopped)
-                Log.i(TAG, "HTTP server stopped")
+                Timber.i("HTTP server stopped")
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Error stopping HTTP server", e)
+                Timber.e("Error stopping HTTP server", e)
             }
         }
     }
@@ -161,7 +160,7 @@ class HttpApiServer @Inject constructor(
                     }
                     
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error handling discovery request", e)
+                    Timber.e("Error handling discovery request", e)
                     call.respond(
                         HttpStatusCode.InternalServerError,
                         ErrorResponse("Internal server error", "DISCOVERY_ERROR")
@@ -183,7 +182,7 @@ class HttpApiServer @Inject constructor(
                     
                     // Extract client IP from request
                     val clientIp = call.request.local.remoteHost
-                    Log.d(TAG, "Client connect request from IP: $clientIp")
+                    Timber.d("Client connect request from IP: $clientIp")
                     
                     val response = hostApiHandler.connectClientWithIp(request, clientIp)
                     
@@ -201,7 +200,7 @@ class HttpApiServer @Inject constructor(
                     }
                     
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error handling client connect", e)
+                    Timber.e("Error handling client connect", e)
                     call.respond(
                         HttpStatusCode.BadRequest,
                         ErrorResponse("Invalid request", "CONNECT_ERROR")
@@ -233,7 +232,7 @@ class HttpApiServer @Inject constructor(
                     }
                     
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error handling client disconnect", e)
+                    Timber.e("Error handling client disconnect", e)
                     call.respond(
                         HttpStatusCode.InternalServerError,
                         ErrorResponse("Internal server error", "DISCONNECT_ERROR")
@@ -265,7 +264,7 @@ class HttpApiServer @Inject constructor(
                     }
                     
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error handling client kick", e)
+                    Timber.e("Error handling client kick", e)
                     call.respond(
                         HttpStatusCode.InternalServerError,
                         ErrorResponse("Internal server error", "KICK_ERROR")
@@ -280,7 +279,7 @@ class HttpApiServer @Inject constructor(
                     call.respond(HttpStatusCode.OK, clientList)
                     
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error getting client list", e)
+                    Timber.e("Error getting client list", e)
                     call.respond(
                         HttpStatusCode.InternalServerError,
                         ErrorResponse("Internal server error", "CLIENT_LIST_ERROR")
@@ -314,7 +313,7 @@ class HttpApiServer @Inject constructor(
                     }
                     
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error updating host settings", e)
+                    Timber.e("Error updating host settings", e)
                     call.respond(
                         HttpStatusCode.BadRequest,
                         ErrorResponse("Invalid settings", "SETTINGS_ERROR")
@@ -336,7 +335,7 @@ class HttpApiServer @Inject constructor(
                     call.respond(HttpStatusCode.OK, status)
                     
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error getting session status", e)
+                    Timber.e("Error getting session status", e)
                     call.respond(
                         HttpStatusCode.InternalServerError,
                         ErrorResponse("Internal server error", "STATUS_ERROR")
@@ -364,7 +363,7 @@ class HttpApiServer @Inject constructor(
                         "t3" to t3
                     ))
                 } catch (e: Exception) {
-                    Log.e(TAG, "Clock sync error", e)
+                    Timber.e("Clock sync error", e)
                     call.respond(HttpStatusCode.InternalServerError, 
                         ErrorResponse("Clock sync failed", "CLOCK_SYNC_ERROR"))
                 }
@@ -380,7 +379,7 @@ class HttpApiServer @Inject constructor(
                         "files" to emptyList<String>()
                     ))
                 } catch (e: Exception) {
-                    Log.e(TAG, "Session info error", e)
+                    Timber.e("Session info error", e)
                     call.respond(HttpStatusCode.InternalServerError,
                         ErrorResponse("Failed to get session info", "SESSION_ERROR"))
                 }
@@ -398,7 +397,7 @@ class HttpApiServer @Inject constructor(
                     
                     call.respond(HttpStatusCode.OK, mapOf("status" to "sent"))
                 } catch (e: Exception) {
-                    Log.e(TAG, "Command error", e)
+                    Timber.e("Command error", e)
                     call.respond(HttpStatusCode.BadRequest,
                         ErrorResponse("Invalid command", "COMMAND_ERROR"))
                 }
@@ -410,7 +409,7 @@ class HttpApiServer @Inject constructor(
                     // TODO: Return queued commands for client
                     call.respond(HttpStatusCode.OK, emptyList<Any>())
                 } catch (e: Exception) {
-                    Log.e(TAG, "Commands error", e)
+                    Timber.e("Commands error", e)
                     call.respond(HttpStatusCode.InternalServerError,
                         ErrorResponse("Failed to get commands", "COMMANDS_ERROR"))
                 }
@@ -425,7 +424,7 @@ class HttpApiServer @Inject constructor(
                     // TODO: Get from SyncedPlaybackManager
                     call.respond(HttpStatusCode.OK, emptyList<Any>())
                 } catch (e: Exception) {
-                    Log.e(TAG, "File list error", e)
+                    Timber.e("File list error", e)
                     call.respond(HttpStatusCode.InternalServerError,
                         ErrorResponse("Failed to get file list", "FILE_LIST_ERROR"))
                 }
@@ -442,7 +441,7 @@ class HttpApiServer @Inject constructor(
                     call.respond(HttpStatusCode.NotFound,
                         ErrorResponse("File not found", "FILE_NOT_FOUND"))
                 } catch (e: Exception) {
-                    Log.e(TAG, "File download error", e)
+                    Timber.e("File download error", e)
                     call.respond(HttpStatusCode.InternalServerError,
                         ErrorResponse("Failed to serve file", "FILE_ERROR"))
                 }
@@ -509,12 +508,12 @@ class HttpApiServer @Inject constructor(
                                 write(frameBytes)
                                 flush()
                             } catch (e: Exception) {
-                                Log.d(TAG, "Client disconnected from screen stream")
+                                Timber.d("Client disconnected from screen stream")
                                 throw e
                             }
                         }
                     } catch (e: Exception) {
-                        Log.d(TAG, "Screen stream ended: ${e.message}")
+                        Timber.d("Screen stream ended: ${e.message}")
                     }
                 }
             }

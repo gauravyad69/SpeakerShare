@@ -2,7 +2,7 @@ package io.github.gauravyad69.speakershare.media.sync
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
+import timber.log.Timber
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -30,13 +30,12 @@ class SyncedMediaPlayer(
     private val clockSync: ClockSynchronizer
 ) {
     companion object {
-        private const val TAG = "SyncedMediaPlayer"
         
         // How far ahead to buffer (ms)
         private const val BUFFER_AHEAD_MS = 5000L
         
-        // Acceptable position error before forcing seek
-        private const val POSITION_TOLERANCE_MS = 30L
+        // Acceptable position error before forcing seek (larger value to avoid constant seeking)
+        private const val POSITION_TOLERANCE_MS = 500L
     }
     
     private var player: ExoPlayer? = null
@@ -66,11 +65,11 @@ class SyncedMediaPlayer(
                 playWhenReady = false
             }
         
-        Log.d(TAG, "Player initialized")
+        Timber.d("Player initialized")
     }
     
     /**
-     * Load a media file
+     * Load a media file (async - caller should wait for player to be ready)
      */
     fun loadMedia(uri: Uri) {
         player?.let { exo ->
@@ -78,8 +77,49 @@ class SyncedMediaPlayer(
             exo.setMediaItem(mediaItem)
             exo.prepare()
             
-            Log.d(TAG, "Media loaded: $uri")
+            Timber.d("Media loading: $uri")
         }
+    }
+    
+    /**
+     * Wait for player to be ready after loadMedia
+     * Returns true if ready, false if timeout
+     */
+    suspend fun awaitReady(timeoutMs: Long = 10000L): Boolean {
+        val startTime = System.currentTimeMillis()
+        var hasSeenBuffering = false
+        
+        while (System.currentTimeMillis() - startTime < timeoutMs) {
+            val state = player?.playbackState
+            Timber.d("awaitReady: state=$state, hasSeenBuffering=$hasSeenBuffering, elapsed=${System.currentTimeMillis() - startTime}ms")
+            
+            if (state == Player.STATE_READY) {
+                Timber.d("Player ready after ${System.currentTimeMillis() - startTime}ms")
+                return true
+            }
+            
+            if (state == Player.STATE_BUFFERING) {
+                hasSeenBuffering = true
+            }
+            
+            // Only fail on IDLE if we've seen buffering (meaning prepare failed)
+            // or if we've been waiting long enough
+            if (state == Player.STATE_IDLE && hasSeenBuffering) {
+                Timber.e("Player went back to IDLE after buffering - prepare failed")
+                return false
+            }
+            
+            delay(100)
+        }
+        Timber.e("Timeout waiting for player to be ready")
+        return false
+    }
+    
+    /**
+     * Check if player is ready to play
+     */
+    fun isReady(): Boolean {
+        return player?.playbackState == Player.STATE_READY
     }
     
     /**
@@ -89,35 +129,86 @@ class SyncedMediaPlayer(
      * @param positionMs The position in the media to start from
      */
     fun playAtTime(startTime: Long, positionMs: Long) {
+        val exo = player ?: run {
+            Timber.w("playAtTime called but player is null")
+            return
+        }
+        
         scheduledPlayJob?.cancel()
         
         val currentSyncTime = clockSync.getSynchronizedTime()
         val delay = startTime - currentSyncTime
+        val duration = exo.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
         
-        player?.let { exo ->
+        // Bounds check the position
+        val safePositionMs = positionMs.coerceIn(0L, duration.coerceAtLeast(0L))
+        
+        Timber.d("playAtTime: startTime=$startTime, currentSyncTime=$currentSyncTime, delay=$delay, positionMs=$safePositionMs, duration=$duration, clockOffset=${clockSync.getOffset()}")
+        
+        // Reject if delay is absurdly large (clock sync broken)
+        if (kotlin.math.abs(delay) > 30_000) {
+            Timber.w("Rejecting playAtTime - delay too large: ${delay}ms (clock sync broken?)")
+            return
+        }
+        
+        // Check if player is in a valid state
+        val playerState = exo.playbackState
+        if (playerState == Player.STATE_IDLE) {
+            Timber.w("Player is IDLE, media not loaded")
+            return
+        }
+        
+        if (playerState == Player.STATE_ENDED) {
+            Timber.d("Player ended, seeking to beginning")
+            exo.seekTo(safePositionMs)
+        } else {
             // Seek to position immediately
-            exo.seekTo(positionMs)
-            
-            if (delay > 0) {
-                // Schedule playback
-                Log.d(TAG, "Scheduling playback in ${delay}ms at position $positionMs")
-                
-                scheduledPlayJob = scope.launch {
-                    delay(delay)
-                    exo.play()
-                    startPositionTracking(startTime, positionMs)
-                    _playerState.update { it.copy(isPlaying = true) }
-                }
-            } else {
-                // Start immediately (we're late, adjust position)
-                val adjustedPosition = positionMs + (-delay)
-                exo.seekTo(adjustedPosition)
-                exo.play()
-                startPositionTracking(startTime, positionMs)
-                _playerState.update { it.copy(isPlaying = true) }
-                
-                Log.d(TAG, "Starting immediately at adjusted position $adjustedPosition")
+            exo.seekTo(safePositionMs)
+        }
+        
+        if (delay > 0) {
+            // Cap delay to a reasonable maximum (10 seconds)
+            val cappedDelay = delay.coerceAtMost(10_000L)
+            if (cappedDelay != delay) {
+                Timber.w("Capping delay from ${delay}ms to ${cappedDelay}ms")
             }
+            
+            // Schedule playback
+            Timber.d("Scheduling playback in ${cappedDelay}ms at position $safePositionMs")
+            
+            scheduledPlayJob = scope.launch {
+                delay(cappedDelay)
+                // Re-check player state after delay
+                if (exo.playbackState == Player.STATE_READY || exo.playbackState == Player.STATE_BUFFERING) {
+                    exo.play()
+                    startPositionTracking(startTime, safePositionMs)
+                    _playerState.update { it.copy(isPlaying = true) }
+                } else {
+                    Timber.w("Player not ready after scheduled delay, state=${exo.playbackState}")
+                }
+            }
+        } else {
+            // Start immediately (we're late, adjust position)
+            // Guard against overflow: if delay is hugely negative, just use safePositionMs
+            val adjustedPosition = if (delay < -60_000) {
+                Timber.w("Delay too negative ($delay), using safe position")
+                safePositionMs
+            } else {
+                (safePositionMs + (-delay)).coerceIn(0L, duration.coerceAtLeast(0L))
+            }
+            
+            // Don't start if adjusted position is at or past the end
+            if (duration > 0 && duration != Long.MAX_VALUE && adjustedPosition >= duration - 500) {
+                Timber.w("Adjusted position $adjustedPosition is at/past end of track ($duration), not starting")
+                return
+            }
+            
+            exo.seekTo(adjustedPosition)
+            exo.play()
+            startPositionTracking(startTime, adjustedPosition)
+            _playerState.update { it.copy(isPlaying = true) }
+            
+            Timber.d("Starting immediately at adjusted position $adjustedPosition")
         }
     }
     
@@ -134,7 +225,7 @@ class SyncedMediaPlayer(
             it.copy(isPlaying = false, currentPositionMs = currentPosition) 
         }
         
-        Log.d(TAG, "Paused at position $currentPosition")
+        Timber.d("Paused at position $currentPosition")
     }
     
     /**
@@ -173,30 +264,68 @@ class SyncedMediaPlayer(
             }
         }
         
-        Log.d(TAG, "Seeked to $positionMs, resume=$resumePlayback")
+        Timber.d("Seeked to $positionMs, resume=$resumePlayback")
     }
     
     /**
      * Sync position with expected position from host
      */
     fun syncPosition(expectedPositionMs: Long, syncTime: Long) {
-        val currentPosition = player?.currentPosition ?: return
-        val drift = kotlin.math.abs(currentPosition - expectedPositionMs)
+        val exo = player ?: return
         
-        if (drift > POSITION_TOLERANCE_MS) {
-            Log.w(TAG, "Position drift detected: ${drift}ms, resyncing")
+        // Don't sync if player is ended - wait for next track
+        if (exo.playbackState == Player.STATE_ENDED) {
+            Timber.d("Ignoring sync - player ended")
+            return
+        }
+        
+        // Don't sync if player is not playing
+        if (!exo.isPlaying) {
+            Timber.d("Ignoring sync - player not playing")
+            return
+        }
+        
+        val currentPosition = exo.currentPosition
+        val duration = exo.duration
+        
+        // Don't sync if expected position is 0 or very small (likely invalid)
+        if (expectedPositionMs < 100) {
+            Timber.d("Ignoring sync pulse with position $expectedPositionMs (too small)")
+            return
+        }
+        
+        // Don't sync if expected position is past the track duration
+        if (duration > 0 && expectedPositionMs >= duration) {
+            Timber.d("Ignoring sync pulse with position $expectedPositionMs (past duration $duration)")
+            return
+        }
+        
+        // Drift = actual player position - expected (host) position
+        // Positive drift = we're ahead, negative = we're behind
+        val drift = currentPosition - expectedPositionMs
+        val absDrift = kotlin.math.abs(drift)
+        
+        // Record drift for dynamic clock adjustment
+        // Only record if drift is reasonable (not a clock sync issue)
+        if (absDrift < 5000 && currentPosition > 0) {
+            // signedDrift for clock adjustment: positive means we're behind host (need to increase offset)
+            // Our drift is (current - expected), so if we're behind (current < expected), drift is negative
+            // Clock offset adjustment expects positive = we're behind, so invert the sign
+            clockSync.recordDrift(-drift, currentPosition)
+        }
+        
+        if (absDrift > POSITION_TOLERANCE_MS) {
+            Timber.w("Position drift detected: ${drift}ms (current=$currentPosition, expected=$expectedPositionMs)")
             
-            // Adjust playback rate temporarily for smooth correction
-            // or seek if drift is too large
-            if (drift > 100) {
-                player?.seekTo(expectedPositionMs)
+            // Only seek if drift is very large (over 2 seconds)
+            if (absDrift > 2000) {
+                Timber.i("Large drift, seeking to $expectedPositionMs")
+                exo.seekTo(expectedPositionMs)
+                _playerState.update { it.copy(currentPositionMs = expectedPositionMs, driftMs = drift) }
             } else {
-                // Could use setPlaybackSpeed for gradual correction
-                // For now, just seek
-                player?.seekTo(expectedPositionMs)
+                // Just track drift for now, don't seek for small differences
+                _playerState.update { it.copy(driftMs = drift) }
             }
-            
-            _playerState.update { it.copy(currentPositionMs = expectedPositionMs) }
         }
     }
     
@@ -223,7 +352,7 @@ class SyncedMediaPlayer(
         player?.release()
         player = null
         scope.cancel()
-        Log.d(TAG, "Player released")
+        Timber.d("Player released")
     }
     
     private fun startPositionTracking(startTime: Long, startPosition: Long) {
@@ -261,7 +390,7 @@ class SyncedMediaPlayer(
                 Player.STATE_ENDED -> "ENDED"
                 else -> "UNKNOWN"
             }
-            Log.d(TAG, "Playback state: $stateStr")
+            Timber.d("Playback state: $stateStr")
             
             _playerState.update { 
                 it.copy(
@@ -277,7 +406,7 @@ class SyncedMediaPlayer(
         }
         
         override fun onPlayerError(error: PlaybackException) {
-            Log.e(TAG, "Player error: ${error.message}", error)
+            Timber.e("Player error: ${error.message}", error)
             _playerState.update { it.copy(error = error.message) }
         }
     }

@@ -7,7 +7,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.util.Log
+import timber.log.Timber
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
@@ -25,7 +25,6 @@ import javax.inject.Inject
 class ClientForegroundService : Service() {
 
     companion object {
-        private const val TAG = "ClientForegroundService"
         private const val NOTIFICATION_ID = 1002
         const val CHANNEL_ID = "audio_playback_channel"
         const val ACTION_START_PLAYBACK = "START_PLAYBACK"
@@ -82,13 +81,13 @@ class ClientForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "Service created")
+        Timber.d("Service created")
         createNotificationChannel()
         isRunning = true
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "onStartCommand: ${intent?.action}")
+        Timber.d("onStartCommand: ${intent?.action}")
         intent?.action?.let { action ->
             serviceScope.launch {
                 handleAction(action, intent)
@@ -100,7 +99,7 @@ class ClientForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
-        Log.d(TAG, "Service destroyed")
+        Timber.d("Service destroyed")
         isRunning = false
         releaseWakeLock()
         serviceScope.cancel()
@@ -120,7 +119,7 @@ class ClientForegroundService : Service() {
 
     private suspend fun startPlaybackService() {
         if (_serviceState.value != ServiceState.STOPPED) {
-            Log.d(TAG, "Service already running, updating notification")
+            Timber.d("Service already running, updating notification")
             updateNotification()
             return
         }
@@ -137,20 +136,20 @@ class ClientForegroundService : Service() {
             startForeground(NOTIFICATION_ID, notification)
 
             _serviceState.value = ServiceState.RUNNING
-            Log.d(TAG, "Client foreground service started for host: $hostName")
+            Timber.d("Client foreground service started for host: $hostName")
 
             // Monitor connection state
             serviceScope.launch {
                 clientManager.isConnected.collect { connected ->
                     if (!connected && _serviceState.value == ServiceState.RUNNING) {
-                        Log.d(TAG, "Connection lost, stopping service")
+                        Timber.d("Connection lost, stopping service")
                         stopPlaybackService()
                     }
                 }
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start playback service", e)
+            Timber.e("Failed to start playback service", e)
             _serviceState.value = ServiceState.STOPPED
             stopSelf()
         }
@@ -162,7 +161,7 @@ class ClientForegroundService : Service() {
         }
 
         _serviceState.value = ServiceState.STOPPING
-        Log.d(TAG, "Stopping client foreground service")
+        Timber.d("Stopping client foreground service")
 
         releaseWakeLock()
         
@@ -180,7 +179,7 @@ class ClientForegroundService : Service() {
             ).apply {
                 acquire(10 * 60 * 60 * 1000L) // 10 hours max
             }
-            Log.d(TAG, "Wake lock acquired")
+            Timber.d("Wake lock acquired")
         }
     }
 
@@ -188,7 +187,7 @@ class ClientForegroundService : Service() {
         wakeLock?.let {
             if (it.isHeld) {
                 it.release()
-                Log.d(TAG, "Wake lock released")
+                Timber.d("Wake lock released")
             }
         }
         wakeLock = null

@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
-import android.util.Log
+import timber.log.Timber
 
 /**
  * Repository for managing user settings using SharedPreferences.
@@ -37,7 +37,6 @@ class SettingsRepository @Inject constructor(
     override suspend fun getCurrentSettings(): UserSettings = _userSettings.value
     
     companion object {
-        private const val TAG = "SettingsRepository"
         private const val PREFS_NAME = "speakershare_settings"
         
         // Settings keys
@@ -72,19 +71,19 @@ class SettingsRepository @Inject constructor(
      * Load settings from SharedPreferences
      */
     private fun loadSettings(): UserSettings {
-        Log.d(TAG, "Loading user settings from SharedPreferences")
+        Timber.d("Loading user settings from SharedPreferences")
         
         val audioSource = try {
             AudioSource.valueOf(sharedPreferences.getString(KEY_DEFAULT_AUDIO_SOURCE, DEFAULT_AUDIO_SOURCE)!!)
         } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "Invalid audio source, using default", e)
+            Timber.w("Invalid audio source, using default", e)
             AudioSource.MICROPHONE
         }
         
         val audioEncoding = try {
             AudioEncoding.valueOf(sharedPreferences.getString(KEY_AUDIO_ENCODING, DEFAULT_ENCODING)!!)
         } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "Invalid audio encoding, using default", e)
+            Timber.w("Invalid audio encoding, using default", e)
             AudioEncoding.AAC
         }
         
@@ -109,7 +108,7 @@ class SettingsRepository @Inject constructor(
      * Save settings to SharedPreferences
      */
     private fun saveSettings(settings: UserSettings) {
-        Log.d(TAG, "Saving user settings to SharedPreferences")
+        Timber.d("Saving user settings to SharedPreferences")
         
         sharedPreferences.edit().apply {
             putString(KEY_USER_NAME, settings.displayName)
@@ -130,7 +129,7 @@ class SettingsRepository @Inject constructor(
      */
     override suspend fun updateSettings(settings: UserSettings): Result<Unit> {
         return runCatching {
-            Log.d(TAG, "Updating user settings")
+            Timber.d("Updating user settings")
             _userSettings.value = settings
             saveSettings(settings)
         }
@@ -149,7 +148,7 @@ class SettingsRepository @Inject constructor(
      * Update default audio source
      */
     override suspend fun updateDefaultAudioSource(audioSource: AudioSource): Result<Unit> {
-        Log.d(TAG, "Updating default audio source to $audioSource")
+        Timber.d("Updating default audio source to $audioSource")
         val currentSettings = _userSettings.value
         val updatedSettings = currentSettings.copy(defaultAudioSource = audioSource)
         return updateSettings(updatedSettings)
@@ -159,7 +158,7 @@ class SettingsRepository @Inject constructor(
      * Update audio quality settings
      */
     override suspend fun updateDefaultQuality(quality: AudioQuality): Result<Unit> {
-        Log.d(TAG, "Updating audio quality: ${quality.bitrate}kbps, ${quality.sampleRate}Hz, ${quality.encoding}")
+        Timber.d("Updating audio quality: ${quality.bitrate}kbps, ${quality.sampleRate}Hz, ${quality.encoding}")
         val currentSettings = _userSettings.value
         val updatedSettings = currentSettings.copy(defaultQuality = quality)
         return updateSettings(updatedSettings)
@@ -169,7 +168,7 @@ class SettingsRepository @Inject constructor(
      * Update auto-start host setting
      */
     suspend fun updateAutoStartHost(autoStartHost: Boolean) {
-        Log.d(TAG, "Updating auto-start host to $autoStartHost")
+        Timber.d("Updating auto-start host to $autoStartHost")
         val currentSettings = _userSettings.value
         val updatedSettings = currentSettings.copy(autoStartHost = autoStartHost)
         updateSettings(updatedSettings)
@@ -179,7 +178,7 @@ class SettingsRepository @Inject constructor(
      * Update network metrics display setting
      */
     suspend fun updateShowNetworkMetrics(showNetworkMetrics: Boolean) {
-        Log.d(TAG, "Updating show network metrics to $showNetworkMetrics")
+        Timber.d("Updating show network metrics to $showNetworkMetrics")
         val currentSettings = _userSettings.value
         val updatedSettings = currentSettings.copy(showNetworkMetrics = showNetworkMetrics)
         updateSettings(updatedSettings)
@@ -189,7 +188,7 @@ class SettingsRepository @Inject constructor(
      * Update keep screen on setting
      */
     suspend fun updateKeepScreenOn(keepScreenOn: Boolean) {
-        Log.d(TAG, "Updating keep screen on to $keepScreenOn")
+        Timber.d("Updating keep screen on to $keepScreenOn")
         val currentSettings = _userSettings.value
         val updatedSettings = currentSettings.copy(keepScreenOn = keepScreenOn)
         updateSettings(updatedSettings)
@@ -200,11 +199,11 @@ class SettingsRepository @Inject constructor(
      */
     suspend fun updateMaxClients(maxClients: Int) {
         if (maxClients <= 0) {
-            Log.w(TAG, "Invalid max clients value: $maxClients, must be positive")
+            Timber.w("Invalid max clients value: $maxClients, must be positive")
             return
         }
         
-        Log.d(TAG, "Updating max clients to $maxClients")
+        Timber.d("Updating max clients to $maxClients")
         val currentSettings = _userSettings.value
         val updatedSettings = currentSettings.copy(maxClients = maxClients)
         updateSettings(updatedSettings)
@@ -217,7 +216,7 @@ class SettingsRepository @Inject constructor(
      */
     override suspend fun resetToDefaults(): Result<Unit> {
         return runCatching {
-            Log.d(TAG, "Resetting settings to defaults")
+            Timber.d("Resetting settings to defaults")
             sharedPreferences.edit().clear().apply()
             val defaultSettings = loadSettings()
             _userSettings.value = defaultSettings
@@ -267,7 +266,7 @@ class SettingsRepository @Inject constructor(
             val profileName = sharedPreferences.getString(KEY_LATENCY_PROFILE, LatencyProfile.BALANCED.name)
             LatencyProfile.valueOf(profileName!!)
         } catch (e: Exception) {
-            Log.w(TAG, "Invalid latency profile, using default", e)
+            Timber.w("Invalid latency profile, using default", e)
             LatencyProfile.BALANCED
         }
     }
@@ -276,7 +275,7 @@ class SettingsRepository @Inject constructor(
      * Save latency profile to SharedPreferences
      */
     fun saveLatencyProfile(profile: LatencyProfile) {
-        Log.d(TAG, "Saving latency profile: $profile")
+        Timber.d("Saving latency profile: $profile")
         sharedPreferences.edit().putString(KEY_LATENCY_PROFILE, profile.name).apply()
     }
     
@@ -294,10 +293,10 @@ class SettingsRepository @Inject constructor(
     suspend fun importSettings(json: String): Result<Unit> {
         return try {
             // TODO: Implement JSON deserialization and validation
-            Log.d(TAG, "Settings import not yet implemented")
+            Timber.d("Settings import not yet implemented")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to import settings", e)
+            Timber.e("Failed to import settings", e)
             Result.failure(e)
         }
     }

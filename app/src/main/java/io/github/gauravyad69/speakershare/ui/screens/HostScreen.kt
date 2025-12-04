@@ -1,6 +1,7 @@
 package io.github.gauravyad69.speakershare.ui.screens
 
 import android.app.Activity
+import timber.log.Timber
 import android.content.Context
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -71,7 +72,7 @@ fun HostScreen(
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             val requestedMode = pendingAudioSourceMode ?: AudioSource.SYSTEM_AUDIO
-            android.util.Log.d("HostScreen", "MediaProjection permission granted for mode: $requestedMode")
+            Timber.d("MediaProjection permission granted for mode: $requestedMode")
             
             val initIntent = io.github.gauravyad69.speakershare.services.AudioForegroundService.initMediaProjection(
                 context, result.resultCode, result.data!!

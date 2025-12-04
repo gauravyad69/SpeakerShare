@@ -2,6 +2,7 @@ package io.github.gauravyad69.speakershare
 
 import android.app.Application
 import dagger.hilt.android.HiltAndroidApp
+import timber.log.Timber
 
 /**
  * Application class for SpeakerShare app.
@@ -11,6 +12,12 @@ import dagger.hilt.android.HiltAndroidApp
 class SpeakerShareApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        // Application initialization code here if needed
+        
+        // Initialize Timber for logging
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
+        }
+        // For release builds, you can plant a crash-reporting tree:
+        // else { Timber.plant(CrashReportingTree()) }
     }
 }

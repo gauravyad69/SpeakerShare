@@ -1,9 +1,10 @@
 package io.github.gauravyad69.speakershare.media.sync
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.util.Log
+import timber.log.Timber
 import io.ktor.client.*
 import io.ktor.client.plugins.*
 import io.ktor.client.request.*
@@ -32,7 +33,6 @@ import javax.inject.Singleton
 class SyncedFileTransfer @Inject constructor() {
     
     companion object {
-        private const val TAG = "SyncedFileTransfer"
         private const val CACHE_DIR = "synced_media"
         private const val CHUNK_SIZE = 64 * 1024 // 64KB chunks
         const val FILE_SERVE_PORT = 9092
@@ -67,7 +67,7 @@ class SyncedFileTransfer @Inject constructor() {
                 digest.digest().joinToString("") { "%02x".format(it) }
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to calculate file hash", e)
+                Timber.e("Failed to calculate file hash", e)
                 ""
             }
         }
@@ -95,20 +95,40 @@ class SyncedFileTransfer @Inject constructor() {
                         val mimeType = context.contentResolver.getType(uri) ?: ""
                         val isVideo = mimeType.startsWith("video/")
                         
+                        // Extract duration using MediaMetadataRetriever
+                        val durationMs = extractDuration(context, uri)
+                        Timber.d("File metadata: name=$name, size=$size, duration=${durationMs}ms")
+                        
                         SyncedMediaFile(
                             uri = uri,
                             name = name,
                             mimeType = mimeType,
                             sizeBytes = size,
-                            durationMs = 0L, // Will be filled by media extractor
+                            durationMs = durationMs,
                             isVideo = isVideo
                         )
                     } else null
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to get file metadata", e)
+                Timber.e("Failed to get file metadata", e)
                 null
             }
+        }
+    }
+    
+    /**
+     * Extract media duration using MediaMetadataRetriever
+     */
+    private fun extractDuration(context: Context, uri: Uri): Long {
+        return try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(context, uri)
+            val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            retriever.release()
+            durationStr?.toLongOrNull() ?: 0L
+        } catch (e: Exception) {
+            Timber.w("Failed to extract duration for $uri: ${e.message}")
+            0L
         }
     }
     
@@ -126,7 +146,7 @@ class SyncedFileTransfer @Inject constructor() {
                         // Verify hash
                         val localHash = calculateLocalFileHash(cachedFile)
                         if (localHash == file.contentHash) {
-                            Log.d(TAG, "Found cached file: ${file.name}")
+                            Timber.d("Found cached file: ${file.name}")
                             return@withContext Uri.fromFile(cachedFile)
                         }
                     }
@@ -136,7 +156,7 @@ class SyncedFileTransfer @Inject constructor() {
                 null
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Error finding local file", e)
+                Timber.e("Error finding local file", e)
                 null
             }
         }
@@ -152,7 +172,7 @@ class SyncedFileTransfer @Inject constructor() {
     ): Uri? {
         return withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Downloading file: ${file.name} from $hostAddress")
+                Timber.d("Downloading file: ${file.name} from $hostAddress")
                 
                 // Update progress
                 updateProgress(file.contentHash, TransferProgress(
@@ -177,7 +197,7 @@ class SyncedFileTransfer @Inject constructor() {
                 val tempFile = File(cacheDir, "${file.contentHash}.tmp")
                 val finalFile = File(cacheDir, file.contentHash)
                 
-                val response = client.get("http://$hostAddress:$FILE_SERVE_PORT/file/${file.contentHash}") {
+                val response = client.get("http://$hostAddress:${SyncedPlaybackServer.SYNC_SERVER_PORT}/file/${file.contentHash}") {
                     onDownload { bytesSentTotal, contentLength ->
                         updateProgress(file.contentHash, TransferProgress(
                             fileName = file.name,
@@ -214,11 +234,11 @@ class SyncedFileTransfer @Inject constructor() {
                             status = TransferStatus.COMPLETED
                         ))
                         
-                        Log.i(TAG, "Downloaded and verified: ${file.name}")
+                        Timber.i("Downloaded and verified: ${file.name}")
                         client.close()
                         return@withContext Uri.fromFile(finalFile)
                     } else {
-                        Log.e(TAG, "Hash mismatch after download")
+                        Timber.e("Hash mismatch after download")
                         tempFile.delete()
                         updateProgress(file.contentHash, TransferProgress(
                             fileName = file.name,
@@ -229,7 +249,7 @@ class SyncedFileTransfer @Inject constructor() {
                         ))
                     }
                 } else {
-                    Log.e(TAG, "Download failed: ${response.status}")
+                    Timber.e("Download failed: ${response.status}")
                     updateProgress(file.contentHash, TransferProgress(
                         fileName = file.name,
                         totalBytes = file.sizeBytes,
@@ -243,7 +263,7 @@ class SyncedFileTransfer @Inject constructor() {
                 null
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Download failed", e)
+                Timber.e("Download failed", e)
                 updateProgress(file.contentHash, TransferProgress(
                     fileName = file.name,
                     totalBytes = file.sizeBytes,
@@ -271,7 +291,7 @@ class SyncedFileTransfer @Inject constructor() {
                 }
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to serve file", e)
+                Timber.e("Failed to serve file", e)
                 null
             }
         }
@@ -285,10 +305,10 @@ class SyncedFileTransfer @Inject constructor() {
             val cacheDir = File(context.cacheDir, CACHE_DIR)
             if (cacheDir.exists()) {
                 cacheDir.deleteRecursively()
-                Log.i(TAG, "Cache cleared")
+                Timber.i("Cache cleared")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear cache", e)
+            Timber.e("Failed to clear cache", e)
         }
     }
     

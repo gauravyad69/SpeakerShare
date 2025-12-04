@@ -1,7 +1,7 @@
 package io.github.gauravyad69.speakershare.network
 
 import android.content.Context
-import android.util.Log
+import timber.log.Timber
 import io.ktor.client.*
 import io.ktor.client.engine.android.*
 import io.ktor.client.plugins.websocket.*
@@ -27,7 +27,6 @@ class WebRTCClient @Inject constructor(
     private val context: Context
 ) {
     companion object {
-        private const val TAG = "WebRTCClient"
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -85,7 +84,7 @@ class WebRTCClient @Inject constructor(
             .setAudioDeviceModule(JavaAudioDeviceModule.builder(context).createAudioDeviceModule())
             .createPeerConnectionFactory()
         
-        Log.d(TAG, "PeerConnectionFactory initialized")
+        Timber.d("PeerConnectionFactory initialized")
     }
     
     /**
@@ -117,13 +116,13 @@ class WebRTCClient @Inject constructor(
                         _connectionEvents.emit(ClientEvent.Connecting(hostIp))
                     }
                     
-                    Log.d(TAG, "Connected to host: $hostIp:$hostPort")
+                    Timber.d("Connected to host: $hostIp:$hostPort")
                     true
                 } else {
                     false
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to connect to host", e)
+                Timber.e("Failed to connect to host", e)
                 scope.launch {
                     _connectionEvents.emit(ClientEvent.ConnectionError("Failed to connect: ${e.message}"))
                 }
@@ -166,9 +165,9 @@ class WebRTCClient @Inject constructor(
                     _connectionEvents.emit(ClientEvent.Disconnected)
                 }
                 
-                Log.d(TAG, "Disconnected from host")
+                Timber.d("Disconnected from host")
             } catch (e: Exception) {
-                Log.e(TAG, "Error during disconnect", e)
+                Timber.e("Error during disconnect", e)
             }
         }
     }
@@ -192,7 +191,7 @@ class WebRTCClient @Inject constructor(
             
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect to signaling server", e)
+            Timber.e("Failed to connect to signaling server", e)
             false
         }
     }
@@ -208,17 +207,17 @@ class WebRTCClient @Inject constructor(
                 when (frame) {
                     is Frame.Text -> {
                         val message = frame.readText()
-                        Log.d(TAG, "Received signaling message: $message")
+                        Timber.d("Received signaling message: $message")
                         
                         try {
                             val signalingMessage = json.decodeFromString<SignalingMessage>(message)
                             handleSignalingMessage(signalingMessage)
                         } catch (e: Exception) {
-                            Log.e(TAG, "Failed to parse signaling message", e)
+                            Timber.e("Failed to parse signaling message", e)
                         }
                     }
                     is Frame.Close -> {
-                        Log.d(TAG, "Signaling connection closed")
+                        Timber.d("Signaling connection closed")
                         break
                     }
                     else -> {
@@ -227,7 +226,7 @@ class WebRTCClient @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Signaling message handling error", e)
+            Timber.e("Signaling message handling error", e)
         }
     }
     
@@ -240,7 +239,7 @@ class WebRTCClient @Inject constructor(
                 scope.launch {
                     _connectionEvents.emit(ClientEvent.RegistrationConfirmed)
                 }
-                Log.d(TAG, "Registration confirmed by host")
+                Timber.d("Registration confirmed by host")
             }
             
             SignalingMessageType.OFFER -> {
@@ -256,7 +255,7 @@ class WebRTCClient @Inject constructor(
             }
             
             else -> {
-                Log.w(TAG, "Unknown signaling message type: ${message.type}")
+                Timber.w("Unknown signaling message type: ${message.type}")
             }
         }
     }
@@ -275,20 +274,20 @@ class WebRTCClient @Inject constructor(
             peerConnection?.setRemoteDescription(object : SdpObserver {
                 override fun onCreateSuccess(sessionDescription: SessionDescription?) {}
                 override fun onSetSuccess() {
-                    Log.d(TAG, "Remote description set successfully")
+                    Timber.d("Remote description set successfully")
                     // Create answer after setting remote description
                     createAndSendAnswer()
                 }
                 override fun onCreateFailure(error: String?) {
-                    Log.e(TAG, "Set remote description failed: $error")
+                    Timber.e("Set remote description failed: $error")
                 }
                 override fun onSetFailure(error: String?) {
-                    Log.e(TAG, "Set remote description failed: $error")
+                    Timber.e("Set remote description failed: $error")
                 }
             }, offer)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to handle offer", e)
+            Timber.e("Failed to handle offer", e)
         }
     }
     
@@ -315,21 +314,21 @@ class WebRTCClient @Inject constructor(
                                     clientId = clientId!!,
                                     sdp = SdpData(answer.type.canonicalForm(), answer.description)
                                 ))
-                                Log.d(TAG, "Sent answer to host")
+                                Timber.d("Sent answer to host")
                             }
                         }
                         override fun onCreateFailure(error: String?) {
-                            Log.e(TAG, "Set local description failed: $error")
+                            Timber.e("Set local description failed: $error")
                         }
                         override fun onSetFailure(error: String?) {
-                            Log.e(TAG, "Set local description failed: $error")
+                            Timber.e("Set local description failed: $error")
                         }
                     }, answer)
                 }
             }
             override fun onSetSuccess() {}
             override fun onCreateFailure(error: String?) {
-                Log.e(TAG, "Create answer failed: $error")
+                Timber.e("Create answer failed: $error")
             }
             override fun onSetFailure(error: String?) {}
         }, constraints)
@@ -347,9 +346,9 @@ class WebRTCClient @Inject constructor(
             )
             
             peerConnection?.addIceCandidate(candidate)
-            Log.d(TAG, "Added ICE candidate from host")
+            Timber.d("Added ICE candidate from host")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to handle ICE candidate", e)
+            Timber.e("Failed to handle ICE candidate", e)
         }
     }
     
@@ -379,7 +378,7 @@ class WebRTCClient @Inject constructor(
             }
             
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
-                Log.d(TAG, "ICE connection state changed: $state")
+                Timber.d("ICE connection state changed: $state")
                 scope.launch {
                     _connectionEvents.emit(ClientEvent.ConnectionStateChanged(state))
                     
@@ -399,15 +398,15 @@ class WebRTCClient @Inject constructor(
             }
             
             override fun onIceConnectionReceivingChange(receiving: Boolean) {
-                Log.d(TAG, "ICE receiving change: $receiving")
+                Timber.d("ICE receiving change: $receiving")
             }
             
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {
-                Log.d(TAG, "ICE gathering state changed: $state")
+                Timber.d("ICE gathering state changed: $state")
             }
             
             override fun onAddStream(stream: MediaStream) {
-                Log.d(TAG, "Remote stream added")
+                Timber.d("Remote stream added")
                 
                 // Handle remote audio track
                 if (stream.audioTracks.isNotEmpty()) {
@@ -421,7 +420,7 @@ class WebRTCClient @Inject constructor(
             }
             
             override fun onRemoveStream(stream: MediaStream) {
-                Log.d(TAG, "Remote stream removed")
+                Timber.d("Remote stream removed")
                 remoteAudioTrack?.setEnabled(false)
                 remoteAudioTrack = null
                 
@@ -435,18 +434,18 @@ class WebRTCClient @Inject constructor(
             }
             
             override fun onRenegotiationNeeded() {
-                Log.d(TAG, "Renegotiation needed")
+                Timber.d("Renegotiation needed")
             }
             
             override fun onSignalingChange(state: PeerConnection.SignalingState) {
-                Log.d(TAG, "Signaling state changed: $state")
+                Timber.d("Signaling state changed: $state")
             }
         }
         
         peerConnection = factory.createPeerConnection(rtcConfiguration, observer)
             ?: throw RuntimeException("Failed to create peer connection")
         
-        Log.d(TAG, "Peer connection created")
+        Timber.d("Peer connection created")
     }
     
     /**
@@ -457,7 +456,7 @@ class WebRTCClient @Inject constructor(
             val messageJson = json.encodeToString(message)
             websocketSession?.send(Frame.Text(messageJson))
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to send signaling message", e)
+            Timber.e("Failed to send signaling message", e)
         }
     }
     
@@ -467,7 +466,7 @@ class WebRTCClient @Inject constructor(
     fun setAudioVolume(volume: Float) {
         // Note: WebRTC handles audio routing through the system
         // Volume control should be implemented through AudioManager
-        Log.d(TAG, "Audio volume set to: $volume")
+        Timber.d("Audio volume set to: $volume")
     }
     
     /**
@@ -487,7 +486,7 @@ class WebRTCClient @Inject constructor(
             val iceState = peerConnection?.iceConnectionState()
             "Connection: $state, ICE: $iceState"
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get connection stats", e)
+            Timber.e("Failed to get connection stats", e)
             null
         }
     }
@@ -503,7 +502,7 @@ class WebRTCClient @Inject constructor(
         peerConnectionFactory?.dispose()
         peerConnectionFactory = null
         
-        Log.d(TAG, "WebRTC client cleanup completed")
+        Timber.d("WebRTC client cleanup completed")
     }
 }
 

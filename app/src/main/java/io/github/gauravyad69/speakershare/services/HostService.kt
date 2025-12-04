@@ -14,7 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
-import android.util.Log
+import timber.log.Timber
 import android.content.Intent
 import java.net.InetAddress
 import java.util.UUID
@@ -59,7 +59,7 @@ class HostService @Inject constructor(
             udpAudioServer.serverEvents.collect { event ->
                 when (event) {
                     is io.github.gauravyad69.speakershare.network.UdpServerEvent.ClientDisconnected -> {
-                        Log.d(TAG, "Client disconnected from UDP server: ${event.clientId}")
+                        Timber.d("Client disconnected from UDP server: ${event.clientId}")
                         // Remove client from our connected clients list (thread-safe)
                         clientsMutex.withLock {
                             val currentClients = _connectedClients.value
@@ -67,12 +67,12 @@ class HostService @Inject constructor(
                             if (updatedClients.size != currentClients.size) {
                                 _connectedClients.value = updatedClients
                                 _currentSession.value = _currentSession.value?.copy(connectedClients = updatedClients)
-                                Log.d(TAG, "Removed client ${event.clientId}, ${updatedClients.size} clients remaining")
+                                Timber.d("Removed client ${event.clientId}, ${updatedClients.size} clients remaining")
                             }
                         }
                     }
                     is io.github.gauravyad69.speakershare.network.UdpServerEvent.TransferAccepted -> {
-                        Log.d(TAG, "Transfer accepted by ${event.clientId} at ${event.clientAddress}:${event.newServerPort}")
+                        Timber.d("Transfer accepted by ${event.clientId} at ${event.clientAddress}:${event.newServerPort}")
                         _transferEvents.value = TransferEvent.Accepted(
                             event.clientId,
                             event.clientAddress,
@@ -82,7 +82,7 @@ class HostService @Inject constructor(
                         handleTransferAccepted(event.clientId, event.clientAddress, event.newServerPort)
                     }
                     is io.github.gauravyad69.speakershare.network.UdpServerEvent.TransferRejected -> {
-                        Log.d(TAG, "Transfer rejected by ${event.clientId}")
+                        Timber.d("Transfer rejected by ${event.clientId}")
                         _transferEvents.value = TransferEvent.Rejected(event.clientId)
                         handleTransferRejected(event.clientId)
                     }
@@ -93,7 +93,6 @@ class HostService @Inject constructor(
     }
     
     companion object {
-        private const val TAG = "HostService"
         private const val DEFAULT_PORT = 8080
         private const val MAX_CLIENTS_DEFAULT = 50
     }
@@ -129,7 +128,7 @@ class HostService @Inject constructor(
                 serviceName = "speakershare-$sessionId"
             )
             
-            Log.d(TAG, "Starting host session: $sessionId for $hostName with sampleRate=${effectiveQuality.sampleRate}, encoding=${effectiveQuality.encoding}")
+            Timber.d("Starting host session: $sessionId for $hostName with sampleRate=${effectiveQuality.sampleRate}, encoding=${effectiveQuality.encoding}")
             
             val hostSession = HostSession(
                 sessionId = sessionId,
@@ -176,11 +175,11 @@ class HostService @Inject constructor(
             )
             hostSessionRepository.startBroadcasting()
             
-            Log.d(TAG, "Host session started successfully with sampleRate=${effectiveQuality.sampleRate}")
+            Timber.d("Host session started successfully with sampleRate=${effectiveQuality.sampleRate}")
             Result.success(activeSession)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start hosting", e)
+            Timber.e("Failed to start hosting", e)
             cleanup()
             Result.failure(e)
         }
@@ -191,7 +190,7 @@ class HostService @Inject constructor(
      */
     suspend fun stopHosting(): Result<Unit> {
         return try {
-            Log.d(TAG, "Stopping host session")
+            Timber.d("Stopping host session")
             
             val session = _currentSession.value
             if (session == null) {
@@ -220,11 +219,11 @@ class HostService @Inject constructor(
             // Clear session after a delay
             _currentSession.value = null
             
-            Log.d(TAG, "Host session stopped successfully")
+            Timber.d("Host session stopped successfully")
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to stop hosting", e)
+            Timber.e("Failed to stop hosting", e)
             Result.failure(e)
         }
     }
@@ -248,16 +247,16 @@ class HostService @Inject constructor(
             val (accepted, updatedClients) = clientsMutex.withLock {
                 val currentClients = _connectedClients.value
                 if (currentClients.size >= session.maxClients) {
-                    Log.w(TAG, "Client connection rejected: max clients reached")
+                    Timber.w("Client connection rejected: max clients reached")
                     return@withLock Pair(false, currentClients)
                 }
                 
                 if (currentClients.any { it.clientId == clientId }) {
-                    Log.w(TAG, "Client $clientId already connected")
+                    Timber.w("Client $clientId already connected")
                     return@withLock Pair(true, currentClients)  // Already connected is success
                 }
                 
-                Log.d(TAG, "Accepting client connection: $clientId ($clientName)")
+                Timber.d("Accepting client connection: $clientId ($clientName)")
                 
                 val clientConnection = ClientConnection(
                     clientId = clientId,
@@ -282,20 +281,20 @@ class HostService @Inject constructor(
             try {
                 val clientAddress = InetAddress.getByName(clientIp)
                 udpAudioServer.addClient(clientId, clientAddress, clientAudioPort)
-                Log.d(TAG, "Registered client $clientId for UDP audio streaming at $clientIp:$clientAudioPort")
+                Timber.d("Registered client $clientId for UDP audio streaming at $clientIp:$clientAudioPort")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to register client with UDP server", e)
+                Timber.e("Failed to register client with UDP server", e)
                 // Continue anyway - WebRTC might still work
             }
             
             // Update session with new client list
             _currentSession.value = session.copy(connectedClients = updatedClients)
             
-            Log.d(TAG, "Client connected successfully: $clientName (${updatedClients.size} total)")
+            Timber.d("Client connected successfully: $clientName (${updatedClients.size} total)")
             Result.success(true)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to handle client connection", e)
+            Timber.e("Failed to handle client connection", e)
             Result.failure(e)
         }
     }
@@ -311,7 +310,7 @@ class HostService @Inject constructor(
                 val foundClient = currentClients.find { it.clientId == clientId }
                     ?: return Result.failure(IllegalArgumentException("Client not found: $clientId"))
                 
-                Log.d(TAG, "Disconnecting client: ${foundClient.clientName} - $reason")
+                Timber.d("Disconnecting client: ${foundClient.clientName} - $reason")
                 
                 val newClients = currentClients.filter { it.clientId != clientId }
                 _connectedClients.value = newClients
@@ -327,11 +326,11 @@ class HostService @Inject constructor(
             // TODO: Send disconnection message to client via HTTP API
             notifyClientDisconnection(clientId, reason)
             
-            Log.d(TAG, "Client disconnected: ${client.clientName} (${updatedClients.size} remaining)")
+            Timber.d("Client disconnected: ${client.clientName} (${updatedClients.size} remaining)")
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to disconnect client", e)
+            Timber.e("Failed to disconnect client", e)
             Result.failure(e)
         }
     }
@@ -347,7 +346,7 @@ class HostService @Inject constructor(
                 val foundClient = currentClients.find { it.clientId == clientId }
                     ?: return Result.failure(IllegalArgumentException("Client not found: $clientId"))
                 
-                Log.d(TAG, "Kicking client: ${foundClient.clientName} - $reason")
+                Timber.d("Kicking client: ${foundClient.clientName} - $reason")
                 
                 val newClients = currentClients.filter { it.clientId != clientId }
                 _connectedClients.value = newClients
@@ -363,11 +362,11 @@ class HostService @Inject constructor(
             // TODO: Send kick message to client and add to blacklist
             notifyClientKick(clientId, reason)
             
-            Log.d(TAG, "Client kicked: ${client.clientName}")
+            Timber.d("Client kicked: ${client.clientName}")
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to kick client", e)
+            Timber.e("Failed to kick client", e)
             Result.failure(e)
         }
     }
@@ -386,19 +385,19 @@ class HostService @Inject constructor(
                 return Result.failure(IllegalStateException("Not currently hosting"))
             }
             
-            Log.d(TAG, "Requesting host transfer to client: ${client.clientName}")
+            Timber.d("Requesting host transfer to client: ${client.clientName}")
             
             // Send transfer request via UDP
             val success = udpAudioServer.sendTransferRequest(clientId)
             if (success) {
-                Log.d(TAG, "Transfer request sent to ${client.clientName}")
+                Timber.d("Transfer request sent to ${client.clientName}")
                 Result.success(Unit)
             } else {
-                Log.e(TAG, "Failed to send transfer request")
+                Timber.e("Failed to send transfer request")
                 Result.failure(Exception("Failed to send transfer request"))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to request host transfer", e)
+            Timber.e("Failed to request host transfer", e)
             Result.failure(e)
         }
     }
@@ -413,7 +412,7 @@ class HostService @Inject constructor(
             val client = currentClients.find { it.clientId == clientId }
             // Client might not be in our list if they just accepted (logging only)
             
-            Log.d(TAG, "Transfer accepted by ${client?.clientName ?: clientId}, redirecting clients to $newHostIp:$newHostPort")
+            Timber.d("Transfer accepted by ${client?.clientName ?: clientId}, redirecting clients to $newHostIp:$newHostPort")
             
             // Broadcast redirect to all other clients
             udpAudioServer.sendRedirectToAllClients(newHostIp, newHostPort)
@@ -424,11 +423,11 @@ class HostService @Inject constructor(
             // Stop our hosting session
             stopHosting()
             
-            Log.d(TAG, "Host transfer complete - stopped hosting")
+            Timber.d("Host transfer complete - stopped hosting")
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to handle transfer acceptance", e)
+            Timber.e("Failed to handle transfer acceptance", e)
             Result.failure(e)
         }
     }
@@ -438,7 +437,7 @@ class HostService @Inject constructor(
      */
     fun handleTransferRejected(clientId: String) {
         val client = _connectedClients.value.find { it.clientId == clientId }
-        Log.d(TAG, "Transfer rejected by ${client?.clientName ?: clientId}")
+        Timber.d("Transfer rejected by ${client?.clientName ?: clientId}")
     }
     
     /**
@@ -451,7 +450,7 @@ class HostService @Inject constructor(
                 return Result.failure(IllegalStateException("No active session"))
             }
             
-            Log.d(TAG, "Switching audio source to $newSource")
+            Timber.d("Switching audio source to $newSource")
             
             val result = audioStreamManager.switchAudioSource(newSource)
             if (result.isSuccess) {
@@ -460,7 +459,7 @@ class HostService @Inject constructor(
             
             result
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to switch audio source", e)
+            Timber.e("Failed to switch audio source", e)
             Result.failure(e)
         }
     }
@@ -483,22 +482,22 @@ class HostService @Inject constructor(
     // Private helper methods
     private suspend fun getLocalIpAddress(): String {
         val ips = networkDiscoveryService.getLocalIpAddresses()
-        Log.d(TAG, "Detected local IPs: $ips")
+        Timber.d("Detected local IPs: $ips")
         return ips.firstOrNull() ?: "127.0.0.1"
     }
     
     private fun startHttpApiServer(port: Int): Boolean {
-        Log.d(TAG, "Starting HTTP API server on port $port")
+        Timber.d("Starting HTTP API server on port $port")
         return httpApiServer.startServer(port)
     }
     
     private fun stopHttpApiServer() {
-        Log.d(TAG, "Stopping HTTP API server")
+        Timber.d("Stopping HTTP API server")
         httpApiServer.stopServer()
     }
     
     private fun startDiscoveryBroadcast(session: HostSession) {
-        Log.d(TAG, "Starting discovery broadcast for session ${session.sessionId}")
+        Timber.d("Starting discovery broadcast for session ${session.sessionId}")
         serviceScope.launch {
             networkDiscoveryService.registerHost(
                 hostName = session.hostName,
@@ -511,7 +510,7 @@ class HostService @Inject constructor(
     }
     
     private fun stopDiscoveryBroadcast() {
-        Log.d(TAG, "Stopping discovery broadcast")
+        Timber.d("Stopping discovery broadcast")
         serviceScope.launch {
             networkDiscoveryService.unregisterHost()
         }
@@ -519,7 +518,7 @@ class HostService @Inject constructor(
     
     private suspend fun disconnectAllClients(reason: String) {
         val clients = _connectedClients.value
-        Log.d(TAG, "Disconnecting all clients: ${clients.size} clients")
+        Timber.d("Disconnecting all clients: ${clients.size} clients")
         
         clients.forEach { client ->
             serviceScope.launch {
@@ -529,18 +528,18 @@ class HostService @Inject constructor(
     }
     
     private fun notifyClientDisconnection(clientId: String, reason: String) {
-        Log.d(TAG, "Notifying client $clientId of disconnection: $reason")
+        Timber.d("Notifying client $clientId of disconnection: $reason")
         // TODO: Send HTTP notification to client
     }
     
     private fun notifyClientKick(clientId: String, reason: String) {
-        Log.d(TAG, "Notifying client $clientId of kick: $reason")
+        Timber.d("Notifying client $clientId of kick: $reason")
         serviceScope.launch {
             val success = udpAudioServer.sendKickCommand(clientId)
             if (success) {
-                Log.i(TAG, "Kick notification sent to client $clientId")
+                Timber.i("Kick notification sent to client $clientId")
             } else {
-                Log.w(TAG, "Failed to send kick notification to client $clientId - client may not be connected via UDP")
+                Timber.w("Failed to send kick notification to client $clientId - client may not be connected via UDP")
             }
         }
     }

@@ -313,6 +313,21 @@ private fun HostModeContent(
             }
         }
         
+        // Sync Stats Card (always show when hosting)
+        if (isHostActive) {
+            item {
+                SyncStatsCard(
+                    isHost = true,
+                    clockOffsetMs = uiState.clockOffsetMs,
+                    driftMs = uiState.driftMs,
+                    connectedClientsCount = uiState.connectedClientsCount,
+                    isPlaying = uiState.isPlaying,
+                    currentPositionMs = uiState.currentPositionMs,
+                    durationMs = uiState.durationMs
+                )
+            }
+        }
+        
         // Instructions Card
         item {
             InstructionsCard(
@@ -547,6 +562,19 @@ private fun ClientModeContent(
                 item {
                     DriftIndicatorCard(driftMs = uiState.driftMs)
                 }
+            }
+            
+            // Sync Stats Card for client
+            item {
+                SyncStatsCard(
+                    isHost = false,
+                    clockOffsetMs = uiState.clockOffsetMs,
+                    driftMs = uiState.driftMs,
+                    connectedClientsCount = 0,
+                    isPlaying = uiState.isPlaying,
+                    currentPositionMs = uiState.currentPositionMs,
+                    durationMs = uiState.durationMs
+                )
             }
             
             // Disconnect button
@@ -1360,6 +1388,123 @@ private fun DriftIndicatorCard(driftMs: Long) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SyncStatsCard(
+    isHost: Boolean,
+    clockOffsetMs: Long,
+    driftMs: Long,
+    connectedClientsCount: Int,
+    isPlaying: Boolean,
+    currentPositionMs: Long,
+    durationMs: Long
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Analytics,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "Sync Statistics",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Left column
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    StatRow(
+                        label = "Role",
+                        value = if (isHost) "Host" else "Client"
+                    )
+                    StatRow(
+                        label = "Clock Offset",
+                        value = "${clockOffsetMs}ms",
+                        valueColor = when {
+                            kotlin.math.abs(clockOffsetMs) < 50 -> MaterialTheme.colorScheme.primary
+                            kotlin.math.abs(clockOffsetMs) < 200 -> Color(0xFFFF9800)
+                            else -> MaterialTheme.colorScheme.error
+                        }
+                    )
+                    if (!isHost) {
+                        StatRow(
+                            label = "Drift",
+                            value = "${driftMs}ms",
+                            valueColor = when {
+                                driftMs < 20 -> MaterialTheme.colorScheme.primary
+                                driftMs < 50 -> Color(0xFFFF9800)
+                                else -> MaterialTheme.colorScheme.error
+                            }
+                        )
+                    }
+                }
+                
+                // Right column
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    StatRow(
+                        label = "Status",
+                        value = if (isPlaying) "Playing" else "Paused",
+                        valueColor = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (isHost) {
+                        StatRow(
+                            label = "Clients",
+                            value = connectedClientsCount.toString()
+                        )
+                    }
+                    StatRow(
+                        label = "Progress",
+                        value = "${(currentPositionMs * 100 / maxOf(durationMs, 1)).toInt()}%"
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatRow(
+    label: String,
+    value: String,
+    valueColor: Color = MaterialTheme.colorScheme.onSurface
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "$label:",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+            color = valueColor
+        )
     }
 }
 

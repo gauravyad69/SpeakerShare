@@ -1,6 +1,7 @@
 package io.github.gauravyad69.speakershare.audio
 
 import android.Manifest
+import timber.log.Timber
 import android.content.Context
 import android.content.Intent
 import android.media.*
@@ -41,7 +42,6 @@ class AudioCaptureService @Inject constructor(
         const val CHANNELS = AudioFormat.CHANNEL_IN_MONO
         const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
         const val BUFFER_SIZE_MULTIPLIER = 4
-        private const val TAG = "AudioCaptureService"
     }
 
     // Audio capture configuration
@@ -149,7 +149,7 @@ class AudioCaptureService @Inject constructor(
                         try {
                             stop()
                         } catch (e: IllegalStateException) {
-                            android.util.Log.w(TAG, "AudioRecord.stop() failed: ${e.message}")
+                            Timber.w("AudioRecord.stop() failed: ${e.message}")
                         }
                     }
                     release()
@@ -226,11 +226,11 @@ class AudioCaptureService @Inject constructor(
     private suspend fun startSystemAudioCapture(sampleRate: Int) {
         val projection = mediaProjection
         if (projection == null) {
-            android.util.Log.e(TAG, "MediaProjection not initialized - user needs to grant screen capture permission")
+            Timber.e("MediaProjection not initialized - user needs to grant screen capture permission")
             throw IllegalStateException("MediaProjection not initialized. Please grant screen capture permission first.")
         }
         
-        android.util.Log.d(TAG, "Starting system audio capture with AudioPlaybackCapture")
+        Timber.d("Starting system audio capture with AudioPlaybackCapture")
         
         val config = AudioCaptureConfig(sampleRate = sampleRate)
         
@@ -257,12 +257,12 @@ class AudioCaptureService @Inject constructor(
             .build()
         
         if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            android.util.Log.e(TAG, "Failed to initialize AudioRecord for system audio capture")
+            Timber.e("Failed to initialize AudioRecord for system audio capture")
             throw IllegalStateException("Failed to initialize AudioRecord for system audio capture")
         }
         
         audioRecord?.startRecording()
-        android.util.Log.d(TAG, "System audio AudioRecord started")
+        Timber.d("System audio AudioRecord started")
         
         // Use the same capture loop as microphone
         captureJob = captureScope.launch {
@@ -277,7 +277,7 @@ class AudioCaptureService @Inject constructor(
         val buffer = ByteArray(config.bufferSizeBytes)
         var emitCounter = 0
         
-        android.util.Log.d("AudioCaptureService", "Starting microphone capture loop")
+        Timber.d("Starting microphone capture loop")
         
         while (currentCoroutineContext().isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
             try {
@@ -288,7 +288,7 @@ class AudioCaptureService @Inject constructor(
                     val emitted = _audioDataFlow.tryEmit(audioData)
                     emitCounter++
                     if (emitCounter % 50 == 0) {
-                        android.util.Log.d("AudioCaptureService", "Captured $emitCounter chunks, last $bytesRead bytes, emitted=$emitted")
+                        Timber.d("Captured $emitCounter chunks, last $bytesRead bytes, emitted=$emitted")
                     }
                     calculateAudioLevel(audioData)
                 }
@@ -298,7 +298,7 @@ class AudioCaptureService @Inject constructor(
             } catch (e: Exception) {
                 if (currentCoroutineContext().isActive) {
                     // Log error but continue capture
-                    android.util.Log.e("AudioCaptureService", "Microphone capture error: ${e.message}")
+                    Timber.e("Microphone capture error: ${e.message}")
                 }
                 break
             }
@@ -327,7 +327,7 @@ class AudioCaptureService @Inject constructor(
         val buffer = ByteArray(config.bufferSizeBytes)
         var emitCounter = 0
         
-        android.util.Log.d(TAG, "Starting system audio capture loop")
+        Timber.d("Starting system audio capture loop")
         
         while (currentCoroutineContext().isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
             try {
@@ -338,7 +338,7 @@ class AudioCaptureService @Inject constructor(
                     val emitted = _audioDataFlow.tryEmit(audioData)
                     emitCounter++
                     if (emitCounter % 50 == 0) {
-                        android.util.Log.d(TAG, "System audio captured $emitCounter chunks, last $bytesRead bytes, emitted=$emitted")
+                        Timber.d("System audio captured $emitCounter chunks, last $bytesRead bytes, emitted=$emitted")
                     }
                     calculateAudioLevel(audioData)
                 }
@@ -347,12 +347,12 @@ class AudioCaptureService @Inject constructor(
                 yield()
             } catch (e: Exception) {
                 if (currentCoroutineContext().isActive) {
-                    android.util.Log.e(TAG, "System audio capture error: ${e.message}")
+                    Timber.e("System audio capture error: ${e.message}")
                 }
                 break
             }
         }
-        android.util.Log.d(TAG, "System audio capture loop ended")
+        Timber.d("System audio capture loop ended")
     }
 
     /**

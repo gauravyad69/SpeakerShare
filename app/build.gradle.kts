@@ -38,6 +38,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     
     packaging {
@@ -105,6 +106,9 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
+    
+    // Logging
+    implementation(libs.timber)
     
     // Testing
     testImplementation(libs.junit)

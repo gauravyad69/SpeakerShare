@@ -3,7 +3,7 @@ package io.github.gauravyad69.speakershare.media.sync
 import android.content.Context
 import android.net.Uri
 import android.os.Build
-import android.util.Log
+import timber.log.Timber
 import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -26,10 +26,11 @@ import javax.inject.Singleton
 class SyncedPlaybackManager @Inject constructor(
     private val clockSync: ClockSynchronizer,
     private val fileTransfer: SyncedFileTransfer,
-    private val discoveryService: NetworkDiscoveryService
+    private val discoveryService: NetworkDiscoveryService,
+    private val syncServer: SyncedPlaybackServer,
+    private val syncClient: SyncedPlaybackClient
 ) {
     companion object {
-        private const val TAG = "SyncedPlaybackManager"
         
         // Time to wait for clients to be ready before starting playback
         const val READY_WAIT_TIME_MS = 500L
@@ -37,8 +38,8 @@ class SyncedPlaybackManager @Inject constructor(
         // How often to send sync pulses during playback
         const val SYNC_INTERVAL_MS = 1000L
         
-        // Maximum acceptable drift before forcing resync
-        const val MAX_DRIFT_MS = 50L
+        // Maximum acceptable drift before forcing resync (larger value to avoid constant seeking)
+        const val MAX_DRIFT_MS = 500L
         
         // Port for synced playback HTTP server
         const val SYNC_HTTP_PORT = 8765
@@ -65,8 +66,21 @@ class SyncedPlaybackManager @Inject constructor(
     // Incoming commands (for clients)
     private val _incomingCommands = MutableSharedFlow<PlaybackCommand>()
     
-    private var syncJob: Job? = null
+    // Incoming commands from network (clients can observe this)
+    val incomingCommands: SharedFlow<PlaybackCommand> = syncClient.commands
     
+    private var syncJob: Job? = null
+    private var commandBroadcastJob: Job? = null
+    
+    init {
+        // Observe outgoing commands and broadcast via server
+        scope.launch {
+            playbackCommands.collect { command ->
+                syncServer.broadcastCommand(command)
+            }
+        }
+    }
+
     /**
      * HOST: Start a synced playback session with media files
      */
@@ -75,10 +89,11 @@ class SyncedPlaybackManager @Inject constructor(
         mediaFiles: List<SyncedMediaFile>
     ): Result<String> {
         return try {
-            Log.d(TAG, "Starting host session with ${mediaFiles.size} files")
+            Timber.i("=== STARTING HOST SESSION === with ${mediaFiles.size} files")
             
             // Generate session ID
             val sessionId = generateSessionId()
+            Timber.i("Generated session ID: $sessionId")
             
             // Calculate file hashes for verification
             val filesWithHash = mediaFiles.map { file ->
@@ -100,6 +115,30 @@ class SyncedPlaybackManager @Inject constructor(
                 durationMs = filesWithHash.firstOrNull()?.durationMs ?: 0L
             )
             
+            // Start HTTP server for command broadcasting
+            val sessionInfo = SessionInfo(
+                sessionId = sessionId,
+                hostName = Build.MODEL,
+                files = filesWithHash.map { file ->
+                    SyncFileInfo(
+                        name = file.name,
+                        hash = file.contentHash,
+                        sizeBytes = file.sizeBytes,
+                        durationMs = file.durationMs,
+                        mimeType = file.mimeType
+                    )
+                },
+                currentFileIndex = 0,
+                currentPositionMs = 0L,
+                isPlaying = false
+            )
+            
+            // Register files for serving to clients
+            syncServer.registerFiles(filesWithHash)
+            
+            syncServer.startServer(sessionInfo)
+            Timber.i("Sync server started on port $SYNC_HTTP_PORT")
+            
             // Start clock sync
             clockSync.startAsHost()
             
@@ -114,11 +153,11 @@ class SyncedPlaybackManager @Inject constructor(
             // Start sync pulse job
             startSyncPulseJob()
             
-            Log.i(TAG, "Host session started: $sessionId")
+            Timber.i("Host session started: $sessionId")
             Result.success(sessionId)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start host session", e)
+            Timber.e("Failed to start host session", e)
             Result.failure(e)
         }
     }
@@ -133,16 +172,35 @@ class SyncedPlaybackManager @Inject constructor(
         mediaFiles: List<SyncedMediaFile>
     ): Result<Unit> {
         return try {
-            Log.d(TAG, "Joining session $sessionId from host $hostAddress")
+            Timber.d("Joining session $sessionId from host $hostAddress")
             
-            // Sync clock with host
-            clockSync.syncWithHost(hostAddress)
+            // Connect to host's sync server
+            val joinResult = syncClient.connectToHost(hostAddress)
+            
+            joinResult.onFailure { error ->
+                _sessionState.value = SyncSessionState.Error("Failed to connect: ${error.message}")
+                return Result.failure(error)
+            }
+            
+            val joinResponse = joinResult.getOrThrow()
+            
+            // Convert server file info to SyncedMediaFile
+            val serverFiles = joinResponse.files.map { info ->
+                SyncedMediaFile(
+                    uri = Uri.EMPTY, // Will be set when we find/download locally
+                    name = info.name,
+                    mimeType = info.mimeType,
+                    sizeBytes = info.sizeBytes,
+                    durationMs = info.durationMs,
+                    contentHash = info.hash
+                )
+            }
             
             // Check if we have the required files locally
             val localFiles = mutableListOf<SyncedMediaFile>()
             val missingFiles = mutableListOf<SyncedMediaFile>()
             
-            for (file in mediaFiles) {
+            for (file in serverFiles) {
                 val localUri = fileTransfer.findLocalFile(context, file)
                 if (localUri != null) {
                     localFiles.add(file.copy(localUri = localUri))
@@ -152,9 +210,9 @@ class SyncedPlaybackManager @Inject constructor(
             }
             
             _sessionState.value = SyncSessionState.ClientJoining(
-                sessionId = sessionId,
+                sessionId = joinResponse.sessionId,
                 hostAddress = hostAddress,
-                totalFiles = mediaFiles.size,
+                totalFiles = serverFiles.size,
                 cachedFiles = localFiles.size,
                 downloadingFiles = missingFiles
             )
@@ -166,26 +224,51 @@ class SyncedPlaybackManager @Inject constructor(
                     if (downloaded != null) {
                         localFiles.add(file.copy(localUri = downloaded))
                     } else {
-                        return Result.failure(Exception("Failed to download: ${file.name}"))
+                        // If download fails, the client won't have the file to play
+                        // For now, we'll allow joining without all files
+                        Timber.w("Failed to download: ${file.name}, continuing anyway")
                     }
                 }
             }
             
-            // All files ready
+            // All files ready (or as many as we could get)
             _sessionState.value = SyncSessionState.ClientReady(
-                sessionId = sessionId,
+                sessionId = joinResponse.sessionId,
                 hostAddress = hostAddress,
                 localFiles = localFiles
             )
             
-            // Notify host we're ready
-            notifyReady(sessionId)
+            // Always set the current file from the host's current file index
+            val currentFile = localFiles.getOrNull(joinResponse.currentFileIndex)
             
-            Log.i(TAG, "Joined session $sessionId successfully")
+            // Update playback state based on host's current state
+            if (joinResponse.isPlaying) {
+                val currentTime = syncClient.getSynchronizedTime()
+                _playbackState.value = SyncedPlaybackState(
+                    currentFile = currentFile,
+                    isPlaying = true,
+                    positionMs = joinResponse.currentPositionMs,
+                    durationMs = currentFile?.durationMs ?: 0L,
+                    lastSyncTime = currentTime
+                )
+                Timber.i("Host is already playing at position ${joinResponse.currentPositionMs}ms")
+            } else {
+                // Host is not playing, but still set the current file for UI
+                _playbackState.value = SyncedPlaybackState(
+                    currentFile = currentFile,
+                    isPlaying = false,
+                    positionMs = joinResponse.currentPositionMs,
+                    durationMs = currentFile?.durationMs ?: 0L,
+                    lastSyncTime = 0L
+                )
+                Timber.i("Host is not playing, current file: ${currentFile?.name}")
+            }
+            
+            Timber.i("Joined session ${joinResponse.sessionId} successfully")
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to join session", e)
+            Timber.e("Failed to join session", e)
             _sessionState.value = SyncSessionState.Error(e.message ?: "Unknown error")
             Result.failure(e)
         }
@@ -197,7 +280,7 @@ class SyncedPlaybackManager @Inject constructor(
     suspend fun play() {
         val state = _sessionState.value
         if (state !is SyncSessionState.HostActive) {
-            Log.w(TAG, "Cannot play: not in host mode")
+            Timber.w("Cannot play: not in host mode")
             return
         }
         
@@ -221,7 +304,14 @@ class SyncedPlaybackManager @Inject constructor(
         
         _playbackState.update { it.copy(isPlaying = true, lastSyncTime = startTime) }
         
-        Log.d(TAG, "Play command sent: start at $startTime, position $startPosition")
+        // Update server session info for late-joining clients
+        syncServer.updatePlaybackState(
+            isPlaying = true,
+            positionMs = startPosition,
+            fileIndex = state.currentFileIndex
+        )
+        
+        Timber.d("Play command sent: start at $startTime, position $startPosition")
     }
     
     /**
@@ -229,7 +319,7 @@ class SyncedPlaybackManager @Inject constructor(
      */
     suspend fun pause() {
         if (_sessionState.value !is SyncSessionState.HostActive) {
-            Log.w(TAG, "Cannot pause: not in host mode")
+            Timber.w("Cannot pause: not in host mode")
             return
         }
         
@@ -244,7 +334,13 @@ class SyncedPlaybackManager @Inject constructor(
             it.copy(isPlaying = false, positionMs = currentPosition) 
         }
         
-        Log.d(TAG, "Pause command sent at position $currentPosition")
+        // Update server session info for late-joining clients
+        syncServer.updatePlaybackState(
+            isPlaying = false,
+            positionMs = currentPosition
+        )
+        
+        Timber.d("Pause command sent at position $currentPosition")
     }
     
     /**
@@ -253,7 +349,7 @@ class SyncedPlaybackManager @Inject constructor(
     suspend fun seekTo(positionMs: Long) {
         val state = _sessionState.value
         if (state !is SyncSessionState.HostActive) {
-            Log.w(TAG, "Cannot seek: not in host mode")
+            Timber.w("Cannot seek: not in host mode")
             return
         }
         
@@ -283,7 +379,13 @@ class SyncedPlaybackManager @Inject constructor(
             ) 
         }
         
-        Log.d(TAG, "Seek command sent to position $positionMs")
+        // Update server session info for late-joining clients
+        syncServer.updatePlaybackState(
+            isPlaying = wasPlaying,
+            positionMs = positionMs
+        )
+        
+        Timber.d("Seek command sent to position $positionMs")
     }
     
     /**
@@ -317,7 +419,7 @@ class SyncedPlaybackManager @Inject constructor(
             )
         }
         
-        Log.d(TAG, "Switch file command sent: index $index")
+        Timber.d("Switch file command sent: index $index")
     }
     
     /**
@@ -326,7 +428,7 @@ class SyncedPlaybackManager @Inject constructor(
     suspend fun handleCommand(command: PlaybackCommand) {
         val state = _sessionState.value
         if (state !is SyncSessionState.ClientReady) {
-            Log.w(TAG, "Cannot handle command: not in client mode")
+            Timber.w("Cannot handle command: not in client mode")
             return
         }
         
@@ -368,13 +470,17 @@ class SyncedPlaybackManager @Inject constructor(
             is PlaybackCommand.SwitchFile -> {
                 val localFiles = state.localFiles
                 if (command.fileIndex < localFiles.size) {
+                    val newFile = localFiles[command.fileIndex]
                     _playbackState.update {
                         it.copy(
-                            currentFile = localFiles[command.fileIndex],
+                            currentFile = newFile,
                             positionMs = 0L,
-                            isPlaying = false
+                            durationMs = newFile.durationMs,  // Reset duration to new file's duration
+                            isPlaying = false,
+                            lastSyncTime = 0L  // Reset sync time for fresh start
                         )
                     }
+                    Timber.d("Switched to file ${command.fileIndex}: ${newFile.name}, duration=${newFile.durationMs}ms")
                 }
             }
             
@@ -391,17 +497,66 @@ class SyncedPlaybackManager @Inject constructor(
     }
     
     /**
+     * Update the manager's playback position from the actual player
+     * This should be called by the host's ViewModel periodically
+     */
+    fun updatePlaybackPosition(positionMs: Long, durationMs: Long) {
+        val currentTime = clockSync.getSynchronizedTime()
+        _playbackState.update {
+            it.copy(
+                positionMs = positionMs,
+                durationMs = durationMs,
+                lastSyncTime = currentTime
+            )
+        }
+        
+        // Keep server session info updated for late-joining clients
+        val isPlaying = _playbackState.value.isPlaying
+        syncServer.updatePlaybackState(
+            isPlaying = isPlaying,
+            positionMs = positionMs
+        )
+    }
+    
+    /**
      * Calculate current playback position based on last sync time
      */
     fun calculateCurrentPosition(): Long {
         val state = _playbackState.value
         return if (state.isPlaying && state.lastSyncTime > 0) {
-            val elapsed = clockSync.getSynchronizedTime() - state.lastSyncTime
-            (state.positionMs + elapsed).coerceAtMost(state.durationMs)
+            val syncTime = clockSync.getSynchronizedTime()
+            val elapsed = syncTime - state.lastSyncTime
+            val calculatedPos = (state.positionMs + elapsed).coerceAtLeast(0).coerceAtMost(state.durationMs.coerceAtLeast(1))
+            
+            // Debug logging for position calculation
+            if (elapsed < 0 || calculatedPos == 0L) {
+                Timber.w("calculateCurrentPosition: syncTime=$syncTime, lastSyncTime=${state.lastSyncTime}, elapsed=$elapsed, positionMs=${state.positionMs}, durationMs=${state.durationMs}, result=$calculatedPos, clockOffset=${clockSync.getOffset()}")
+            }
+            calculatedPos
         } else {
             state.positionMs
         }
     }
+    
+    /**
+     * Get synchronized time from the clock synchronizer
+     */
+    fun getSynchronizedTime(): Long = clockSync.getSynchronizedTime()
+    
+    /**
+     * Get current clock offset in milliseconds
+     */
+    fun getClockOffset(): Long = clockSync.getOffset()
+    
+    /**
+     * Get current measured drift in milliseconds
+     */
+    fun getCurrentDrift(): Long = clockSync.getCurrentDrift()
+    
+    /**
+     * Get connected clients count (host only)
+     */
+    fun getConnectedClientsCount(): Int = syncServer.connectedClients.value.size
     
     /**
      * Get position that client should seek to (with network compensation)
@@ -418,7 +573,15 @@ class SyncedPlaybackManager @Inject constructor(
     fun stopSession() {
         syncJob?.cancel()
         syncJob = null
+        commandBroadcastJob?.cancel()
+        commandBroadcastJob = null
         clockSync.stop()
+        
+        // Stop server (if host) or disconnect client
+        syncServer.stopServer()
+        scope.launch {
+            syncClient.disconnect()
+        }
         
         // Unregister from discovery
         scope.launch {
@@ -428,7 +591,7 @@ class SyncedPlaybackManager @Inject constructor(
         _sessionState.value = SyncSessionState.Idle
         _playbackState.value = SyncedPlaybackState()
         _clientReadiness.value = emptyMap()
-        Log.i(TAG, "Session stopped")
+        Timber.i("Session stopped")
     }
     
     private fun startSyncPulseJob() {
@@ -450,23 +613,41 @@ class SyncedPlaybackManager @Inject constructor(
     }
     
     private suspend fun handleSyncPulse(pulse: PlaybackCommand.SyncPulse) {
-        val localPosition = calculateCurrentPosition()
-        val drift = kotlin.math.abs(localPosition - pulse.positionMs)
+        val playbackState = _playbackState.value
+        
+        // Only process sync pulse if we think we should be playing
+        if (!playbackState.isPlaying) {
+            Timber.d("Sync pulse ignored - not playing")
+            return
+        }
+        
+        // Calculate what our position SHOULD be based on elapsed time since last sync
+        val expectedLocalPosition = calculateCurrentPosition()
+        val duration = playbackState.durationMs
+        val signedDrift = pulse.positionMs - expectedLocalPosition // Positive = we're behind host
+        val drift = kotlin.math.abs(signedDrift)
+        
+        // NOTE: Drift recording moved to SyncedMediaPlayer.syncPosition() which has
+        // access to the actual ExoPlayer position, not the calculated position.
+        
+        // Always update our state to match host's position to prevent drift accumulation
+        _playbackState.update {
+            it.copy(
+                positionMs = pulse.positionMs,
+                lastSyncTime = pulse.timestamp
+            )
+        }
         
         if (drift > MAX_DRIFT_MS) {
-            Log.w(TAG, "Drift detected: ${drift}ms, resyncing")
-            _playbackState.update {
-                it.copy(
-                    positionMs = pulse.positionMs,
-                    lastSyncTime = pulse.timestamp
-                )
-            }
+            Timber.d("Sync pulse: calculated drift=${drift}ms (calculated=$expectedLocalPosition, host=${pulse.positionMs})")
+        } else {
+            Timber.d("Sync pulse: drift=${drift}ms (within tolerance)")
         }
     }
     
     private suspend fun notifyReady(sessionId: String) {
         // This would send a message to the host via the network layer
-        Log.d(TAG, "Notifying host that client is ready for session $sessionId")
+        Timber.d("Notifying host that client is ready for session $sessionId")
     }
     
     private fun generateSessionId(): String {

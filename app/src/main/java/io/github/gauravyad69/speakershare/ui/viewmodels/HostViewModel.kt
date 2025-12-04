@@ -1,6 +1,7 @@
 package io.github.gauravyad69.speakershare.ui.viewmodels
 
 import android.content.Context
+import timber.log.Timber
 import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -242,7 +243,7 @@ class HostViewModel @Inject constructor(
     fun switchAudioSource(source: AudioSource) {
         viewModelScope.launch {
             try {
-                android.util.Log.d("HostViewModel", "Switching audio source to $source")
+                Timber.d("Switching audio source to $source")
                 
                 // Actually switch the audio source via HostService
                 val result = hostService.switchAudioSource(source)
@@ -251,15 +252,15 @@ class HostViewModel @Inject constructor(
                     _audioSource.value = source
                     // Also update repository state
                     hostSessionRepository.updateAudioSource(source)
-                    android.util.Log.d("HostViewModel", "Audio source switched successfully to $source")
+                    Timber.d("Audio source switched successfully to $source")
                 } else {
                     _error.value = "Failed to switch audio source: ${result.exceptionOrNull()?.message}"
-                    android.util.Log.e("HostViewModel", "Failed to switch audio source", result.exceptionOrNull())
+                    Timber.e("Failed to switch audio source", result.exceptionOrNull())
                 }
 
             } catch (e: Exception) {
                 _error.value = "Failed to switch audio source: ${e.message}"
-                android.util.Log.e("HostViewModel", "Failed to switch audio source", e)
+                Timber.e("Failed to switch audio source", e)
             }
         }
     }
@@ -271,7 +272,7 @@ class HostViewModel @Inject constructor(
         viewModelScope.launch {
             _audioSource.value = source
             hostSessionRepository.updateAudioSource(source)
-            android.util.Log.d("HostViewModel", "Audio source state updated to $source")
+            Timber.d("Audio source state updated to $source")
         }
     }
 
@@ -284,14 +285,14 @@ class HostViewModel @Inject constructor(
             try {
                 val result = hostService.initializeMediaProjection(resultCode, data)
                 if (result.isSuccess) {
-                    android.util.Log.d("HostViewModel", "MediaProjection initialized successfully")
+                    Timber.d("MediaProjection initialized successfully")
                 } else {
                     _error.value = "Failed to initialize MediaProjection: ${result.exceptionOrNull()?.message}"
-                    android.util.Log.e("HostViewModel", "Failed to initialize MediaProjection", result.exceptionOrNull())
+                    Timber.e("Failed to initialize MediaProjection", result.exceptionOrNull())
                 }
             } catch (e: Exception) {
                 _error.value = "Failed to initialize MediaProjection: ${e.message}"
-                android.util.Log.e("HostViewModel", "Failed to initialize MediaProjection", e)
+                Timber.e("Failed to initialize MediaProjection", e)
             }
         }
     }

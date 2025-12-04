@@ -2,7 +2,7 @@ package io.github.gauravyad69.speakershare.network
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.util.Log
+import timber.log.Timber
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.BufferedInputStream
@@ -20,7 +20,6 @@ import kotlin.coroutines.coroutineContext
 class ScreenStreamClient @Inject constructor() {
     
     companion object {
-        private const val TAG = "ScreenStreamClient"
         private const val SCREEN_STREAM_PATH = "/api/screen/stream"
         private const val CONNECTION_TIMEOUT = 2000 // Reduced for lower latency
         private const val READ_TIMEOUT = 3000 // Reduced for lower latency
@@ -53,21 +52,21 @@ class ScreenStreamClient @Inject constructor() {
      */
     fun startStreaming(hostIp: String, hostPort: Int) {
         if (_isStreaming.value) {
-            Log.w(TAG, "Already streaming")
+            Timber.w("Already streaming")
             return
         }
         
         streamJob = streamScope.launch {
             _isStreaming.value = true
             _isScreenShareAvailable.value = true
-            Log.d(TAG, "Starting screen frame polling from $hostIp:$HTTP_API_PORT")
+            Timber.d("Starting screen frame polling from $hostIp:$HTTP_API_PORT")
             
             try {
                 pollScreenFrames(hostIp)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Screen polling error", e)
+                Timber.e("Screen polling error", e)
             } finally {
                 _isStreaming.value = false
             }
@@ -82,7 +81,7 @@ class ScreenStreamClient @Inject constructor() {
         streamJob = null
         _isStreaming.value = false
         _isScreenShareAvailable.value = false
-        Log.d(TAG, "Screen stream stopped")
+        Timber.d("Screen stream stopped")
     }
     
     /**
@@ -103,7 +102,7 @@ class ScreenStreamClient @Inject constructor() {
                     val response = connection.inputStream.bufferedReader().readText()
                     // Handle both formats: "available": true and "available":true
                     val available = response.contains("\"available\":") && response.contains("true")
-                    Log.d(TAG, "Screen share available: $available (response: $response)")
+                    Timber.d("Screen share available: $available (response: $response)")
                     _isScreenShareAvailable.value = available
                     available
                 } else {
@@ -111,7 +110,7 @@ class ScreenStreamClient @Inject constructor() {
                     false
                 }
             } catch (e: Exception) {
-                Log.d(TAG, "Screen share not available: ${e.message}")
+                Timber.d("Screen share not available: ${e.message}")
                 _isScreenShareAvailable.value = false
                 false
             }
@@ -158,23 +157,23 @@ class ScreenStreamClient @Inject constructor() {
                                 frameCount++
                                 consecutiveErrors = 0
                                 if (frameCount % 30 == 0) {
-                                    Log.d(TAG, "Received $frameCount screen frames")
+                                    Timber.d("Received $frameCount screen frames")
                                 }
                             }
                         }
                     }
                     204 -> {
                         // No content - no frame available yet
-                        Log.d(TAG, "No frame available yet")
+                        Timber.d("No frame available yet")
                     }
                     503 -> {
                         // Screen sharing stopped
-                        Log.d(TAG, "Screen sharing stopped by host")
+                        Timber.d("Screen sharing stopped by host")
                         _isScreenShareAvailable.value = false
                         return
                     }
                     else -> {
-                        Log.w(TAG, "Unexpected response: $responseCode")
+                        Timber.w("Unexpected response: $responseCode")
                         consecutiveErrors++
                     }
                 }
@@ -183,7 +182,7 @@ class ScreenStreamClient @Inject constructor() {
                 
                 // Check if too many errors
                 if (consecutiveErrors >= maxConsecutiveErrors) {
-                    Log.e(TAG, "Too many consecutive errors, stopping")
+                    Timber.e("Too many consecutive errors, stopping")
                     _isScreenShareAvailable.value = false
                     return
                 }
@@ -194,10 +193,10 @@ class ScreenStreamClient @Inject constructor() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Error polling frame: ${e.message}")
+                Timber.e("Error polling frame: ${e.message}")
                 consecutiveErrors++
                 if (consecutiveErrors >= maxConsecutiveErrors) {
-                    Log.e(TAG, "Too many errors, stopping screen polling")
+                    Timber.e("Too many errors, stopping screen polling")
                     _isScreenShareAvailable.value = false
                     return
                 }

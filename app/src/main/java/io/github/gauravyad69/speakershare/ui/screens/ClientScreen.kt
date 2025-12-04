@@ -1,6 +1,7 @@
 package io.github.gauravyad69.speakershare.ui.screens
 
 import androidx.compose.animation.*
+import timber.log.Timber
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -66,7 +67,7 @@ fun ClientScreen(
     // Set up callback for when user becomes host
     LaunchedEffect(Unit) {
         viewModel.setOnBecomeHostListener { fromHostAddress ->
-            android.util.Log.d("ClientScreen", "Becoming host, redirecting from: $fromHostAddress")
+            Timber.d("Becoming host, redirecting from: $fromHostAddress")
             onBecomeHost()
         }
     }

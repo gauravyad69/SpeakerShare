@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
-import android.util.Log
+import timber.log.Timber
 import androidx.annotation.RequiresApi
 
 /**
@@ -33,7 +33,6 @@ class PermissionManager @Inject constructor(
     val hasAllRequiredPermissions: StateFlow<Boolean> = _hasAllRequiredPermissions.asStateFlow()
     
     companion object {
-        private const val TAG = "PermissionManager"
         
         // Core permissions required for basic functionality
         val REQUIRED_PERMISSIONS = listOf(
@@ -129,7 +128,7 @@ class PermissionManager @Inject constructor(
         return activity.registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
         ) { permissions ->
-            Log.d(TAG, "Permission request result: $permissions")
+            Timber.d("Permission request result: $permissions")
             updatePermissionState()
             onResult(permissions)
         }
@@ -141,10 +140,10 @@ class PermissionManager @Inject constructor(
     fun requestRequiredPermissions(launcher: ActivityResultLauncher<Array<String>>) {
         val missingPermissions = getMissingRequiredPermissions()
         if (missingPermissions.isNotEmpty()) {
-            Log.d(TAG, "Requesting required permissions: $missingPermissions")
+            Timber.d("Requesting required permissions: $missingPermissions")
             launcher.launch(missingPermissions.toTypedArray())
         } else {
-            Log.d(TAG, "All required permissions already granted")
+            Timber.d("All required permissions already granted")
         }
     }
     
@@ -154,10 +153,10 @@ class PermissionManager @Inject constructor(
     fun requestOptionalPermissions(launcher: ActivityResultLauncher<Array<String>>) {
         val missingPermissions = getMissingOptionalPermissions()
         if (missingPermissions.isNotEmpty()) {
-            Log.d(TAG, "Requesting optional permissions: $missingPermissions")
+            Timber.d("Requesting optional permissions: $missingPermissions")
             launcher.launch(missingPermissions.toTypedArray())
         } else {
-            Log.d(TAG, "All optional permissions already granted")
+            Timber.d("All optional permissions already granted")
         }
     }
     
@@ -253,30 +252,30 @@ class PermissionManager @Inject constructor(
         _permissionState.value = currentState
         _hasAllRequiredPermissions.value = areRequiredPermissionsGranted()
         
-        Log.d(TAG, "Permission state updated: $currentState")
-        Log.d(TAG, "All required permissions granted: ${_hasAllRequiredPermissions.value}")
+        Timber.d("Permission state updated: $currentState")
+        Timber.d("All required permissions granted: ${_hasAllRequiredPermissions.value}")
     }
     
     /**
      * Log current permission status (for debugging)
      */
     fun logPermissionStatus() {
-        Log.d(TAG, "=== Permission Status ===")
-        Log.d(TAG, "Required permissions:")
+        Timber.d("=== Permission Status ===")
+        Timber.d("Required permissions:")
         REQUIRED_PERMISSIONS.forEach { permission ->
             val granted = isPermissionGranted(permission)
-            Log.d(TAG, "  ${getPermissionName(permission)}: ${if (granted) "GRANTED" else "DENIED"}")
+            Timber.d("  ${getPermissionName(permission)}: ${if (granted) "GRANTED" else "DENIED"}")
         }
         
-        Log.d(TAG, "Optional permissions:")
+        Timber.d("Optional permissions:")
         OPTIONAL_PERMISSIONS.forEach { permission ->
             val granted = isPermissionGranted(permission)
-            Log.d(TAG, "  ${getPermissionName(permission)}: ${if (granted) "GRANTED" else "DENIED"}")
+            Timber.d("  ${getPermissionName(permission)}: ${if (granted) "GRANTED" else "DENIED"}")
         }
         
-        Log.d(TAG, "Can start hosting: ${canStartHosting().first}")
-        Log.d(TAG, "Can start client: ${canStartClient().first}")
-        Log.d(TAG, "Can capture system audio: ${canCaptureSystemAudio()}")
-        Log.d(TAG, "========================")
+        Timber.d("Can start hosting: ${canStartHosting().first}")
+        Timber.d("Can start client: ${canStartClient().first}")
+        Timber.d("Can capture system audio: ${canCaptureSystemAudio()}")
+        Timber.d("========================")
     }
 }

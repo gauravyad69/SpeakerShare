@@ -7,7 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import android.util.Log
+import timber.log.Timber
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.gauravyad69.speakershare.R
@@ -30,7 +30,6 @@ import javax.inject.Inject
 class AudioForegroundService : Service() {
 
     companion object {
-        private const val TAG = "AudioForegroundService"
         private const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "audio_broadcast_channel"
         const val ACTION_START_BROADCAST = "START_BROADCAST"
@@ -237,7 +236,7 @@ class AudioForegroundService : Service() {
     }
     
     private suspend fun initializeMediaProjection(resultCode: Int, data: Intent) {
-        Log.d(TAG, "Initializing MediaProjection in foreground service")
+        Timber.d("Initializing MediaProjection in foreground service")
         
         // On Android 10+, we must start foreground with FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         // before calling getMediaProjection()
@@ -268,17 +267,17 @@ class AudioForegroundService : Service() {
                         android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
                     }
                 )
-                Log.d(TAG, "Started foreground with MEDIA_PROJECTION type")
+                Timber.d("Started foreground with MEDIA_PROJECTION type")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start foreground with MEDIA_PROJECTION type", e)
+                Timber.e("Failed to start foreground with MEDIA_PROJECTION type", e)
             }
         }
         
         val result = audioCaptureService.initializeMediaProjection(resultCode, data)
         if (result.isSuccess) {
-            Log.d(TAG, "MediaProjection initialized successfully")
+            Timber.d("MediaProjection initialized successfully")
         } else {
-            Log.e(TAG, "Failed to initialize MediaProjection", result.exceptionOrNull())
+            Timber.e("Failed to initialize MediaProjection", result.exceptionOrNull())
         }
     }
     
@@ -303,17 +302,17 @@ class AudioForegroundService : Service() {
     }
     
     private suspend fun switchToSystemAudio() {
-        Log.d(TAG, "Switching to system audio")
+        Timber.d("Switching to system audio")
         try {
             audioCaptureService.switchAudioSource(io.github.gauravyad69.speakershare.data.model.AudioSource.SYSTEM_AUDIO)
-            Log.d(TAG, "Switched to system audio successfully")
+            Timber.d("Switched to system audio successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to switch to system audio", e)
+            Timber.e("Failed to switch to system audio", e)
         }
     }
     
     private suspend fun switchToScreenAndAudio() {
-        Log.d(TAG, "Switching to screen and audio")
+        Timber.d("Switching to screen and audio")
         try {
             // First switch audio to system audio (uses same MediaProjection)
             audioCaptureService.switchAudioSource(io.github.gauravyad69.speakershare.data.model.AudioSource.SCREEN_AND_AUDIO)
@@ -324,13 +323,13 @@ class AudioForegroundService : Service() {
                 if (projection != null) {
                     screenCaptureService.setMediaProjection(projection)
                     screenCaptureService.startCapture()
-                    Log.d(TAG, "Switched to screen and audio successfully")
+                    Timber.d("Switched to screen and audio successfully")
                 } else {
-                    Log.e(TAG, "MediaProjection not available for screen capture")
+                    Timber.e("MediaProjection not available for screen capture")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to switch to screen and audio", e)
+            Timber.e("Failed to switch to screen and audio", e)
         }
     }
 
@@ -494,7 +493,7 @@ class AudioForegroundService : Service() {
             val newMuteState = audioStreamManager.toggleMute()
             _isAudioMuted.value = newMuteState
             
-            Log.d(TAG, "Audio mute toggled: $newMuteState")
+            Timber.d("Audio mute toggled: $newMuteState")
             updateNotificationIfRunning()
         }
     }
@@ -648,7 +647,7 @@ class AudioForegroundService : Service() {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get local IP address", e)
+            Timber.e("Failed to get local IP address", e)
         }
         return "192.168.1.100" // Fallback IP
     }

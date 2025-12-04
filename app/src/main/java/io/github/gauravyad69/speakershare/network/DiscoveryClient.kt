@@ -1,6 +1,6 @@
 package io.github.gauravyad69.speakershare.network
 
-import android.util.Log
+import timber.log.Timber
 import io.github.gauravyad69.speakershare.network.api.HostDiscoveryInfo
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -24,7 +24,6 @@ import javax.inject.Singleton
 @Singleton
 class DiscoveryClient @Inject constructor() {
     companion object {
-        private const val TAG = "DiscoveryClient"
         private const val DEFAULT_HTTP_PORT = 8080
         private const val DISCOVERY_PATH = "/api/v1/discovery/info"
         private const val SCAN_TIMEOUT_MS = 2000L
@@ -68,7 +67,7 @@ class DiscoveryClient @Inject constructor() {
      */
     suspend fun discoverHosts(networkInterface: String? = null): List<DiscoveredHost> {
         if (isScanning) {
-            Log.w(TAG, "Discovery already in progress")
+            Timber.w("Discovery already in progress")
             return emptyList()
         }
         
@@ -83,7 +82,7 @@ class DiscoveryClient @Inject constructor() {
                 val discoveredHosts = mutableListOf<DiscoveredHost>()
                 val networkAddresses = getNetworkAddresses(networkInterface)
                 
-                Log.d(TAG, "Scanning ${networkAddresses.size} network addresses")
+                Timber.d("Scanning ${networkAddresses.size} network addresses")
                 
                 // Scan network addresses in batches
                 networkAddresses.chunked(MAX_CONCURRENT_SCANS).forEach { batch ->
@@ -109,11 +108,11 @@ class DiscoveryClient @Inject constructor() {
                     _discoveryEvents.emit(DiscoveryEvent.ScanCompleted(discoveredHosts.size))
                 }
                 
-                Log.i(TAG, "Discovery completed. Found ${discoveredHosts.size} hosts")
+                Timber.i("Discovery completed. Found ${discoveredHosts.size} hosts")
                 discoveredHosts.toList()
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Discovery failed", e)
+                Timber.e("Discovery failed", e)
                 
                 scope.launch {
                     _discoveryEvents.emit(DiscoveryEvent.ScanError("Discovery failed: ${e.message}"))
@@ -131,7 +130,7 @@ class DiscoveryClient @Inject constructor() {
      */
     suspend fun discoverHostsInRange(baseIp: String, startRange: Int = 1, endRange: Int = 254): List<DiscoveredHost> {
         if (isScanning) {
-            Log.w(TAG, "Discovery already in progress")
+            Timber.w("Discovery already in progress")
             return emptyList()
         }
         
@@ -146,7 +145,7 @@ class DiscoveryClient @Inject constructor() {
                 val discoveredHosts = mutableListOf<DiscoveredHost>()
                 val ipBase = baseIp.substringBeforeLast('.')
                 
-                Log.d(TAG, "Scanning IP range: $ipBase.$startRange - $ipBase.$endRange")
+                Timber.d("Scanning IP range: $ipBase.$startRange - $ipBase.$endRange")
                 
                 // Generate IP addresses in the range
                 val addressesToScan = (startRange..endRange).map { "$ipBase.$it" }
@@ -174,11 +173,11 @@ class DiscoveryClient @Inject constructor() {
                     _discoveryEvents.emit(DiscoveryEvent.ScanCompleted(discoveredHosts.size))
                 }
                 
-                Log.i(TAG, "Range discovery completed. Found ${discoveredHosts.size} hosts")
+                Timber.i("Range discovery completed. Found ${discoveredHosts.size} hosts")
                 discoveredHosts.toList()
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Range discovery failed", e)
+                Timber.e("Range discovery failed", e)
                 
                 scope.launch {
                     _discoveryEvents.emit(DiscoveryEvent.ScanError("Range discovery failed: ${e.message}"))
@@ -215,7 +214,7 @@ class DiscoveryClient @Inject constructor() {
                     null
                 }
             } catch (e: Exception) {
-                Log.v(TAG, "Failed to get host info from $hostIp:$port - ${e.message}")
+                Timber.v("Failed to get host info from $hostIp:$port - ${e.message}")
                 null
             }
         }
@@ -253,7 +252,7 @@ class DiscoveryClient @Inject constructor() {
                 null
             }
         } catch (e: Exception) {
-            Log.v(TAG, "No host found at $address:$port - ${e.message}")
+            Timber.v("No host found at $address:$port - ${e.message}")
             null
         }
     }
@@ -293,7 +292,7 @@ class DiscoveryClient @Inject constructor() {
             addresses.distinct().sorted()
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get network addresses", e)
+            Timber.e("Failed to get network addresses", e)
             emptyList()
         }
     }
@@ -308,7 +307,7 @@ class DiscoveryClient @Inject constructor() {
             _discoveryEvents.emit(DiscoveryEvent.ScanStopped)
         }
         
-        Log.i(TAG, "Discovery stopped")
+        Timber.i("Discovery stopped")
     }
     
     /**
@@ -324,7 +323,7 @@ class DiscoveryClient @Inject constructor() {
         httpClient?.close()
         httpClient = null
         
-        Log.d(TAG, "Discovery client cleanup completed")
+        Timber.d("Discovery client cleanup completed")
     }
 }
 

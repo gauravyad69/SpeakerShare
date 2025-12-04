@@ -1,6 +1,6 @@
 package io.github.gauravyad69.speakershare.network
 
-import android.util.Log
+import timber.log.Timber
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -21,7 +21,6 @@ class UdpAudioServer @Inject constructor(
     private val packetHandler: UdpPacketHandler
 ) {
     companion object {
-        private const val TAG = "UdpAudioServer"
         private const val DEFAULT_AUDIO_PORT = 9090
         private const val DEFAULT_DISCOVERY_PORT = 9089
         private const val CLIENT_AUDIO_PORT = 9091  // Port where clients listen for audio
@@ -69,7 +68,7 @@ class UdpAudioServer @Inject constructor(
         discoveryPort: Int = DEFAULT_DISCOVERY_PORT
     ): Boolean {
         if (isRunning.get()) {
-            Log.w(TAG, "Server already running")
+            Timber.w("Server already running")
             return true
         }
         
@@ -112,11 +111,11 @@ class UdpAudioServer @Inject constructor(
                     _serverEvents.emit(UdpServerEvent.ServerStarted(audioPort, discoveryPort))
                 }
                 
-                Log.i(TAG, "UDP server started on audio port $audioPort, discovery port $discoveryPort")
+                Timber.i("UDP server started on audio port $audioPort, discovery port $discoveryPort")
                 true
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start UDP server", e)
+                Timber.e("Failed to start UDP server", e)
                 // Clean up any partially created sockets
                 tempAudioSocket?.close()
                 tempDiscoverySocket?.close()
@@ -165,7 +164,7 @@ class UdpAudioServer @Inject constructor(
                 _serverEvents.emit(UdpServerEvent.ServerStopped)
             }
             
-            Log.i(TAG, "UDP server stopped")
+            Timber.i("UDP server stopped")
         }
     }
     
@@ -177,7 +176,7 @@ class UdpAudioServer @Inject constructor(
         if (!isRunning.get() || connectedClients.isEmpty()) {
             // Log occasionally to avoid spamming
             if (sequenceNumber.get() % 100 == 0L) {
-                Log.d(TAG, "Not broadcasting: isRunning=${isRunning.get()}, connectedClients=${connectedClients.size}")
+                Timber.d("Not broadcasting: isRunning=${isRunning.get()}, connectedClients=${connectedClients.size}")
             }
             return false
         }
@@ -209,7 +208,7 @@ class UdpAudioServer @Inject constructor(
                 if (seqNum <= 5) {
                     packets.forEachIndexed { index, packetData ->
                         val hexDump = packetData.take(32).joinToString(" ") { String.format("%02X", it) }
-                        Log.d(TAG, "Packet $seqNum/$index (${if (isPcm) "PCM" else "AAC"}) before send (size=${packetData.size}): $hexDump...")
+                        Timber.d("Packet $seqNum/$index (${if (isPcm) "PCM" else "AAC"}) before send (size=${packetData.size}): $hexDump...")
                     }
                 }
                 
@@ -230,10 +229,10 @@ class UdpAudioServer @Inject constructor(
                         }
                         successCount++
                         if (seqNum % 100 == 0L) {
-                            Log.d(TAG, "Sent ${if (isPcm) "PCM" else "AAC"} audio packet seq=$seqNum to ${client.address}:${client.audioPort}")
+                            Timber.d("Sent ${if (isPcm) "PCM" else "AAC"} audio packet seq=$seqNum to ${client.address}:${client.audioPort}")
                         }
                     } catch (e: Exception) {
-                        Log.w(TAG, "Failed to send audio to client ${client.clientId}", e)
+                        Timber.w("Failed to send audio to client ${client.clientId}", e)
                         // Remove problematic client
                         removeClient(client.clientId)
                     }
@@ -242,7 +241,7 @@ class UdpAudioServer @Inject constructor(
                 successCount > 0
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to broadcast audio", e)
+                Timber.e("Failed to broadcast audio", e)
                 false
             }
         }
@@ -268,7 +267,7 @@ class UdpAudioServer @Inject constructor(
             _serverEvents.emit(UdpServerEvent.ClientConnected(clientId, clientAddress.hostAddress))
         }
         
-        Log.i(TAG, "Client connected: $clientId from ${clientAddress.hostAddress}:$clientPort (total: ${connectedClients.size})")
+        Timber.i("Client connected: $clientId from ${clientAddress.hostAddress}:$clientPort (total: ${connectedClients.size})")
     }
     
     /**
@@ -276,20 +275,20 @@ class UdpAudioServer @Inject constructor(
      * @return true if client was found and removed, false otherwise
      */
     fun removeClient(clientId: String): Boolean {
-        Log.d(TAG, "removeClient called for: $clientId, current clients: ${connectedClients.keys}")
+        Timber.d("removeClient called for: $clientId, current clients: ${connectedClients.keys}")
         val removed = connectedClients.remove(clientId)
         if (removed != null) {
             clientLastSeen.remove(clientId)
             
             scope.launch {
                 _serverEvents.emit(UdpServerEvent.ClientDisconnected(clientId))
-                Log.d(TAG, "Emitted ClientDisconnected event for: $clientId")
+                Timber.d("Emitted ClientDisconnected event for: $clientId")
             }
             
-            Log.d(TAG, "Client disconnected: $clientId, remaining: ${connectedClients.size}")
+            Timber.d("Client disconnected: $clientId, remaining: ${connectedClients.size}")
             return true
         } else {
-            Log.w(TAG, "Client not found for removal: $clientId")
+            Timber.w("Client not found for removal: $clientId")
             return false
         }
     }
@@ -321,10 +320,10 @@ class UdpAudioServer @Inject constructor(
                 // Remove client from connected list
                 removeClient(clientId)
                 
-                Log.i(TAG, "Sent kick command to client $clientId at ${client.address.hostAddress}")
+                Timber.i("Sent kick command to client $clientId at ${client.address.hostAddress}")
                 true
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to send kick command to $clientId", e)
+                Timber.e("Failed to send kick command to $clientId", e)
                 false
             }
         }
@@ -353,10 +352,10 @@ class UdpAudioServer @Inject constructor(
                 )
                 socket.send(packet)
                 
-                Log.i(TAG, "Sent transfer request to client $clientId at ${client.address.hostAddress}")
+                Timber.i("Sent transfer request to client $clientId at ${client.address.hostAddress}")
                 true
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to send transfer request to $clientId", e)
+                Timber.e("Failed to send transfer request to $clientId", e)
                 false
             }
         }
@@ -396,13 +395,13 @@ class UdpAudioServer @Inject constructor(
                         client.audioPort
                     )
                     socket.send(packet)
-                    Log.d(TAG, "Sent redirect to ${client.clientId} -> $newHostIp:$newHostPort")
+                    Timber.d("Sent redirect to ${client.clientId} -> $newHostIp:$newHostPort")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to send redirect to ${client.clientId}", e)
+                    Timber.e("Failed to send redirect to ${client.clientId}", e)
                 }
             }
             
-            Log.i(TAG, "Sent redirect to all ${connectedClients.size} clients -> $newHostIp:$newHostPort")
+            Timber.i("Sent redirect to all ${connectedClients.size} clients -> $newHostIp:$newHostPort")
         }
     }
     
@@ -423,7 +422,7 @@ class UdpAudioServer @Inject constructor(
             }
             
             UdpPacketHandler.CONTROL_DISCONNECT -> {
-                Log.d(TAG, "Received DISCONNECT from client: ${packet.sessionId} at ${senderAddress.hostAddress}")
+                Timber.d("Received DISCONNECT from client: ${packet.sessionId} at ${senderAddress.hostAddress}")
                 // Try to find client by session ID first, then fall back to IP address
                 var removed = removeClient(packet.sessionId)
                 if (!removed) {
@@ -432,7 +431,7 @@ class UdpAudioServer @Inject constructor(
                         it.value.address == senderAddress 
                     }
                     if (matchingClient != null) {
-                        Log.d(TAG, "Found client by IP: ${matchingClient.key}")
+                        Timber.d("Found client by IP: ${matchingClient.key}")
                         removeClient(matchingClient.key)
                     }
                 }
@@ -443,7 +442,7 @@ class UdpAudioServer @Inject constructor(
                 val clientSessionId = packet.sessionId
                 if (clientLastSeen.containsKey(clientSessionId)) {
                     clientLastSeen[clientSessionId] = System.currentTimeMillis()
-                    Log.v(TAG, "Heartbeat received from client $clientSessionId")
+                    Timber.v("Heartbeat received from client $clientSessionId")
                 } else {
                     // Try to find by address if session ID doesn't match exactly
                     val matchingClient = connectedClients.entries.find { 
@@ -451,9 +450,9 @@ class UdpAudioServer @Inject constructor(
                     }
                     if (matchingClient != null) {
                         clientLastSeen[matchingClient.key] = System.currentTimeMillis()
-                        Log.d(TAG, "Heartbeat from ${senderAddress.hostAddress} matched to ${matchingClient.key}")
+                        Timber.d("Heartbeat from ${senderAddress.hostAddress} matched to ${matchingClient.key}")
                     } else {
-                        Log.w(TAG, "Heartbeat from unknown client: $clientSessionId from ${senderAddress.hostAddress}")
+                        Timber.w("Heartbeat from unknown client: $clientSessionId from ${senderAddress.hostAddress}")
                     }
                 }
             }
@@ -465,7 +464,7 @@ class UdpAudioServer @Inject constructor(
                 } else {
                     9090 // Default port
                 }
-                Log.i(TAG, "Client ${packet.sessionId} accepted host transfer, new server port: $newServerPort")
+                Timber.i("Client ${packet.sessionId} accepted host transfer, new server port: $newServerPort")
                 scope.launch {
                     _serverEvents.emit(UdpServerEvent.TransferAccepted(
                         packet.sessionId,
@@ -476,14 +475,14 @@ class UdpAudioServer @Inject constructor(
             }
             
             UdpPacketHandler.CONTROL_TRANSFER_REJECT -> {
-                Log.i(TAG, "Client ${packet.sessionId} rejected host transfer")
+                Timber.i("Client ${packet.sessionId} rejected host transfer")
                 scope.launch {
                     _serverEvents.emit(UdpServerEvent.TransferRejected(packet.sessionId))
                 }
             }
             
             else -> {
-                Log.w(TAG, "Unknown control command: ${controlCommand.command}")
+                Timber.w("Unknown control command: ${controlCommand.command}")
             }
         }
     }
@@ -494,7 +493,7 @@ class UdpAudioServer @Inject constructor(
     private suspend fun handleClientConnect(clientId: String, clientAddress: InetAddress) {
         // Don't register ourselves as a client
         if (clientAddress.isLoopbackAddress || clientAddress.hostAddress == getLocalIpAddress()) {
-            Log.w(TAG, "Ignoring self-connection from ${clientAddress.hostAddress}")
+            Timber.w("Ignoring self-connection from ${clientAddress.hostAddress}")
             return
         }
         
@@ -519,9 +518,9 @@ class UdpAudioServer @Inject constructor(
                 )
                 socket.send(packet)
                 
-                Log.d(TAG, "Sent connection acknowledgment to $clientId")
+                Timber.d("Sent connection acknowledgment to $clientId")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to send acknowledgment to $clientId", e)
+                Timber.e("Failed to send acknowledgment to $clientId", e)
             }
         }
     }
@@ -545,9 +544,9 @@ class UdpAudioServer @Inject constructor(
                     )
                     socket.send(packet)
                     
-                    Log.v(TAG, "Sent discovery broadcast")
+                    Timber.v("Sent discovery broadcast")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to send discovery broadcast", e)
+                    Timber.w("Failed to send discovery broadcast", e)
                 }
                 
                 delay(DISCOVERY_INTERVAL_MS)
@@ -575,12 +574,12 @@ class UdpAudioServer @Inject constructor(
                             )
                             socket.send(packet)
                         } catch (e: Exception) {
-                            Log.w(TAG, "Failed to send heartbeat to ${client.clientId}", e)
+                            Timber.w("Failed to send heartbeat to ${client.clientId}", e)
                         }
                     }
                     
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to send heartbeats", e)
+                    Timber.w("Failed to send heartbeats", e)
                 }
                 
                 delay(HEARTBEAT_INTERVAL_MS)
@@ -594,7 +593,7 @@ class UdpAudioServer @Inject constructor(
     private fun startControlReceiver() {
         controlReceiverJob = scope.launch {
             val buffer = ByteArray(256)  // Small buffer for control packets
-            Log.d(TAG, "Control receiver started, listening for client heartbeats")
+            Timber.d("Control receiver started, listening for client heartbeats")
             
             while (isRunning.get()) {
                 try {
@@ -615,11 +614,11 @@ class UdpAudioServer @Inject constructor(
                     // Expected, continue listening
                 } catch (e: Exception) {
                     if (isRunning.get()) {
-                        Log.w(TAG, "Control receiver error: ${e.message}")
+                        Timber.w("Control receiver error: ${e.message}")
                     }
                 }
             }
-            Log.d(TAG, "Control receiver stopped")
+            Timber.d("Control receiver stopped")
         }
     }
     
@@ -636,18 +635,18 @@ class UdpAudioServer @Inject constructor(
                     val timeSinceLastSeen = currentTime - lastSeen
                     if (timeSinceLastSeen > CLIENT_TIMEOUT_MS) {
                         staleClients.add(clientId)
-                        Log.d(TAG, "Client $clientId timed out after ${timeSinceLastSeen/1000}s")
+                        Timber.d("Client $clientId timed out after ${timeSinceLastSeen/1000}s")
                     }
                 }
                 
                 staleClients.forEach { clientId ->
-                    Log.w(TAG, "Removing stale client: $clientId (remaining: ${connectedClients.size - 1})")
+                    Timber.w("Removing stale client: $clientId (remaining: ${connectedClients.size - 1})")
                     removeClient(clientId)
                 }
                 
                 // Log client status periodically
                 if (connectedClients.isNotEmpty()) {
-                    Log.d(TAG, "Connected clients: ${connectedClients.size}, monitoring active")
+                    Timber.d("Connected clients: ${connectedClients.size}, monitoring active")
                 }
                 
                 delay(HEARTBEAT_INTERVAL_MS)
@@ -696,7 +695,7 @@ class UdpAudioServer @Inject constructor(
                 ?.firstOrNull { !it.isLoopbackAddress && it is Inet4Address }
                 ?.hostAddress
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to get local IP address", e)
+            Timber.w("Failed to get local IP address", e)
             null
         }
     }
@@ -709,7 +708,7 @@ class UdpAudioServer @Inject constructor(
             audioSocket?.close()
             discoverySocket?.close()
         } catch (e: Exception) {
-            Log.e(TAG, "Error closing sockets", e)
+            Timber.e("Error closing sockets", e)
         } finally {
             audioSocket = null
             discoverySocket = null

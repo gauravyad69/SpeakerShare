@@ -1,7 +1,7 @@
 package io.github.gauravyad69.speakershare.network
 
 import android.os.Build
-import android.util.Log
+import timber.log.Timber
 import androidx.annotation.RequiresApi
 import io.github.gauravyad69.speakershare.data.model.ClientConnection
 import io.ktor.server.application.*
@@ -32,7 +32,6 @@ import javax.inject.Singleton
 @Singleton
 class SignalingServer @Inject constructor() {
     companion object {
-        private const val TAG = "SignalingServer"
         private const val DEFAULT_PORT = 8081
         private const val WEBSOCKET_PATH = "/signaling"
     }
@@ -70,10 +69,10 @@ class SignalingServer @Inject constructor() {
             }
             
             server?.start(wait = false)
-            Log.i(TAG, "Signaling server started on port $port")
+            Timber.i("Signaling server started on port $port")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start signaling server", e)
+            Timber.e("Failed to start signaling server", e)
             false
         }
     }
@@ -94,9 +93,9 @@ class SignalingServer @Inject constructor() {
                 server?.stop(1000, 2000)
                 server = null
                 
-                Log.i(TAG, "Signaling server stopped")
+                Timber.i("Signaling server stopped")
             } catch (e: Exception) {
-                Log.e(TAG, "Error stopping signaling server", e)
+                Timber.e("Error stopping signaling server", e)
             }
         }
     }
@@ -113,7 +112,7 @@ class SignalingServer @Inject constructor() {
                 when (frame) {
                     is Frame.Text -> {
                         val message = frame.readText()
-                        Log.d(TAG, "Received message: $message")
+                        Timber.d("Received message: $message")
                         
                         try {
                             val signalingMessage = json.decodeFromString<SignalingMessage>(message)
@@ -133,16 +132,16 @@ class SignalingServer @Inject constructor() {
                                     clientId = clientId
                                 ))
                                 
-                                Log.d(TAG, "Client registered: $clientId")
+                                Timber.d("Client registered: $clientId")
                             } else {
                                 handleSignalingMessage(signalingMessage)
                             }
                         } catch (e: Exception) {
-                            Log.e(TAG, "Failed to parse signaling message", e)
+                            Timber.e("Failed to parse signaling message", e)
                         }
                     }
                     is Frame.Close -> {
-                        Log.d(TAG, "WebSocket connection closed")
+                        Timber.d("WebSocket connection closed")
                         break
                     }
                     else -> {
@@ -151,7 +150,7 @@ class SignalingServer @Inject constructor() {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "WebSocket connection error", e)
+            Timber.e("WebSocket connection error", e)
         } finally {
             // Clean up client connection
             clientId?.let { id ->
@@ -159,7 +158,7 @@ class SignalingServer @Inject constructor() {
                 scope.launch {
                     _signalingEvents.emit(SignalingEvent.ClientDisconnected(id))
                 }
-                Log.d(TAG, "Client disconnected: $id")
+                Timber.d("Client disconnected: $id")
             }
         }
     }
@@ -198,7 +197,7 @@ class SignalingServer @Inject constructor() {
             }
             
             else -> {
-                Log.w(TAG, "Unknown message type: ${message.type}")
+                Timber.w("Unknown message type: ${message.type}")
             }
         }
     }
@@ -216,10 +215,10 @@ class SignalingServer @Inject constructor() {
                 )
                 
                 sendMessage(session, message)
-                Log.d(TAG, "Sent offer to client: $clientId")
+                Timber.d("Sent offer to client: $clientId")
                 true
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to send offer to client: $clientId", e)
+                Timber.e("Failed to send offer to client: $clientId", e)
                 false
             }
         } ?: false
@@ -242,10 +241,10 @@ class SignalingServer @Inject constructor() {
                 )
                 
                 sendMessage(session, message)
-                Log.d(TAG, "Sent ICE candidate to client: $clientId")
+                Timber.d("Sent ICE candidate to client: $clientId")
                 true
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to send ICE candidate to client: $clientId", e)
+                Timber.e("Failed to send ICE candidate to client: $clientId", e)
                 false
             }
         } ?: false
@@ -264,10 +263,10 @@ class SignalingServer @Inject constructor() {
                 )
                 
                 sendMessage(session, message)
-                Log.d(TAG, "Sent answer to client: $clientId")
+                Timber.d("Sent answer to client: $clientId")
                 true
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to send answer to client: $clientId", e)
+                Timber.e("Failed to send answer to client: $clientId", e)
                 false
             }
         } ?: false
@@ -287,9 +286,9 @@ class SignalingServer @Inject constructor() {
                 sendMessage(session, message)
                 session.close(CloseReason(CloseReason.Codes.NORMAL, "Disconnected by host"))
                 
-                Log.d(TAG, "Disconnected client: $clientId")
+                Timber.d("Disconnected client: $clientId")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to disconnect client: $clientId", e)
+                Timber.e("Failed to disconnect client: $clientId", e)
             }
         }
     }
@@ -302,7 +301,7 @@ class SignalingServer @Inject constructor() {
             try {
                 sendMessage(session, message)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to broadcast message to client", e)
+                Timber.e("Failed to broadcast message to client", e)
             }
         }
     }

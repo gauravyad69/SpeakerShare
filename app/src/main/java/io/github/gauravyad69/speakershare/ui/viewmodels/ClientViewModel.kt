@@ -1,6 +1,6 @@
 package io.github.gauravyad69.speakershare.ui.viewmodels
 
-import android.util.Log
+import timber.log.Timber
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,7 +17,6 @@ import java.util.*
 import io.github.gauravyad69.speakershare.network.ScreenStreamClient
 import android.graphics.Bitmap
 
-private const val TAG = "ClientViewModel"
 
 /**
  * ViewModel for Client screen - manages connection to host and audio playback
@@ -89,7 +88,7 @@ class ClientViewModel @Inject constructor(
             
             // For transfer reconnect, wait initially for new host to start
             if (retryOnFailure) {
-                Log.d(TAG, "Waiting 3 seconds for new host to start before connecting...")
+                Timber.d("Waiting 3 seconds for new host to start before connecting...")
                 delay(3000L)
             }
             
@@ -101,11 +100,11 @@ class ClientViewModel @Inject constructor(
                     if (attempt > 1) {
                         // Wait before retry with exponential backoff (up to 3 seconds)
                         val delayMs = (1000L * attempt).coerceAtMost(3000L)
-                        Log.d(TAG, "Connection attempt $attempt failed, retrying in ${delayMs}ms...")
+                        Timber.d("Connection attempt $attempt failed, retrying in ${delayMs}ms...")
                         delay(delayMs)
                     }
                     
-                    Log.d(TAG, "Connecting to host at ${hostInfo.localIpAddress}:${hostInfo.port} (attempt $attempt/$maxRetries)")
+                    Timber.d("Connecting to host at ${hostInfo.localIpAddress}:${hostInfo.port} (attempt $attempt/$maxRetries)")
                     
                     val hostSession = HostSession(
                         sessionId = hostInfo.serviceName,
@@ -125,23 +124,23 @@ class ClientViewModel @Inject constructor(
                     val result = clientManager.connectToHost(hostSession, clientName)
                     
                     if (result.isSuccess) {
-                        Log.d(TAG, "Successfully connected to host on attempt $attempt")
+                        Timber.d("Successfully connected to host on attempt $attempt")
                         _connectedHost.value = hostInfo
                         _uiState.value = _uiState.value.copy(isLoading = false)
                         return@launch // Success!
                     } else {
                         lastError = result.exceptionOrNull()
-                        Log.w(TAG, "Connection attempt $attempt failed: ${lastError?.message}")
+                        Timber.w("Connection attempt $attempt failed: ${lastError?.message}")
                     }
                     
                 } catch (e: Exception) {
                     lastError = e
-                    Log.w(TAG, "Connection attempt $attempt threw exception: ${e.message}")
+                    Timber.w("Connection attempt $attempt threw exception: ${e.message}")
                 }
             }
             
             // All retries failed
-            Log.e(TAG, "All $maxRetries connection attempts failed")
+            Timber.e("All $maxRetries connection attempts failed")
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
                 error = if (retryOnFailure) 

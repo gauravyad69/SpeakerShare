@@ -1,6 +1,7 @@
 package io.github.gauravyad69.speakershare.audio
 
 import android.content.Context
+import timber.log.Timber
 import android.media.*
 import androidx.annotation.RequiresPermission
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -78,7 +79,7 @@ class AudioPlaybackService @Inject constructor(
             bufferLevel = 0.0f,
             underrunCount = 0
         )
-        android.util.Log.d("AudioPlaybackService", "Buffers cleared")
+        Timber.d("Buffers cleared")
     }
 
     /**
@@ -132,7 +133,7 @@ class AudioPlaybackService @Inject constructor(
                     try {
                         stop()
                     } catch (e: IllegalStateException) {
-                        android.util.Log.w("AudioPlaybackService", "AudioTrack.stop() failed: ${e.message}")
+                        Timber.w("AudioTrack.stop() failed: ${e.message}")
                     }
                 }
                 release()
@@ -270,22 +271,22 @@ class AudioPlaybackService @Inject constructor(
                     writtenCount++
                     
                     if (writtenCount % 50 == 1L) {
-                        android.util.Log.d("AudioPlayback", "Written PCM: ${audioData.size} bytes, bytesWritten=$bytesWritten")
+                        Timber.d("Written PCM: ${audioData.size} bytes, bytesWritten=$bytesWritten")
                     }
                     
                     if (bytesWritten < 0) {
                         // Handle AudioTrack errors
                         when (bytesWritten) {
                             AudioTrack.ERROR_INVALID_OPERATION -> {
-                                android.util.Log.e("AudioPlayback", "AudioTrack invalid operation")
+                                Timber.e("AudioTrack invalid operation")
                                 break
                             }
                             AudioTrack.ERROR_BAD_VALUE -> {
-                                android.util.Log.e("AudioPlayback", "AudioTrack bad value")
+                                Timber.e("AudioTrack bad value")
                                 break
                             }
                             AudioTrack.ERROR_DEAD_OBJECT -> {
-                                android.util.Log.e("AudioPlayback", "AudioTrack dead object")
+                                Timber.e("AudioTrack dead object")
                                 break
                             }
                         }
@@ -307,7 +308,7 @@ class AudioPlaybackService @Inject constructor(
                 
             } catch (e: Exception) {
                 if (currentCoroutineContext().isActive) {
-                    android.util.Log.e("AudioPlayback", "Playback loop error: ${e.message}")
+                    Timber.e("Playback loop error: ${e.message}")
                     delay(10)
                 }
             }
@@ -367,13 +368,13 @@ class AudioPlaybackService @Inject constructor(
                         // Restore saved volume (not current volume which might be 0)
                         audioTrack?.setVolume(savedVolumeBeforeFocusLoss)
                         _playbackState.value = _playbackState.value.copy(volume = savedVolumeBeforeFocusLoss)
-                        android.util.Log.d("AudioPlaybackService", "Audio focus gained, restored volume to $savedVolumeBeforeFocusLoss")
+                        Timber.d("Audio focus gained, restored volume to $savedVolumeBeforeFocusLoss")
                     }
                 }
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
                 hasAudioFocus = false
-                android.util.Log.d("AudioPlaybackService", "Audio focus lost permanently, stopping playback")
+                Timber.d("Audio focus lost permanently, stopping playback")
                 // Stop playback
                 runBlocking {
                     stopPlayback()
@@ -383,14 +384,14 @@ class AudioPlaybackService @Inject constructor(
                 hasAudioFocus = false
                 // Save current volume and pause playback temporarily
                 savedVolumeBeforeFocusLoss = _playbackState.value.volume
-                android.util.Log.d("AudioPlaybackService", "Audio focus lost transiently, saved volume $savedVolumeBeforeFocusLoss, muting")
+                Timber.d("Audio focus lost transiently, saved volume $savedVolumeBeforeFocusLoss, muting")
                 audioTrack?.setVolume(0.0f)
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 // Lower volume but continue playing
                 savedVolumeBeforeFocusLoss = _playbackState.value.volume
                 val duckedVolume = savedVolumeBeforeFocusLoss * 0.3f
-                android.util.Log.d("AudioPlaybackService", "Audio focus ducking, saved volume $savedVolumeBeforeFocusLoss, ducking to $duckedVolume")
+                Timber.d("Audio focus ducking, saved volume $savedVolumeBeforeFocusLoss, ducking to $duckedVolume")
                 audioTrack?.setVolume(duckedVolume)
             }
         }

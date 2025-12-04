@@ -3,7 +3,7 @@ package io.github.gauravyad69.speakershare.services
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import android.util.Log
+import timber.log.Timber
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
@@ -57,7 +57,6 @@ class NetworkDiscoveryService @Inject constructor(
     private var registeredService: NsdServiceInfo? = null
     
     companion object {
-        private const val TAG = "NetworkDiscoveryService"
         private const val SERVICE_TYPE = "_speakershare._tcp"
         private const val SERVICE_NAME = "SpeakerShare Host"
         private const val UDP_DISCOVERY_PORT = 9089
@@ -79,10 +78,10 @@ class NetworkDiscoveryService @Inject constructor(
         currentClients: Int = 0,
         maxClients: Int = 50
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        Log.d(TAG, "Registering host: $hostName on port $port")
+        Timber.d("Registering host: $hostName on port $port")
         
         if (_isRegistered.value) {
-            Log.w(TAG, "Host already registered, unregistering first")
+            Timber.w("Host already registered, unregistering first")
             unregisterHost()
         }
         
@@ -99,16 +98,16 @@ class NetworkDiscoveryService @Inject constructor(
             
             val listener = object : NsdManager.RegistrationListener {
                 override fun onRegistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
-                    Log.e(TAG, "Service registration failed: $errorCode")
+                    Timber.e("Service registration failed: $errorCode")
                     _isRegistered.value = false
                 }
                 
                 override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
-                    Log.e(TAG, "Service unregistration failed: $errorCode")
+                    Timber.e("Service unregistration failed: $errorCode")
                 }
                 
                 override fun onServiceRegistered(serviceInfo: NsdServiceInfo?) {
-                    Log.i(TAG, "Service registered: ${serviceInfo?.serviceName}")
+                    Timber.i("Service registered: ${serviceInfo?.serviceName}")
                     registeredService = serviceInfo
                     _isRegistered.value = true
                     
@@ -117,7 +116,7 @@ class NetworkDiscoveryService @Inject constructor(
                 }
                 
                 override fun onServiceUnregistered(serviceInfo: NsdServiceInfo?) {
-                    Log.i(TAG, "Service unregistered: ${serviceInfo?.serviceName}")
+                    Timber.i("Service unregistered: ${serviceInfo?.serviceName}")
                     registeredService = null
                     _isRegistered.value = false
                     stopUdpBroadcast()
@@ -129,7 +128,7 @@ class NetworkDiscoveryService @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to register host", e)
+            Timber.e("Failed to register host", e)
             _isRegistered.value = false
             Result.failure(e)
         }
@@ -139,7 +138,7 @@ class NetworkDiscoveryService @Inject constructor(
      * Unregister host from discovery
      */
     suspend fun unregisterHost(): Result<Unit> = withContext(Dispatchers.IO) {
-        Log.d(TAG, "Unregistering host")
+        Timber.d("Unregistering host")
         
         return@withContext try {
             registrationListener?.let { listener ->
@@ -152,7 +151,7 @@ class NetworkDiscoveryService @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to unregister host", e)
+            Timber.e("Failed to unregister host", e)
             Result.failure(e)
         }
     }
@@ -161,10 +160,10 @@ class NetworkDiscoveryService @Inject constructor(
      * Start discovering hosts
      */
     suspend fun startDiscovery(): Result<Unit> = withContext(Dispatchers.IO) {
-        Log.d(TAG, "Starting host discovery")
+        Timber.d("Starting host discovery")
         
         if (_isDiscovering.value) {
-            Log.w(TAG, "Discovery already in progress")
+            Timber.w("Discovery already in progress")
             return@withContext Result.success(Unit)
         }
         
@@ -174,32 +173,32 @@ class NetworkDiscoveryService @Inject constructor(
             
             val listener = object : NsdManager.DiscoveryListener {
                 override fun onDiscoveryStarted(regType: String?) {
-                    Log.d(TAG, "Service discovery started")
+                    Timber.d("Service discovery started")
                     _isDiscovering.value = true
                 }
                 
                 override fun onServiceFound(service: NsdServiceInfo?) {
-                    Log.d(TAG, "Service found: ${service?.serviceName}")
+                    Timber.d("Service found: ${service?.serviceName}")
                     service?.let { resolveService(it) }
                 }
                 
                 override fun onServiceLost(service: NsdServiceInfo?) {
-                    Log.d(TAG, "Service lost: ${service?.serviceName}")
+                    Timber.d("Service lost: ${service?.serviceName}")
                     service?.let { removeDiscoveredHost(it.serviceName) }
                 }
                 
                 override fun onDiscoveryStopped(serviceType: String?) {
-                    Log.d(TAG, "Service discovery stopped")
+                    Timber.d("Service discovery stopped")
                     _isDiscovering.value = false
                 }
                 
                 override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
-                    Log.e(TAG, "Discovery start failed: $errorCode")
+                    Timber.e("Discovery start failed: $errorCode")
                     _isDiscovering.value = false
                 }
                 
                 override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
-                    Log.e(TAG, "Discovery stop failed: $errorCode")
+                    Timber.e("Discovery stop failed: $errorCode")
                 }
             }
             
@@ -218,7 +217,7 @@ class NetworkDiscoveryService @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start discovery", e)
+            Timber.e("Failed to start discovery", e)
             _isDiscovering.value = false
             Result.failure(e)
         }
@@ -228,7 +227,7 @@ class NetworkDiscoveryService @Inject constructor(
      * Stop discovering hosts
      */
     suspend fun stopDiscovery(): Result<Unit> = withContext(Dispatchers.IO) {
-        Log.d(TAG, "Stopping host discovery")
+        Timber.d("Stopping host discovery")
         
         return@withContext try {
             discoveryListener?.let { listener ->
@@ -241,7 +240,7 @@ class NetworkDiscoveryService @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to stop discovery", e)
+            Timber.e("Failed to stop discovery", e)
             Result.failure(e)
         }
     }
@@ -250,15 +249,15 @@ class NetworkDiscoveryService @Inject constructor(
      * Resolve discovered service to get full connection details
      */
     private fun resolveService(service: NsdServiceInfo) {
-        Log.d(TAG, "Resolving service: ${service.serviceName}")
+        Timber.d("Resolving service: ${service.serviceName}")
         
         val resolveListener = object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
-                Log.e(TAG, "Resolve failed: $errorCode")
+                Timber.e("Resolve failed: $errorCode")
             }
             
             override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
-                Log.d(TAG, "Service resolved: ${serviceInfo?.serviceName}")
+                Timber.d("Service resolved: ${serviceInfo?.serviceName}")
                 serviceInfo?.let { addDiscoveredHost(it) }
             }
         }
@@ -291,7 +290,7 @@ class NetworkDiscoveryService @Inject constructor(
             serviceName = serviceInfo.serviceName
         )
         
-        Log.d(TAG, "Adding discovered host: ${networkInfo.serviceName} at ${networkInfo.localIpAddress}:${networkInfo.port}")
+        Timber.d("Adding discovered host: ${networkInfo.serviceName} at ${networkInfo.localIpAddress}:${networkInfo.port}")
         
         val currentHosts = _discoveredHosts.value.toMutableList()
         
@@ -309,7 +308,7 @@ class NetworkDiscoveryService @Inject constructor(
      * Remove a host from the discovered list
      */
     private fun removeDiscoveredHost(serviceName: String) {
-        Log.d(TAG, "Removing discovered host: $serviceName")
+        Timber.d("Removing discovered host: $serviceName")
         
         val currentHosts = _discoveredHosts.value.toMutableList()
         currentHosts.removeAll { it.serviceName == serviceName }
@@ -326,7 +325,7 @@ class NetworkDiscoveryService @Inject constructor(
         currentClients: Int, 
         maxClients: Int
     ) {
-        Log.d(TAG, "Starting UDP broadcast")
+        Timber.d("Starting UDP broadcast")
         
         udpBroadcastJob = serviceScope.launch {
             var socket: DatagramSocket? = null
@@ -343,16 +342,16 @@ class NetworkDiscoveryService @Inject constructor(
                 while (udpBroadcastJob?.isActive == true) {
                     try {
                         socket.send(packet)
-                        Log.v(TAG, "UDP broadcast sent")
+                        Timber.v("UDP broadcast sent")
                     } catch (e: IOException) {
                         // Handle background restriction (EPERM) or other IO errors
-                        Log.w(TAG, "UDP broadcast failed: ${e.message}")
+                        Timber.w("UDP broadcast failed: ${e.message}")
                     }
                     delay(UDP_BROADCAST_INTERVAL)
                 }
                 
             } catch (e: Exception) {
-                Log.e(TAG, "UDP broadcast setup error", e)
+                Timber.e("UDP broadcast setup error", e)
             } finally {
                 socket?.close()
             }
@@ -363,7 +362,7 @@ class NetworkDiscoveryService @Inject constructor(
      * Stop UDP broadcast
      */
     private fun stopUdpBroadcast() {
-        Log.d(TAG, "Stopping UDP broadcast")
+        Timber.d("Stopping UDP broadcast")
         udpBroadcastJob?.cancel()
         udpBroadcastJob = null
     }
@@ -372,7 +371,7 @@ class NetworkDiscoveryService @Inject constructor(
      * Start UDP discovery listening
      */
     private fun startUdpDiscovery() {
-        Log.d(TAG, "Starting UDP discovery")
+        Timber.d("Starting UDP discovery")
         
         udpDiscoveryJob = serviceScope.launch {
             try {
@@ -385,7 +384,7 @@ class NetworkDiscoveryService @Inject constructor(
                 while (udpDiscoveryJob?.isActive == true) {
                     udpSocket?.receive(packet)
                     val message = String(packet.data, 0, packet.length)
-                    Log.v(TAG, "UDP discovery received: $message")
+                    Timber.v("UDP discovery received: $message")
                     
                     parseBroadcastMessage(message, packet.address.hostAddress)?.let { networkInfo ->
                         addDiscoveredHostUdp(networkInfo)
@@ -394,7 +393,7 @@ class NetworkDiscoveryService @Inject constructor(
                 
             } catch (e: IOException) {
                 if (udpDiscoveryJob?.isActive == true) {
-                    Log.e(TAG, "UDP discovery error", e)
+                    Timber.e("UDP discovery error", e)
                 }
             } finally {
                 udpSocket?.close()
@@ -407,7 +406,7 @@ class NetworkDiscoveryService @Inject constructor(
      * Stop UDP discovery listening
      */
     private fun stopUdpDiscovery() {
-        Log.d(TAG, "Stopping UDP discovery")
+        Timber.d("Stopping UDP discovery")
         udpDiscoveryJob?.cancel()
         udpDiscoveryJob = null
         udpSocket?.close()
@@ -444,7 +443,7 @@ class NetworkDiscoveryService @Inject constructor(
                 )
             } else null
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse broadcast message: $message", e)
+            Timber.w("Failed to parse broadcast message: $message", e)
             null
         }
     }
@@ -453,7 +452,7 @@ class NetworkDiscoveryService @Inject constructor(
      * Add discovered host from UDP (with NetworkInfo interface)
      */
     private fun addDiscoveredHostUdp(networkInfo: NetworkInfo) {
-        Log.d(TAG, "Adding UDP discovered host: ${networkInfo.serviceName} at ${networkInfo.localIpAddress}:${networkInfo.port}")
+        Timber.d("Adding UDP discovered host: ${networkInfo.serviceName} at ${networkInfo.localIpAddress}:${networkInfo.port}")
         
         val currentHosts = _discoveredHosts.value.toMutableList()
         
@@ -481,7 +480,7 @@ class NetworkDiscoveryService @Inject constructor(
                 .forEach { it.hostAddress?.let { ip -> addresses.add(ip) } }
                 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get local IP addresses", e)
+            Timber.e("Failed to get local IP addresses", e)
         }
         
         return@withContext addresses
@@ -495,7 +494,7 @@ class NetworkDiscoveryService @Inject constructor(
             val address = InetAddress.getByName(ipAddress)
             address.isReachable(timeoutMs)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to check host reachability: $ipAddress", e)
+            Timber.e("Failed to check host reachability: $ipAddress", e)
             false
         }
     }
@@ -506,7 +505,7 @@ class NetworkDiscoveryService @Inject constructor(
     suspend fun updateHostClientCount(currentClients: Int) {
         if (_isRegistered.value) {
             registeredService?.let { service ->
-                Log.d(TAG, "Updating host client count to $currentClients")
+                Timber.d("Updating host client count to $currentClients")
                 service.setAttribute(SERVICE_INFO_KEY_CLIENTS, currentClients.toString())
                 // Note: mDNS doesn't support updating attributes directly,
                 // we'd need to re-register the service, but UDP broadcast will reflect changes
@@ -518,7 +517,7 @@ class NetworkDiscoveryService @Inject constructor(
      * Clear discovered hosts
      */
     fun clearDiscoveredHosts() {
-        Log.d(TAG, "Clearing discovered hosts")
+        Timber.d("Clearing discovered hosts")
         _discoveredHosts.value = emptyList()
     }
     
@@ -533,7 +532,7 @@ class NetworkDiscoveryService @Inject constructor(
      * Cleanup resources
      */
     fun cleanup() {
-        Log.d(TAG, "Cleaning up NetworkDiscoveryService")
+        Timber.d("Cleaning up NetworkDiscoveryService")
         
         serviceScope.launch {
             unregisterHost()

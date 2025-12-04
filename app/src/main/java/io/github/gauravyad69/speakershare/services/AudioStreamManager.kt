@@ -2,7 +2,7 @@ package io.github.gauravyad69.speakershare.services
 
 import android.Manifest
 import android.content.Intent
-import android.util.Log
+import timber.log.Timber
 import androidx.annotation.RequiresPermission
 import io.github.gauravyad69.speakershare.audio.AudioCaptureService
 import io.github.gauravyad69.speakershare.audio.AudioEncoder
@@ -61,7 +61,6 @@ class AudioStreamManager @Inject constructor(
     private var encoderCollectorJob: Job? = null
     
     companion object {
-        private const val TAG = "AudioStreamManager"
     }
     
     /**
@@ -69,7 +68,7 @@ class AudioStreamManager @Inject constructor(
      */
     fun setLatencyProfile(profile: LatencyProfile) {
         _latencyConfig.value = LatencyConfig.fromProfile(profile)
-        Log.d(TAG, "Latency profile set to: $profile")
+        Timber.d("Latency profile set to: $profile")
     }
     
     /**
@@ -83,8 +82,8 @@ class AudioStreamManager @Inject constructor(
         transport: String = "WEBRTC"
     ): Result<Unit> {
         return try {
-            Log.d(TAG, "Starting audio stream: $streamId, source: $audioSource, transport: $transport")
-            Log.d(TAG, "Using latency config: ${_latencyConfig.value}")
+            Timber.d("Starting audio stream: $streamId, source: $audioSource, transport: $transport")
+            Timber.d("Using latency config: ${_latencyConfig.value}")
             
             val transportType = if (transport == "WEBRTC") StreamTransport.WEBRTC else StreamTransport.UDP
             
@@ -110,7 +109,7 @@ class AudioStreamManager @Inject constructor(
                 try {
                     audioCaptureService.startCapture(audioSource, quality.sampleRate)
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to start audio capture for visualization (WebRTC active): ${e.message}")
+                    Timber.w("Failed to start audio capture for visualization (WebRTC active): ${e.message}")
                 }
             } else {
                 startUdpStreaming(streamId, audioSource, quality)
@@ -121,10 +120,10 @@ class AudioStreamManager @Inject constructor(
             _isStreaming.value = true
 
             
-            Log.d(TAG, "Audio stream started successfully")
+            Timber.d("Audio stream started successfully")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start audio stream", e)
+            Timber.e("Failed to start audio stream", e)
             _currentStream.value = _currentStream.value?.copy(state = StreamState.ERROR)
             Result.failure(e)
         }
@@ -138,7 +137,7 @@ class AudioStreamManager @Inject constructor(
     
     private suspend fun startUdpStreaming(streamId: String, audioSource: AudioSource, quality: AudioQuality) {
         val config = _latencyConfig.value
-        Log.d(TAG, "Starting UDP streaming with latency profile: ${config.profile}")
+        Timber.d("Starting UDP streaming with latency profile: ${config.profile}")
         
         // Create a new scope for this streaming session
         streamingScope?.cancel()
@@ -155,10 +154,10 @@ class AudioStreamManager @Inject constructor(
         
         if (usePcmMode) {
             // PCM Mode: Skip encoding, send raw PCM directly
-            Log.d(TAG, "Using PCM mode (no codec) for lowest latency")
+            Timber.d("Using PCM mode (no codec) for lowest latency")
             
             pcmCollectorJob = scope.launch {
-                Log.d(TAG, "Starting direct PCM pipeline")
+                Timber.d("Starting direct PCM pipeline")
                 audioCaptureService.audioDataFlow.collect { pcmData ->
                     if (!_isMuted.value) {
                         // Directly broadcast raw PCM data with isPcm=true flag
@@ -178,35 +177,35 @@ class AudioStreamManager @Inject constructor(
             audioEncoder.startEncoding(encoderConfig)
             
             // 3. Set up pipeline collectors BEFORE starting capture
-            Log.d(TAG, "Setting up audio data pipeline")
+            Timber.d("Setting up audio data pipeline")
             
             pcmCollectorJob = scope.launch {
-                Log.d(TAG, "Starting audioDataFlow collector")
+                Timber.d("Starting audioDataFlow collector")
                 audioCaptureService.audioDataFlow.collect { pcmData ->
                     // Only process audio if not muted
                     if (!_isMuted.value) {
-                        Log.d(TAG, "Received PCM data: ${pcmData.size} bytes")
+                        Timber.d("Received PCM data: ${pcmData.size} bytes")
                         audioEncoder.encodePCMData(pcmData)
                     }
                 }
             }
             
             encoderCollectorJob = scope.launch {
-                Log.d(TAG, "Starting encodedPacketFlow collector")
+                Timber.d("Starting encodedPacketFlow collector")
                 audioEncoder.encodedPacketFlow.collect { packet ->
                     // Only broadcast if not muted
                     if (!_isMuted.value) {
-                        Log.d(TAG, "Broadcasting encoded packet: ${packet.size} bytes")
+                        Timber.d("Broadcasting encoded packet: ${packet.size} bytes")
                         udpAudioServer.broadcastAudio(packet.data)
                     }
                 }
             }
         }
         
-        Log.d(TAG, "Audio data pipeline set up complete")
+        Timber.d("Audio data pipeline set up complete")
         
         // 4. Start Capture AFTER pipeline is set up with latency-optimized sample rate
-        Log.d(TAG, "Starting audio capture with sample rate: ${config.sampleRate}")
+        Timber.d("Starting audio capture with sample rate: ${config.sampleRate}")
         audioCaptureService.startCapture(audioSource, config.sampleRate)
 
     }
@@ -217,10 +216,10 @@ class AudioStreamManager @Inject constructor(
      */
     suspend fun stopStreaming(preserveMediaProjection: Boolean = true): Result<Unit> {
         return try {
-            Log.d(TAG, "Stopping audio stream (preserveMediaProjection=$preserveMediaProjection)")
+            Timber.d("Stopping audio stream (preserveMediaProjection=$preserveMediaProjection)")
             
             // Cancel all collector jobs first to stop the pipeline
-            Log.d(TAG, "Canceling collector jobs...")
+            Timber.d("Canceling collector jobs...")
             pcmCollectorJob?.cancel()
             pcmCollectorJob = null
             encoderCollectorJob?.cancel()
@@ -236,13 +235,13 @@ class AudioStreamManager @Inject constructor(
                     audioCaptureService.stopCapture(preserveMediaProjection = preserveMediaProjection)
                 } else {
                     // Stop in correct order: capture -> encoder -> server
-                    Log.d(TAG, "Stopping audio capture (preserveMediaProjection=$preserveMediaProjection)...")
+                    Timber.d("Stopping audio capture (preserveMediaProjection=$preserveMediaProjection)...")
                     audioCaptureService.stopCapture(preserveMediaProjection = preserveMediaProjection)
                     
-                    Log.d(TAG, "Stopping audio encoder...")
+                    Timber.d("Stopping audio encoder...")
                     audioEncoder.stopEncoding()
                     
-                    Log.d(TAG, "Stopping UDP server...")
+                    Timber.d("Stopping UDP server...")
                     udpAudioServer.stopServer()
                 }
                 
@@ -257,10 +256,10 @@ class AudioStreamManager @Inject constructor(
                 _currentStream.value = null
             }
             
-            Log.d(TAG, "Audio stream stopped successfully")
+            Timber.d("Audio stream stopped successfully")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to stop audio stream", e)
+            Timber.e("Failed to stop audio stream", e)
             _currentStream.value = _currentStream.value?.copy(state = StreamState.ERROR)
             Result.failure(e)
         }
@@ -276,7 +275,7 @@ class AudioStreamManager @Inject constructor(
                 return Result.failure(IllegalStateException("No active stream to switch source"))
             }
             
-            Log.d(TAG, "Switching audio source from ${currentStream.audioSource} to $newSource")
+            Timber.d("Switching audio source from ${currentStream.audioSource} to $newSource")
             
             // Stop current capture but preserve MediaProjection in case user switches back to system audio
             audioCaptureService.stopCapture(preserveMediaProjection = true)
@@ -287,10 +286,10 @@ class AudioStreamManager @Inject constructor(
             // Update stream
             _currentStream.value = currentStream.copy(audioSource = newSource)
             
-            Log.d(TAG, "Audio source switched successfully")
+            Timber.d("Audio source switched successfully")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to switch audio source", e)
+            Timber.e("Failed to switch audio source", e)
             Result.failure(e)
         }
     }
@@ -305,7 +304,7 @@ class AudioStreamManager @Inject constructor(
                 return Result.failure(IllegalStateException("No active stream to update quality"))
             }
             
-            Log.d(TAG, "Updating audio quality: ${newQuality.bitrate}kbps, ${newQuality.sampleRate}Hz")
+            Timber.d("Updating audio quality: ${newQuality.bitrate}kbps, ${newQuality.sampleRate}Hz")
             
             // Reconfigure encoder with new quality
             // TODO: Implement dynamic reconfiguration in AudioEncoder
@@ -314,10 +313,10 @@ class AudioStreamManager @Inject constructor(
             // Update stream
             _currentStream.value = currentStream.copy(quality = newQuality)
             
-            Log.d(TAG, "Audio quality updated successfully")
+            Timber.d("Audio quality updated successfully")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to update audio quality", e)
+            Timber.e("Failed to update audio quality", e)
             Result.failure(e)
         }
     }
@@ -343,7 +342,7 @@ class AudioStreamManager @Inject constructor(
     fun toggleMute(): Boolean {
         val newMuteState = !_isMuted.value
         _isMuted.value = newMuteState
-        Log.d(TAG, "Audio mute toggled: $newMuteState")
+        Timber.d("Audio mute toggled: $newMuteState")
         return newMuteState
     }
     
@@ -352,7 +351,7 @@ class AudioStreamManager @Inject constructor(
      */
     fun setMuted(muted: Boolean) {
         _isMuted.value = muted
-        Log.d(TAG, "Audio mute set to: $muted")
+        Timber.d("Audio mute set to: $muted")
     }
 
     /**
@@ -369,7 +368,7 @@ class AudioStreamManager @Inject constructor(
      * Call this only when the app is completely done (e.g., service destroyed).
      */
     suspend fun releaseAllResources() {
-        Log.d(TAG, "Releasing all audio resources including MediaProjection")
+        Timber.d("Releasing all audio resources including MediaProjection")
         stopStreaming(preserveMediaProjection = false)
     }
 }

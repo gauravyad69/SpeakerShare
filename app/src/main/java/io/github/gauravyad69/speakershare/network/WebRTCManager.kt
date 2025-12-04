@@ -3,7 +3,7 @@
 package io.github.gauravyad69.speakershare.network
 
 import android.content.Context
-import android.util.Log
+import timber.log.Timber
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.data.model.ClientConnection
 import io.getstream.webrtc.android.compose.*
@@ -28,7 +28,6 @@ class WebRTCManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     companion object {
-        private const val TAG = "WebRTCManager"
         private const val AUDIO_TRACK_ID = "audio_track"
         private const val STREAM_ID = "audio_stream"
     }
@@ -85,7 +84,7 @@ class WebRTCManager @Inject constructor(
             .setVideoDecoderFactory(decoderFactory)
             .createPeerConnectionFactory()
         
-        Log.d(TAG, "PeerConnectionFactory initialized")
+        Timber.d("PeerConnectionFactory initialized")
     }
     
     /**
@@ -94,10 +93,10 @@ class WebRTCManager @Inject constructor(
     fun startBroadcasting(): Boolean {
         return try {
             createLocalAudioTrack()
-            Log.d(TAG, "Started broadcasting audio")
+            Timber.d("Started broadcasting audio")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start broadcasting", e)
+            Timber.e("Failed to start broadcasting", e)
             false
         }
     }
@@ -120,7 +119,7 @@ class WebRTCManager @Inject constructor(
         peerConnections.values.forEach { it.close() }
         peerConnections.clear()
         
-        Log.d(TAG, "Stopped broadcasting")
+        Timber.d("Stopped broadcasting")
     }
     
     /**
@@ -144,7 +143,7 @@ class WebRTCManager @Inject constructor(
         mediaStream = factory.createLocalMediaStream(STREAM_ID)
         mediaStream?.addTrack(localAudioTrack)
         
-        Log.d(TAG, "Local audio track created")
+        Timber.d("Local audio track created")
     }
     
     /**
@@ -164,10 +163,10 @@ class WebRTCManager @Inject constructor(
                 _connectionEvents.emit(WebRTCEvent.PeerConnected(clientId))
             }
             
-            Log.d(TAG, "Peer connection added for client: $clientId")
+            Timber.d("Peer connection added for client: $clientId")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to add peer connection for client: $clientId", e)
+            Timber.e("Failed to add peer connection for client: $clientId", e)
             false
         }
     }
@@ -181,7 +180,7 @@ class WebRTCManager @Inject constructor(
             scope.launch {
                 _connectionEvents.emit(WebRTCEvent.PeerDisconnected(clientId))
             }
-            Log.d(TAG, "Peer connection removed for client: $clientId")
+            Timber.d("Peer connection removed for client: $clientId")
         }
     }
     
@@ -203,7 +202,7 @@ class WebRTCManager @Inject constructor(
             }
 
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
-                Log.d(TAG, "ICE connection state changed for $clientId: $state")
+                Timber.d("ICE connection state changed for $clientId: $state")
                 scope.launch {
                     _connectionEvents.emit(WebRTCEvent.ConnectionStateChanged(clientId, state))
                 }
@@ -214,15 +213,15 @@ class WebRTCManager @Inject constructor(
             }
             
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {
-                Log.d(TAG, "ICE gathering state changed for $clientId: $state")
+                Timber.d("ICE gathering state changed for $clientId: $state")
             }
             
             override fun onAddStream(stream: MediaStream) {
-                Log.d(TAG, "Stream added for $clientId")
+                Timber.d("Stream added for $clientId")
             }
             
             override fun onRemoveStream(stream: MediaStream) {
-                Log.d(TAG, "Stream removed for $clientId")
+                Timber.d("Stream removed for $clientId")
             }
             
             override fun onDataChannel(channel: DataChannel) {
@@ -230,11 +229,11 @@ class WebRTCManager @Inject constructor(
             }
             
             override fun onRenegotiationNeeded() {
-                Log.d(TAG, "Renegotiation needed for $clientId")
+                Timber.d("Renegotiation needed for $clientId")
             }
             
             override fun onSignalingChange(state: PeerConnection.SignalingState) {
-                Log.d(TAG, "Signaling state changed for $clientId: $state")
+                Timber.d("Signaling state changed for $clientId: $state")
             }
         }
         
@@ -248,7 +247,7 @@ class WebRTCManager @Inject constructor(
     suspend fun createOffer(clientId: String): SessionDescription? {
         return suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { 
-                Log.w(TAG, "createOffer for $clientId was cancelled")
+                Timber.w("createOffer for $clientId was cancelled")
             }
             peerConnections[clientId]?.let { peerConnection ->
                 try {
@@ -263,15 +262,15 @@ class WebRTCManager @Inject constructor(
                                 peerConnection.setLocalDescription(object : SdpObserver {
                                     override fun onCreateSuccess(sd: SessionDescription?) {}
                                     override fun onSetSuccess() {
-                                        Log.d(TAG, "Created offer for client: $clientId")
+                                        Timber.d("Created offer for client: $clientId")
                                         continuation.resume(sdp)
                                     }
                                     override fun onCreateFailure(error: String?) {
-                                        Log.e(TAG, "Set local description failed: $error")
+                                        Timber.e("Set local description failed: $error")
                                         continuation.resume(null)
                                     }
                                     override fun onSetFailure(error: String?) {
-                                        Log.e(TAG, "Set local description failed: $error")
+                                        Timber.e("Set local description failed: $error")
                                         continuation.resume(null)
                                     }
                                 }, sdp)
@@ -279,14 +278,14 @@ class WebRTCManager @Inject constructor(
                         }
                         override fun onSetSuccess() {}
                         override fun onCreateFailure(error: String?) {
-                            Log.e(TAG, "Create offer failed: $error")
+                            Timber.e("Create offer failed: $error")
                             continuation.resume(null)
                         }
                         override fun onSetFailure(error: String?) {}
                     }, constraints)
                     
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to create offer for client: $clientId", e)
+                    Timber.e("Failed to create offer for client: $clientId", e)
                     continuation.resume(null)
                 }
             } ?: continuation.resume(null)
@@ -299,27 +298,27 @@ class WebRTCManager @Inject constructor(
     suspend fun setRemoteDescription(clientId: String, answer: SessionDescription): Boolean {
         return suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { 
-                Log.w(TAG, "setRemoteDescription for $clientId was cancelled")
+                Timber.w("setRemoteDescription for $clientId was cancelled")
             }
             peerConnections[clientId]?.let { peerConnection ->
                 try {
                     peerConnection.setRemoteDescription(object : SdpObserver {
                         override fun onCreateSuccess(sessionDescription: SessionDescription?) {}
                         override fun onSetSuccess() {
-                            Log.d(TAG, "Set remote description for client: $clientId")
+                            Timber.d("Set remote description for client: $clientId")
                             continuation.resume(true)
                         }
                         override fun onCreateFailure(error: String?) {
-                            Log.e(TAG, "Set remote description failed: $error")
+                            Timber.e("Set remote description failed: $error")
                             continuation.resume(false)
                         }
                         override fun onSetFailure(error: String?) {
-                            Log.e(TAG, "Set remote description failed: $error")
+                            Timber.e("Set remote description failed: $error")
                             continuation.resume(false)
                         }
                     }, answer)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to set remote description for client: $clientId", e)
+                    Timber.e("Failed to set remote description for client: $clientId", e)
                     continuation.resume(false)
                 }
             } ?: continuation.resume(false)
@@ -345,7 +344,7 @@ class WebRTCManager @Inject constructor(
         stopBroadcasting()
         peerConnectionFactory?.dispose()
         peerConnectionFactory = null
-        Log.d(TAG, "WebRTC cleanup completed")
+        Timber.d("WebRTC cleanup completed")
     }
 }
 
