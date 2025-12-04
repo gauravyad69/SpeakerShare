@@ -91,12 +91,9 @@ fun SyncedFilePlayerScreen(
         viewModel.startDiscovery()
     }
     
-    // Clean up when leaving screen
-    DisposableEffect(Unit) {
-        onDispose {
-            viewModel.stopSession()
-        }
-    }
+    // Note: We don't call stopSession() in DisposableEffect because it would
+    // clear files on rotation. Session cleanup happens in ViewModel.onCleared()
+    // when the screen is actually destroyed (navigating away).
     
     // Show error toast
     LaunchedEffect(uiState.error) {

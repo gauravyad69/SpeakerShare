@@ -47,6 +47,11 @@ class SyncedPlaybackManager @Inject constructor(
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
+    // Last known actual player position (updated by ViewModel on main thread)
+    // Used for accurate sync pulses instead of calculated position
+    @Volatile
+    var lastActualPosition: Long = -1L
+    
     // Current session state
     private val _sessionState = MutableStateFlow<SyncSessionState>(SyncSessionState.Idle)
     val sessionState: StateFlow<SyncSessionState> = _sessionState.asStateFlow()
@@ -609,7 +614,14 @@ class SyncedPlaybackManager @Inject constructor(
                 delay(SYNC_INTERVAL_MS)
                 
                 if (_playbackState.value.isPlaying) {
-                    val currentPos = calculateCurrentPosition()
+                    // Use actual player position if available (more accurate), otherwise calculate
+                    // lastActualPosition is updated by ViewModel on main thread periodically
+                    val actualPos = lastActualPosition
+                    val calculatedPos = calculateCurrentPosition()
+                    val currentPos = if (actualPos >= 0) actualPos else calculatedPos
+                    
+                    Timber.d("Sync pulse position: actual=$actualPos, calculated=$calculatedPos, using=$currentPos")
+                    
                     val pulse = PlaybackCommand.SyncPulse(
                         timestamp = clockSync.getSynchronizedTime(),
                         positionMs = currentPos

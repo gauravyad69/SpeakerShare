@@ -10,8 +10,11 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.media.sync.*
 import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -41,6 +44,9 @@ class SyncedFilePlayerViewModel @Inject constructor(
     
     // Flag to prevent duplicate track-end handling
     private var handlingTrackEnd = false
+    
+    // Job for tracking host position
+    private var hostPositionTrackingJob: Job? = null
     
     // Selected files
     private val _selectedFiles = MutableStateFlow<List<SyncedMediaFile>>(emptyList())
@@ -163,6 +169,8 @@ class SyncedFilePlayerViewModel @Inject constructor(
                     
                     // If we're the host, update the manager's position so sync pulses are accurate
                     if (_uiState.value.isHost && playerState.isPlaying) {
+                        // Update both playback state AND actual position for sync pulses
+                        syncedPlaybackManager.lastActualPosition = playerState.currentPositionMs
                         syncedPlaybackManager.updatePlaybackPosition(
                             playerState.currentPositionMs,
                             playerState.durationMs
@@ -197,6 +205,31 @@ class SyncedFilePlayerViewModel @Inject constructor(
     }
     
     /**
+     * Start tracking host position for accurate sync pulses
+     * This runs on main thread to safely access ExoPlayer
+     */
+    private fun startHostPositionTracking() {
+        hostPositionTrackingJob?.cancel()
+        hostPositionTrackingJob = viewModelScope.launch(Dispatchers.Main) {
+            while (isActive) {
+                // Update position every 200ms for accuracy (more frequent than sync pulses)
+                val position = player?.getCurrentPosition() ?: 0L
+                syncedPlaybackManager.lastActualPosition = position
+                delay(200)
+            }
+        }
+    }
+    
+    /**
+     * Stop host position tracking
+     */
+    private fun stopHostPositionTracking() {
+        hostPositionTrackingJob?.cancel()
+        hostPositionTrackingJob = null
+        syncedPlaybackManager.lastActualPosition = -1L
+    }
+    
+    /**
      * Start hosting a synced playback session
      */
     fun startHostSession() {
@@ -210,6 +243,9 @@ class SyncedFilePlayerViewModel @Inject constructor(
             }
             
             _uiState.update { it.copy(isLoading = true) }
+            
+            // Position tracking is handled by playerState collector in initializePlayer()
+            // which updates syncedPlaybackManager.lastActualPosition
             
             Timber.i("Calling syncedPlaybackManager.startHostSession...")
             val result = syncedPlaybackManager.startHostSession(context, files)
@@ -519,6 +555,7 @@ class SyncedFilePlayerViewModel @Inject constructor(
      * Stop session and cleanup
      */
     fun stopSession() {
+        stopHostPositionTracking()
         syncedPlaybackManager.stopSession()
         player?.release()
         player = null
@@ -528,6 +565,9 @@ class SyncedFilePlayerViewModel @Inject constructor(
     
     override fun onCleared() {
         super.onCleared()
+        // Full cleanup when ViewModel is destroyed (leaving screen)
+        stopHostPositionTracking()
+        syncedPlaybackManager.stopSession()
         player?.release()
         player = null
     }

@@ -34,14 +34,19 @@ class SyncedMediaPlayer(
         // How far ahead to buffer (ms)
         private const val BUFFER_AHEAD_MS = 5000L
         
-        // Acceptable position error before forcing seek (larger value to avoid constant seeking)
-        private const val POSITION_TOLERANCE_MS = 500L
+        // Acceptable position error before forcing seek (tightened for better sync)
+        private const val POSITION_TOLERANCE_MS = 100L
         
-        // Minimum time between corrective seeks (prevent seek spam)
-        private const val MIN_SEEK_INTERVAL_MS = 3000L
+        // Minimum time between corrective seeks (reduced to allow faster correction)
+        private const val MIN_SEEK_INTERVAL_MS = 1000L
         
         // Threshold for immediate seek (very large drift)
-        private const val LARGE_DRIFT_THRESHOLD_MS = 1500L
+        private const val LARGE_DRIFT_THRESHOLD_MS = 500L
+        
+        // Seek-ahead compensation (ms) - accounts for seek latency and buffering delay
+        // When corrective seeking, seek this much ahead of expected position
+        // Reduced from 250 to 100 to avoid oscillation/overshooting
+        private const val SEEK_AHEAD_COMPENSATION_MS = 100L
     }
     
     private var player: ExoPlayer? = null
@@ -367,8 +372,8 @@ class SyncedMediaPlayer(
             val timeSinceLastSeek = now - lastCorrectiveSeekTime
             
             // Determine if we should seek:
-            // - Large drift (>1500ms): seek immediately
-            // - Moderate drift (>500ms): only seek if enough time has passed since last seek
+            // - Large drift (>500ms): seek immediately
+            // - Moderate drift (>100ms): only seek if enough time has passed since last seek
             val shouldSeek = when {
                 absDrift > LARGE_DRIFT_THRESHOLD_MS -> true  // Large drift - always seek
                 timeSinceLastSeek > MIN_SEEK_INTERVAL_MS -> true  // Enough time passed
@@ -376,10 +381,20 @@ class SyncedMediaPlayer(
             }
             
             if (shouldSeek) {
-                Timber.i("Corrective seek: drift=${drift}ms, expectedPos=$expectedPositionMs, timeSinceLastSeek=${timeSinceLastSeek}ms")
-                exo.seekTo(expectedPositionMs)
+                // Apply seek-ahead compensation when behind (drift < 0)
+                // This accounts for seek latency - by the time seek completes, we need to be at expectedPos
+                val compensatedPosition = if (drift < 0) {
+                    // We're behind, seek ahead to compensate for seek latency
+                    (expectedPositionMs + SEEK_AHEAD_COMPENSATION_MS).coerceAtMost(duration)
+                } else {
+                    // We're ahead, just seek to expected position
+                    expectedPositionMs
+                }
+                
+                Timber.i("Corrective seek: drift=${drift}ms, expectedPos=$expectedPositionMs, compensatedPos=$compensatedPosition, timeSinceLastSeek=${timeSinceLastSeek}ms")
+                exo.seekTo(compensatedPosition)
                 lastCorrectiveSeekTime = now
-                _playerState.update { it.copy(currentPositionMs = expectedPositionMs, driftMs = 0) }
+                _playerState.update { it.copy(currentPositionMs = compensatedPosition, driftMs = 0) }
             } else {
                 // Just track drift for now
                 Timber.d("Drift $drift ms but skipping seek (last seek ${timeSinceLastSeek}ms ago)")
@@ -418,15 +433,13 @@ class SyncedMediaPlayer(
         positionTrackingJob?.cancel()
         positionTrackingJob = scope.launch {
             while (isActive) {
-                val elapsed = clockSync.getSynchronizedTime() - startTime
-                val expectedPosition = startPosition + elapsed
                 val actualPosition = player?.currentPosition ?: 0L
                 
+                // Just update the position, not the drift
+                // Drift is calculated accurately in syncPosition() from host sync pulses
                 _playerState.update { 
                     it.copy(
-                        currentPositionMs = actualPosition,
-                        expectedPositionMs = expectedPosition,
-                        driftMs = actualPosition - expectedPosition
+                        currentPositionMs = actualPosition
                     ) 
                 }
                 

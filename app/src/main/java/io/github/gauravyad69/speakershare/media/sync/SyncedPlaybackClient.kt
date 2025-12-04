@@ -3,11 +3,13 @@ package io.github.gauravyad69.speakershare.media.sync
 import timber.log.Timber
 import io.ktor.client.*
 import io.ktor.client.call.*
-import io.ktor.client.engine.android.*
+import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.serialization.gson.*
+import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,32 +20,37 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 /**
- * Client that connects to host's sync server and receives playback commands
+ * Client that connects to host's sync server and receives playback commands via WebSocket
  */
 @Singleton
 class SyncedPlaybackClient @Inject constructor(
     private val clockSynchronizer: ClockSynchronizer
 ) {
     companion object {
-        private const val POLL_INTERVAL_MS = 100L // Poll frequently for low latency
-        private const val CONNECTION_TIMEOUT_MS = 5000
+        private const val CONNECTION_TIMEOUT_MS = 5000L
         private const val CLOCK_SYNC_SAMPLES = 5 // Multiple samples for accuracy
-        private const val MAX_CONSECUTIVE_ERRORS = 10
+        private const val RECONNECT_DELAY_MS = 1000L
+        private const val MAX_RECONNECT_ATTEMPTS = 5
     }
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private var pollJob: Job? = null
-    private var consecutiveErrors = 0
+    private var webSocketJob: Job? = null
+    private var webSocketSession: WebSocketSession? = null
+    private val gson = Gson()
     
-    private val client = HttpClient(Android) {
+    private val client = HttpClient(CIO) {
         install(ContentNegotiation) {
             gson()
         }
+        install(WebSockets) {
+            pingInterval = 15_000
+        }
         engine {
-            connectTimeout = CONNECTION_TIMEOUT_MS
-            socketTimeout = CONNECTION_TIMEOUT_MS
+            requestTimeout = CONNECTION_TIMEOUT_MS
         }
     }
     
@@ -65,43 +72,38 @@ class SyncedPlaybackClient @Inject constructor(
     val sessionInfo: StateFlow<JoinResponse?> = _sessionInfo.asStateFlow()
     
     /**
-     * Connect to a sync host
+     * Connect to a sync host via WebSocket
      */
     suspend fun connectToHost(hostIp: String): Result<JoinResponse> {
         return try {
             hostAddress = hostIp
             val baseUrl = "http://$hostIp:${SyncedPlaybackServer.SYNC_SERVER_PORT}"
+            val wsUrl = "ws://$hostIp:${SyncedPlaybackServer.SYNC_SERVER_PORT}"
             
-            Timber.i("=== CONNECTING TO HOST === at $baseUrl")
+            Timber.i("=== CONNECTING TO HOST VIA WEBSOCKET === at $wsUrl")
             
-            // First sync clocks
+            // First sync clocks via HTTP (more reliable for initial sync)
             syncClock(baseUrl)
             Timber.i("Clock sync completed, offset = ${clockSynchronizer.getOffset()} ms")
             
-            // Join the session
-            Timber.i("Sending join request to $baseUrl/sync/join")
-            val response = client.post("$baseUrl/sync/join") {
-                parameter("clientId", clientId)
-            }
-            Timber.i("Join response status: ${response.status}")
+            // Connect via WebSocket for real-time commands
+            startWebSocketConnection(wsUrl)
             
-            if (response.status == HttpStatusCode.OK) {
-                val joinResponse = response.body<JoinResponse>()
-                if (joinResponse.success) {
-                    _sessionInfo.value = joinResponse
-                    _isConnected.value = true
-                    _connectionError.value = null
-                    
-                    // Start polling for commands
-                    startPolling(baseUrl)
-                    
-                    Timber.i("Connected to host: ${joinResponse.sessionId}")
-                    Result.success(joinResponse)
-                } else {
-                    Result.failure(Exception("Failed to join session"))
-                }
+            // Wait for session info from WebSocket
+            var attempts = 0
+            while (_sessionInfo.value == null && attempts < 50) { // 5 second timeout
+                delay(100)
+                attempts++
+            }
+            
+            val sessionInfo = _sessionInfo.value
+            if (sessionInfo != null && sessionInfo.success) {
+                _isConnected.value = true
+                _connectionError.value = null
+                Timber.i("Connected to host via WebSocket: ${sessionInfo.sessionId}")
+                Result.success(sessionInfo)
             } else {
-                Result.failure(Exception("Server returned ${response.status}"))
+                Result.failure(Exception("Failed to get session info from host"))
             }
         } catch (e: Exception) {
             Timber.e("Failed to connect to host", e)
@@ -115,19 +117,11 @@ class SyncedPlaybackClient @Inject constructor(
      */
     suspend fun disconnect() {
         try {
-            pollJob?.cancel()
-            pollJob = null
+            webSocketJob?.cancel()
+            webSocketJob = null
             
-            hostAddress?.let { host ->
-                val baseUrl = "http://$host:${SyncedPlaybackServer.SYNC_SERVER_PORT}"
-                try {
-                    client.post("$baseUrl/sync/leave") {
-                        parameter("clientId", clientId)
-                    }
-                } catch (e: Exception) {
-                    Timber.w("Failed to notify host of disconnect", e)
-                }
-            }
+            webSocketSession?.close(CloseReason(CloseReason.Codes.NORMAL, "Client disconnecting"))
+            webSocketSession = null
             
             _isConnected.value = false
             _sessionInfo.value = null
@@ -147,8 +141,163 @@ class SyncedPlaybackClient @Inject constructor(
     }
     
     /**
+     * Start WebSocket connection for real-time command reception
+     */
+    private fun startWebSocketConnection(wsUrl: String) {
+        webSocketJob?.cancel()
+        
+        webSocketJob = scope.launch {
+            var reconnectAttempts = 0
+            
+            while (isActive && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                try {
+                    Timber.i("Connecting WebSocket to $wsUrl/sync/ws/$clientId")
+                    
+                    client.webSocket("$wsUrl/sync/ws/$clientId") {
+                        webSocketSession = this
+                        reconnectAttempts = 0 // Reset on successful connection
+                        Timber.i("WebSocket connected successfully")
+                        
+                        // Listen for messages
+                        for (frame in incoming) {
+                            when (frame) {
+                                is Frame.Text -> {
+                                    val text = frame.readText()
+                                    handleWebSocketMessage(text)
+                                }
+                                is Frame.Close -> {
+                                    Timber.d("Server closed WebSocket connection")
+                                    break
+                                }
+                                else -> {}
+                            }
+                        }
+                    }
+                    
+                    webSocketSession = null
+                    
+                    // If we get here, connection was closed
+                    if (isActive && _isConnected.value) {
+                        Timber.w("WebSocket connection closed, will reconnect...")
+                        reconnectAttempts++
+                        delay(RECONNECT_DELAY_MS)
+                    }
+                    
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.e("WebSocket error: ${e.message}")
+                    webSocketSession = null
+                    reconnectAttempts++
+                    
+                    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                        _isConnected.value = false
+                        _connectionError.value = "Lost connection to host after $reconnectAttempts attempts"
+                        break
+                    }
+                    
+                    delay(RECONNECT_DELAY_MS)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Handle incoming WebSocket messages
+     */
+    private suspend fun handleWebSocketMessage(message: String) {
+        try {
+            val mapType = object : TypeToken<Map<String, Any>>() {}.type
+            val data: Map<String, Any> = gson.fromJson(message, mapType)
+            
+            val type = data["type"] as? String
+            
+            when (type) {
+                "session" -> {
+                    // Parse session info
+                    val dataField = data["data"]
+                    if (dataField != null) {
+                        val joinJson = gson.toJson(dataField)
+                        val joinResponse = gson.fromJson(joinJson, JoinResponse::class.java)
+                        _sessionInfo.value = joinResponse
+                        Timber.d("Received session info: ${joinResponse.sessionId}")
+                    }
+                }
+                "clock_sync_response" -> {
+                    // Handle clock sync response (if we do clock sync over WebSocket)
+                    val t1 = (data["t1"] as? Number)?.toLong() ?: 0L
+                    val t2 = (data["t2"] as? Number)?.toLong() ?: 0L
+                    val t3 = (data["t3"] as? Number)?.toLong() ?: 0L
+                    val t4 = System.currentTimeMillis()
+                    
+                    val roundTripTime = (t4 - t1) - (t3 - t2)
+                    val offset = ((t2 - t1) + (t3 - t4)) / 2
+                    
+                    clockSynchronizer.setOffset(offset)
+                    Timber.d("WebSocket clock sync: offset=$offset, rtt=$roundTripTime")
+                }
+                "pong" -> {
+                    // Heartbeat response
+                }
+                else -> {
+                    // Try to parse as a sync command
+                    val command = parseSyncCommand(data)
+                    if (command != null) {
+                        Timber.d("Received command via WebSocket: ${data["type"]}")
+                        _commands.emit(command)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Timber.w("Failed to parse WebSocket message: ${e.message}")
+        }
+    }
+    
+    /**
+     * Parse a sync command from WebSocket message
+     */
+    private fun parseSyncCommand(data: Map<String, Any>): PlaybackCommand? {
+        val type = data["type"] as? String ?: return null
+        val timestamp = (data["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis()
+        val positionMs = (data["positionMs"] as? Number)?.toLong() ?: 0L
+        val fileIndex = (data["fileIndex"] as? Number)?.toInt() ?: 0
+        val resumePlayback = data["resumePlayback"] as? Boolean ?: false
+        val autoPlay = data["autoPlay"] as? Boolean ?: false
+        
+        return when (type) {
+            "play" -> PlaybackCommand.Play(
+                timestamp = timestamp,
+                positionMs = positionMs,
+                fileIndex = fileIndex
+            )
+            "pause" -> PlaybackCommand.Pause(
+                timestamp = timestamp,
+                positionMs = positionMs
+            )
+            "seek" -> PlaybackCommand.Seek(
+                timestamp = timestamp,
+                positionMs = positionMs,
+                resumePlayback = resumePlayback
+            )
+            "switch" -> PlaybackCommand.SwitchFile(
+                timestamp = timestamp,
+                fileIndex = fileIndex,
+                autoPlay = autoPlay
+            )
+            "sync" -> PlaybackCommand.SyncPulse(
+                timestamp = timestamp,
+                positionMs = positionMs
+            )
+            "stop" -> PlaybackCommand.Stop(
+                timestamp = timestamp
+            )
+            else -> null
+        }
+    }
+    
+    /**
      * Sync clock with host using multiple samples for accuracy
-     * Updates the shared ClockSynchronizer so SyncedMediaPlayer uses the correct offset
+     * Uses HTTP for initial sync (more reliable than WebSocket for this)
      */
     private suspend fun syncClock(baseUrl: String) {
         try {
@@ -217,81 +366,17 @@ class SyncedPlaybackClient @Inject constructor(
         }
     }
     
-    private fun startPolling(baseUrl: String) {
-        pollJob?.cancel()
-        consecutiveErrors = 0
-        
-        pollJob = scope.launch {
-            while (isActive && _isConnected.value) {
-                try {
-                    val response = client.get("$baseUrl/sync/commands") {
-                        parameter("clientId", clientId)
-                    }
-                    
-                    if (response.status == HttpStatusCode.OK) {
-                        consecutiveErrors = 0 // Reset on success
-                        val commandsResponse = response.body<CommandsResponse>()
-                        
-                        for (cmd in commandsResponse.commands) {
-                            val playbackCommand = parseCommand(cmd)
-                            if (playbackCommand != null) {
-                                Timber.d("Received command: ${cmd.type}")
-                                _commands.emit(playbackCommand)
-                            }
-                        }
-                    } else {
-                        consecutiveErrors++
-                        Timber.w("Polling returned ${response.status}, errors=$consecutiveErrors")
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    consecutiveErrors++
-                    Timber.w("Polling error ($consecutiveErrors/$MAX_CONSECUTIVE_ERRORS): ${e.message}")
-                    
-                    // Disconnect if too many consecutive errors (host likely down)
-                    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-                        Timber.e("Too many consecutive polling errors, disconnecting")
-                        _isConnected.value = false
-                        _connectionError.value = "Lost connection to host"
-                        break
-                    }
-                }
-                
-                delay(POLL_INTERVAL_MS)
-            }
-        }
-    }
-    
-    private fun parseCommand(cmd: SyncCommand): PlaybackCommand? {
-        return when (cmd.type) {
-            "play" -> PlaybackCommand.Play(
-                timestamp = cmd.timestamp,
-                positionMs = cmd.positionMs,
-                fileIndex = cmd.fileIndex
-            )
-            "pause" -> PlaybackCommand.Pause(
-                timestamp = cmd.timestamp,
-                positionMs = cmd.positionMs
-            )
-            "seek" -> PlaybackCommand.Seek(
-                timestamp = cmd.timestamp,
-                positionMs = cmd.positionMs,
-                resumePlayback = cmd.resumePlayback
-            )
-            "switch" -> PlaybackCommand.SwitchFile(
-                timestamp = cmd.timestamp,
-                fileIndex = cmd.fileIndex,
-                autoPlay = cmd.autoPlay
-            )
-            "sync" -> PlaybackCommand.SyncPulse(
-                timestamp = cmd.timestamp,
-                positionMs = cmd.positionMs
-            )
-            "stop" -> PlaybackCommand.Stop(
-                timestamp = cmd.timestamp
-            )
-            else -> null
+    /**
+     * Request clock sync via WebSocket (for periodic re-sync)
+     */
+    suspend fun requestClockSyncViaWebSocket() {
+        try {
+            webSocketSession?.send(Frame.Text(gson.toJson(mapOf(
+                "type" to "clock_sync",
+                "t1" to System.currentTimeMillis()
+            ))))
+        } catch (e: Exception) {
+            Timber.w("Failed to request clock sync via WebSocket: ${e.message}")
         }
     }
 }
