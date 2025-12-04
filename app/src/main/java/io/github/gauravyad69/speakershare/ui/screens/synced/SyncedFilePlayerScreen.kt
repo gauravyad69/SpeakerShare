@@ -41,6 +41,7 @@ import io.github.gauravyad69.speakershare.media.sync.SyncSessionState
 import io.github.gauravyad69.speakershare.media.sync.TransferProgress
 import io.github.gauravyad69.speakershare.ui.viewmodels.SyncedFilePlayerViewModel
 import io.github.gauravyad69.speakershare.ui.viewmodels.SyncedPlayerUiState
+import androidx.compose.runtime.saveable.rememberSaveable
 import java.util.concurrent.TimeUnit
 
 /**
@@ -59,7 +60,16 @@ fun SyncedFilePlayerScreen(
     val selectedFiles by viewModel.selectedFiles.collectAsState()
     val discoveredHosts by viewModel.discoveredHosts.collectAsState()
     
-    var selectedTabIndex by remember { mutableStateOf(0) }
+    // Use rememberSaveable to survive configuration changes (rotation)
+    var selectedTabIndex by rememberSaveable { mutableStateOf(0) }
+    
+    // Auto-derive mode from session state - if we're in a session, show that mode
+    val effectiveTabIndex = when (uiState.sessionState) {
+        is SyncSessionState.HostActive -> 0
+        is SyncSessionState.ClientJoining, is SyncSessionState.ClientReady -> 1
+        else -> selectedTabIndex
+    }
+    
     val tabs = listOf("Host", "Client")
     
     // File picker launcher for multiple files
@@ -76,13 +86,9 @@ fun SyncedFilePlayerScreen(
         viewModel.initializePlayer()
     }
     
-    // Start discovery when client tab is selected
-    LaunchedEffect(selectedTabIndex) {
-        if (selectedTabIndex == 1) {
-            viewModel.startDiscovery()
-        } else {
-            viewModel.stopDiscovery()
-        }
+    // Always run discovery in background to find available hosts
+    LaunchedEffect(Unit) {
+        viewModel.startDiscovery()
     }
     
     // Clean up when leaving screen
@@ -125,35 +131,56 @@ fun SyncedFilePlayerScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Tab selector for Host/Client
-            TabRow(
-                selectedTabIndex = selectedTabIndex,
-                containerColor = MaterialTheme.colorScheme.surface
-            ) {
-                tabs.forEachIndexed { index, title ->
-                    Tab(
-                        selected = selectedTabIndex == index,
-                        onClick = { selectedTabIndex = index },
-                        text = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (index == 0) Icons.Filled.Podcasts else Icons.Filled.Headphones,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(title)
-                            }
+            // Mode selector - only show when not in active session
+            val isInSession = uiState.sessionState is SyncSessionState.HostActive ||
+                              uiState.sessionState is SyncSessionState.ClientJoining ||
+                              uiState.sessionState is SyncSessionState.ClientReady
+            
+            if (!isInSession) {
+                // Segmented button style mode selector
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    tabs.forEachIndexed { index, title ->
+                        val isSelected = effectiveTabIndex == index
+                        FilledTonalButton(
+                            onClick = { selectedTabIndex = index },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = if (isSelected) 
+                                    MaterialTheme.colorScheme.primaryContainer 
+                                else 
+                                    MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Icon(
+                                imageVector = if (index == 0) Icons.Filled.Podcasts else Icons.Filled.Headphones,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(title)
                         }
-                    )
+                    }
                 }
             }
             
-            // Content based on selected tab
+            // Show available hosts count when in host mode setup
+            if (!isInSession && effectiveTabIndex == 0 && discoveredHosts.isNotEmpty()) {
+                Text(
+                    text = "${discoveredHosts.size} host(s) available on network",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+            
+            // Content based on selected tab (use effectiveTabIndex for rotation survival)
             AnimatedContent(
-                targetState = selectedTabIndex,
+                targetState = effectiveTabIndex,
                 transitionSpec = {
                     fadeIn() + slideInHorizontally() togetherWith fadeOut() + slideOutHorizontally()
                 },
@@ -306,8 +333,8 @@ private fun HostModeContent(
             )
         }
         
-        // Drift indicator
-        if (isHostActive && uiState.driftMs > 0) {
+        // Drift indicator - always show when hosting
+        if (isHostActive) {
             item {
                 DriftIndicatorCard(driftMs = uiState.driftMs)
             }
@@ -557,11 +584,9 @@ private fun ClientModeContent(
                 }
             }
             
-            // Drift indicator for client
-            if (uiState.driftMs > 0) {
-                item {
-                    DriftIndicatorCard(driftMs = uiState.driftMs)
-                }
+            // Drift indicator for client - always show when connected
+            item {
+                DriftIndicatorCard(driftMs = uiState.driftMs)
             }
             
             // Sync Stats Card for client
@@ -1375,9 +1400,12 @@ private fun TransferProgressCard(
 @Composable
 private fun DriftIndicatorCard(driftMs: Long) {
     val absDrift = kotlin.math.abs(driftMs)
+    val isMeasuring = absDrift == 0L
+    
     val driftColor = when {
-        absDrift < 20 -> MaterialTheme.colorScheme.primary
-        absDrift < 50 -> Color(0xFFFF9800)
+        isMeasuring -> MaterialTheme.colorScheme.outline
+        absDrift < 30 -> MaterialTheme.colorScheme.primary
+        absDrift < 70 -> Color(0xFFFF9800) // Orange
         else -> MaterialTheme.colorScheme.error
     }
     
@@ -1394,23 +1422,24 @@ private fun DriftIndicatorCard(driftMs: Long) {
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Icon(
-                Icons.Filled.Timer,
+                if (isMeasuring) Icons.Filled.Sync else Icons.Filled.Timer,
                 contentDescription = null,
                 tint = driftColor
             )
             Column {
                 Text(
-                    text = "Sync Drift: ${absDrift}ms",
+                    text = if (isMeasuring) "Sync Drift: Measuring..." else "Sync Drift: ${absDrift}ms",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = driftColor
                 )
                 Text(
                     text = when {
-                        absDrift < 20 -> "Excellent sync"
-                        absDrift < 50 -> "Good sync"
-                        absDrift < 100 -> "Sync may be noticeable"
-                        else -> "Poor sync - reconnect may help"
+                        isMeasuring -> "Waiting for sync data..."
+                        absDrift < 30 -> "Excellent sync (< 30ms)"
+                        absDrift < 70 -> "Good sync (< 70ms)"
+                        absDrift < 150 -> "Acceptable sync"
+                        else -> "High drift - try reconnecting"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1481,10 +1510,11 @@ private fun SyncStatsCard(
                         val absDrift = kotlin.math.abs(driftMs)
                         StatRow(
                             label = "Drift",
-                            value = "${absDrift}ms",
+                            value = if (absDrift == 0L) "..." else "${absDrift}ms",
                             valueColor = when {
-                                absDrift < 20 -> MaterialTheme.colorScheme.primary
-                                absDrift < 50 -> Color(0xFFFF9800)
+                                absDrift == 0L -> MaterialTheme.colorScheme.outline
+                                absDrift < 30 -> MaterialTheme.colorScheme.primary
+                                absDrift < 70 -> Color(0xFFFF9800)
                                 else -> MaterialTheme.colorScheme.error
                             }
                         )
