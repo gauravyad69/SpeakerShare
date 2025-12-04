@@ -36,6 +36,12 @@ class SyncedMediaPlayer(
         
         // Acceptable position error before forcing seek (larger value to avoid constant seeking)
         private const val POSITION_TOLERANCE_MS = 500L
+        
+        // Minimum time between corrective seeks (prevent seek spam)
+        private const val MIN_SEEK_INTERVAL_MS = 3000L
+        
+        // Threshold for immediate seek (very large drift)
+        private const val LARGE_DRIFT_THRESHOLD_MS = 1500L
     }
     
     private var player: ExoPlayer? = null
@@ -50,6 +56,9 @@ class SyncedMediaPlayer(
     
     // Scheduled playback
     private var scheduledPlayJob: Job? = null
+    
+    // Last corrective seek time
+    private var lastCorrectiveSeekTime: Long = 0L
     
     /**
      * Initialize the player
@@ -275,8 +284,10 @@ class SyncedMediaPlayer(
     
     /**
      * Sync position with expected position from host
+     * @param hostPositionMs The media position on the host when it sent the sync pulse
+     * @param hostTimestamp The synchronized timestamp when the host sent the pulse
      */
-    fun syncPosition(expectedPositionMs: Long, syncTime: Long) {
+    fun syncPosition(hostPositionMs: Long, hostTimestamp: Long) {
         val exo = player ?: return
         
         // Don't sync if player is ended - wait for next track
@@ -294,6 +305,14 @@ class SyncedMediaPlayer(
         val currentPosition = exo.currentPosition
         val duration = exo.duration
         
+        // Calculate the expected position NOW by accounting for time elapsed since the host sent the pulse
+        // The host was at hostPositionMs at hostTimestamp. Since then, (currentSyncTime - hostTimestamp) ms have elapsed.
+        val currentSyncTime = clockSync.getSynchronizedTime()
+        val elapsedSinceHostSent = currentSyncTime - hostTimestamp
+        val expectedPositionMs = hostPositionMs + elapsedSinceHostSent
+        
+        Timber.d("Sync calculation: hostPos=$hostPositionMs, hostTime=$hostTimestamp, currentSyncTime=$currentSyncTime, elapsed=$elapsedSinceHostSent, expectedPos=$expectedPositionMs")
+        
         // Don't sync if expected position is 0 or very small (likely invalid)
         if (expectedPositionMs < 100) {
             Timber.d("Ignoring sync pulse with position $expectedPositionMs (too small)")
@@ -306,7 +325,7 @@ class SyncedMediaPlayer(
             return
         }
         
-        // Drift = actual player position - expected (host) position
+        // Drift = actual player position - expected position
         // Positive drift = we're ahead of host, negative = we're behind host
         val drift = currentPosition - expectedPositionMs
         val absDrift = kotlin.math.abs(drift)
@@ -317,25 +336,53 @@ class SyncedMediaPlayer(
         // - player is actually playing (currentPosition > 0)
         // - position has advanced beyond initial buffering
         if (absDrift < 5000 && currentPosition > 1000) {
-            // ClockSynchronizer expects: positive = we're BEHIND host (need to INCREASE offset to catch up)
-            // Our drift: positive = we're AHEAD (current > expected)
+            // Drift direction:
+            //   drift > 0: client AHEAD of expected → need to DECREASE getSynchronizedTime() → DECREASE offset
+            //   drift < 0: client BEHIND expected → need to INCREASE getSynchronizedTime() → INCREASE offset  
+            // 
+            // ClockSynchronizer applies: newOffset = offset + (avgDrift / 3)
+            //   positive avgDrift → increase offset → increase getSynchronizedTime() → increase expectedPos
+            //   negative avgDrift → decrease offset → decrease getSynchronizedTime() → decrease expectedPos
+            //
             // So we need to pass -drift:
-            //   - If we're ahead (drift > 0), pass negative → decrease offset → slow down
-            //   - If we're behind (drift < 0), pass positive → increase offset → speed up
-            clockSync.recordDrift(-drift, currentPosition)
-            Timber.d("Recorded drift: local=$currentPosition, expected=$expectedPositionMs, drift=${drift}ms, sent=${-drift}ms")
+            //   drift > 0 (ahead) → pass negative → decrease offset → decrease expectedPos → client catches up
+            //   drift < 0 (behind) → pass positive → increase offset → increase expectedPos → wait, that makes it worse!
+            //
+            // Actually, let's trace through more carefully with the new calculation:
+            //   expectedPos = hostPos + (getSynchronizedTime() - hostTimestamp)
+            //   If we INCREASE offset → getSynchronizedTime goes UP → expectedPos goes UP
+            //   If client is BEHIND (drift < 0, localPos < expectedPos):
+            //     We want expectedPos to go DOWN to match localPos
+            //     So we need offset to DECREASE
+            //     So we should pass NEGATIVE avgDrift
+            //   Therefore, pass drift directly (negative when behind → negative adjustment)
+            clockSync.recordDrift(drift, currentPosition)
+            Timber.d("Recorded drift: local=$currentPosition, expected=$expectedPositionMs, drift=${drift}ms")
         }
         
         if (absDrift > POSITION_TOLERANCE_MS) {
             Timber.w("Position drift detected: ${drift}ms (current=$currentPosition, expected=$expectedPositionMs)")
             
-            // Only seek if drift is very large (over 2 seconds)
-            if (absDrift > 2000) {
-                Timber.i("Large drift, seeking to $expectedPositionMs")
+            val now = System.currentTimeMillis()
+            val timeSinceLastSeek = now - lastCorrectiveSeekTime
+            
+            // Determine if we should seek:
+            // - Large drift (>1500ms): seek immediately
+            // - Moderate drift (>500ms): only seek if enough time has passed since last seek
+            val shouldSeek = when {
+                absDrift > LARGE_DRIFT_THRESHOLD_MS -> true  // Large drift - always seek
+                timeSinceLastSeek > MIN_SEEK_INTERVAL_MS -> true  // Enough time passed
+                else -> false
+            }
+            
+            if (shouldSeek) {
+                Timber.i("Corrective seek: drift=${drift}ms, expectedPos=$expectedPositionMs, timeSinceLastSeek=${timeSinceLastSeek}ms")
                 exo.seekTo(expectedPositionMs)
-                _playerState.update { it.copy(currentPositionMs = expectedPositionMs, driftMs = drift) }
+                lastCorrectiveSeekTime = now
+                _playerState.update { it.copy(currentPositionMs = expectedPositionMs, driftMs = 0) }
             } else {
-                // Just track drift for now, don't seek for small differences
+                // Just track drift for now
+                Timber.d("Drift $drift ms but skipping seek (last seek ${timeSinceLastSeek}ms ago)")
                 _playerState.update { it.copy(driftMs = drift) }
             }
         }
