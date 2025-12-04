@@ -248,6 +248,12 @@ class SyncedFilePlayerViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             
+            // Ensure player is initialized (may have been released after previous session)
+            if (player == null) {
+                Timber.i("Player was null, re-initializing for rejoin")
+                initializePlayer()
+            }
+            
             val result = syncedPlaybackManager.joinSession(
                 context, hostAddress, sessionId, mediaFiles
             )

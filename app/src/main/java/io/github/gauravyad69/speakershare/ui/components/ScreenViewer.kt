@@ -103,7 +103,10 @@ fun ScreenViewer(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(400.dp)  // Larger height
+                    .then(
+                        if (isFullscreen) Modifier.fillMaxHeight()
+                        else Modifier.height(400.dp)
+                    )
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
