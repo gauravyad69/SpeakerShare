@@ -1374,9 +1374,10 @@ private fun TransferProgressCard(
 
 @Composable
 private fun DriftIndicatorCard(driftMs: Long) {
+    val absDrift = kotlin.math.abs(driftMs)
     val driftColor = when {
-        driftMs < 20 -> MaterialTheme.colorScheme.primary
-        driftMs < 50 -> Color(0xFFFF9800)
+        absDrift < 20 -> MaterialTheme.colorScheme.primary
+        absDrift < 50 -> Color(0xFFFF9800)
         else -> MaterialTheme.colorScheme.error
     }
     
@@ -1399,16 +1400,17 @@ private fun DriftIndicatorCard(driftMs: Long) {
             )
             Column {
                 Text(
-                    text = "Sync Drift: ${driftMs}ms",
+                    text = "Sync Drift: ${absDrift}ms",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = driftColor
                 )
                 Text(
                     text = when {
-                        driftMs < 20 -> "Excellent sync"
-                        driftMs < 50 -> "Good sync"
-                        else -> "Sync may be noticeable"
+                        absDrift < 20 -> "Excellent sync"
+                        absDrift < 50 -> "Good sync"
+                        absDrift < 100 -> "Sync may be noticeable"
+                        else -> "Poor sync - reconnect may help"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1476,12 +1478,13 @@ private fun SyncStatsCard(
                         }
                     )
                     if (!isHost) {
+                        val absDrift = kotlin.math.abs(driftMs)
                         StatRow(
                             label = "Drift",
-                            value = "${driftMs}ms",
+                            value = "${absDrift}ms",
                             valueColor = when {
-                                driftMs < 20 -> MaterialTheme.colorScheme.primary
-                                driftMs < 50 -> Color(0xFFFF9800)
+                                absDrift < 20 -> MaterialTheme.colorScheme.primary
+                                absDrift < 50 -> Color(0xFFFF9800)
                                 else -> MaterialTheme.colorScheme.error
                             }
                         )
