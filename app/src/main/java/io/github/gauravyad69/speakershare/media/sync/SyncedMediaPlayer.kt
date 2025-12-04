@@ -188,13 +188,19 @@ class SyncedMediaPlayer(
                 }
             }
         } else {
-            // Start immediately (we're late, adjust position)
-            // Guard against overflow: if delay is hugely negative, just use safePositionMs
-            val adjustedPosition = if (delay < -60_000) {
-                Timber.w("Delay too negative ($delay), using safe position")
-                safePositionMs
+            // We're late or exactly on time
+            // Only adjust position if we're significantly late (> 50ms)
+            val adjustedPosition = if (delay < -50) {
+                // Guard against overflow: if delay is hugely negative, just use safePositionMs
+                if (delay < -60_000) {
+                    Timber.w("Delay too negative ($delay), using safe position")
+                    safePositionMs
+                } else {
+                    (safePositionMs + (-delay)).coerceIn(0L, duration.coerceAtLeast(0L))
+                }
             } else {
-                (safePositionMs + (-delay)).coerceIn(0L, duration.coerceAtLeast(0L))
+                // Within 50ms of target time, just use the requested position
+                safePositionMs
             }
             
             // Don't start if adjusted position is at or past the end

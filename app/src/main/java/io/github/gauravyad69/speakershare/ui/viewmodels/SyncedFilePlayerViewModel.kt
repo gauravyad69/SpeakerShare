@@ -363,7 +363,8 @@ class SyncedFilePlayerViewModel @Inject constructor(
             if (state is SyncSessionState.HostActive) {
                 val nextIndex = state.currentFileIndex + 1
                 if (nextIndex < state.mediaFiles.size) {
-                    val wasPlaying = _uiState.value.isPlaying
+                    // Capture wasPlaying BEFORE switchFile changes the state
+                    val wasPlaying = syncedPlaybackManager.playbackState.value.isPlaying
                     Timber.i("Switching to next track: $nextIndex, wasPlaying=$wasPlaying")
                     
                     // Reset track-end flag for new track
@@ -400,7 +401,8 @@ class SyncedFilePlayerViewModel @Inject constructor(
             if (state is SyncSessionState.HostActive) {
                 val prevIndex = state.currentFileIndex - 1
                 if (prevIndex >= 0) {
-                    val wasPlaying = _uiState.value.isPlaying
+                    // Capture wasPlaying BEFORE switchFile changes the state
+                    val wasPlaying = syncedPlaybackManager.playbackState.value.isPlaying
                     Timber.i("Switching to previous track: $prevIndex, wasPlaying=$wasPlaying")
                     
                     syncedPlaybackManager.switchFile(prevIndex)
