@@ -433,6 +433,104 @@ class SyncedPlaybackServer @Inject constructor(
                 Timber.i("WebSocket client disconnected: $clientId")
             }
         }
+        
+        // WebSocket file transfer - faster than HTTP with progress streaming
+        webSocket("/file/ws/{hash}") {
+            val hash = call.parameters["hash"]
+            if (hash == null) {
+                send(Frame.Text(gson.toJson(mapOf("type" to "error", "message" to "Missing hash"))))
+                close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Missing hash"))
+                return@webSocket
+            }
+            
+            val uri = fileUriMap[hash]
+            if (uri == null) {
+                Timber.w("WebSocket file transfer: File not found for hash: $hash")
+                send(Frame.Text(gson.toJson(mapOf("type" to "error", "message" to "File not found"))))
+                close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "File not found"))
+                return@webSocket
+            }
+            
+            try {
+                Timber.i("WebSocket file transfer started: hash=$hash")
+                val appContext = this@SyncedPlaybackServer.context
+                val inputStream = appContext.contentResolver.openInputStream(uri)
+                
+                if (inputStream == null) {
+                    send(Frame.Text(gson.toJson(mapOf("type" to "error", "message" to "Cannot read file"))))
+                    close(CloseReason(CloseReason.Codes.INTERNAL_ERROR, "Cannot read file"))
+                    return@webSocket
+                }
+                
+                val fileInfo = sessionInfo?.files?.find { it.hash == hash }
+                val totalSize = fileInfo?.sizeBytes ?: inputStream.available().toLong()
+                val mimeType = fileInfo?.mimeType ?: "application/octet-stream"
+                
+                // Send file metadata first
+                send(Frame.Text(gson.toJson(mapOf(
+                    "type" to "file_start",
+                    "hash" to hash,
+                    "size" to totalSize,
+                    "mimeType" to mimeType
+                ))))
+                
+                // Wait for client acknowledgment to support resume
+                var startOffset = 0L
+                for (frame in incoming) {
+                    if (frame is Frame.Text) {
+                        val msg = gson.fromJson(frame.readText(), Map::class.java)
+                        if (msg["type"] == "resume") {
+                            startOffset = (msg["offset"] as? Number)?.toLong() ?: 0L
+                            Timber.d("Client requesting resume from offset: $startOffset")
+                        }
+                        break
+                    }
+                }
+                
+                // Skip to offset if resuming
+                if (startOffset > 0) {
+                    inputStream.skip(startOffset)
+                }
+                
+                // Stream file in chunks as binary frames
+                val chunkSize = 64 * 1024 // 64KB chunks
+                val buffer = ByteArray(chunkSize)
+                var bytesSent = startOffset
+                var bytesRead: Int
+                
+                inputStream.use { stream ->
+                    while (stream.read(buffer).also { bytesRead = it } != -1) {
+                        // Send binary data
+                        val chunk = if (bytesRead == chunkSize) buffer else buffer.copyOf(bytesRead)
+                        send(Frame.Binary(true, chunk))
+                        
+                        bytesSent += bytesRead
+                        
+                        // Send progress update every 256KB
+                        if (bytesSent % (256 * 1024) < chunkSize) {
+                            send(Frame.Text(gson.toJson(mapOf(
+                                "type" to "progress",
+                                "sent" to bytesSent,
+                                "total" to totalSize
+                            ))))
+                        }
+                    }
+                }
+                
+                // Send completion
+                send(Frame.Text(gson.toJson(mapOf(
+                    "type" to "file_complete",
+                    "hash" to hash,
+                    "size" to bytesSent
+                ))))
+                
+                Timber.i("WebSocket file transfer complete: hash=$hash, bytes=$bytesSent")
+                
+            } catch (e: Exception) {
+                Timber.e("WebSocket file transfer error", e)
+                send(Frame.Text(gson.toJson(mapOf("type" to "error", "message" to e.message))))
+            }
+        }
     }
     
     /**

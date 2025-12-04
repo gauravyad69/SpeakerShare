@@ -6,10 +6,15 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import timber.log.Timber
 import io.ktor.client.*
+import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.*
+import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.websocket.*
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
@@ -273,6 +278,170 @@ class SyncedFileTransfer @Inject constructor() {
                 ))
                 null
             }
+        }
+    }
+    
+    private val gson = Gson()
+    
+    /**
+     * Download file from host via WebSocket (faster, with real-time progress)
+     * Falls back to HTTP if WebSocket fails
+     */
+    suspend fun downloadFileViaWebSocket(
+        context: Context,
+        hostAddress: String,
+        file: SyncedMediaFile,
+        resumeOffset: Long = 0L
+    ): Uri? {
+        return withContext(Dispatchers.IO) {
+            try {
+                Timber.d("WebSocket download starting: ${file.name} from $hostAddress")
+                
+                updateProgress(file.contentHash, TransferProgress(
+                    fileName = file.name,
+                    totalBytes = file.sizeBytes,
+                    downloadedBytes = resumeOffset,
+                    status = TransferStatus.DOWNLOADING
+                ))
+                
+                // Create cache directory
+                val cacheDir = File(context.cacheDir, CACHE_DIR)
+                cacheDir.mkdirs()
+                
+                val tempFile = File(cacheDir, "${file.contentHash}.tmp")
+                val finalFile = File(cacheDir, file.contentHash)
+                
+                // If resuming, check temp file exists
+                val actualOffset = if (resumeOffset > 0 && tempFile.exists()) {
+                    minOf(resumeOffset, tempFile.length())
+                } else {
+                    if (tempFile.exists()) tempFile.delete()
+                    0L
+                }
+                
+                val client = HttpClient(CIO) {
+                    install(WebSockets) {
+                        pingInterval = 15_000
+                    }
+                    engine {
+                        requestTimeout = 5 * 60 * 1000 // 5 minutes
+                    }
+                }
+                
+                var downloadedBytes = actualOffset
+                var success = false
+                
+                try {
+                    client.webSocket(
+                        host = hostAddress,
+                        port = SyncedPlaybackServer.SYNC_SERVER_PORT,
+                        path = "/file/ws/${file.contentHash}"
+                    ) {
+                        // Wait for file_start message
+                        val startFrame = incoming.receive()
+                        if (startFrame is Frame.Text) {
+                            val msg = parseJsonMap(startFrame.readText())
+                            if (msg["type"] == "error") {
+                                Timber.e("Server error: ${msg["message"]}")
+                                return@webSocket
+                            }
+                            Timber.d("File transfer started: ${msg["size"]} bytes")
+                        }
+                        
+                        // Send resume offset if needed
+                        send(Frame.Text(gson.toJson(mapOf(
+                            "type" to "resume",
+                            "offset" to actualOffset
+                        ))))
+                        
+                        // Open file for writing (append if resuming)
+                        FileOutputStream(tempFile, actualOffset > 0).use { output ->
+                            for (frame in incoming) {
+                                when (frame) {
+                                    is Frame.Binary -> {
+                                        // Write binary data to file
+                                        output.write(frame.readBytes())
+                                        downloadedBytes += frame.readBytes().size
+                                        
+                                        // Update progress
+                                        updateProgress(file.contentHash, TransferProgress(
+                                            fileName = file.name,
+                                            totalBytes = file.sizeBytes,
+                                            downloadedBytes = downloadedBytes,
+                                            status = TransferStatus.DOWNLOADING
+                                        ))
+                                    }
+                                    is Frame.Text -> {
+                                        val msg = parseJsonMap(frame.readText())
+                                        when (msg["type"]) {
+                                            "progress" -> {
+                                                // Server-sent progress (every 256KB)
+                                                val sent = (msg["sent"] as? Number)?.toLong() ?: downloadedBytes
+                                                downloadedBytes = sent
+                                            }
+                                            "file_complete" -> {
+                                                Timber.d("Server reports transfer complete")
+                                                success = true
+                                                break
+                                            }
+                                            "error" -> {
+                                                Timber.e("Transfer error: ${msg["message"]}")
+                                                break
+                                            }
+                                        }
+                                    }
+                                    is Frame.Close -> {
+                                        Timber.d("WebSocket closed")
+                                        break
+                                    }
+                                    else -> {}
+                                }
+                            }
+                        }
+                    }
+                } finally {
+                    client.close()
+                }
+                
+                if (success) {
+                    // Verify hash
+                    val downloadedHash = calculateLocalFileHash(tempFile)
+                    if (downloadedHash == file.contentHash) {
+                        tempFile.renameTo(finalFile)
+                        
+                        updateProgress(file.contentHash, TransferProgress(
+                            fileName = file.name,
+                            totalBytes = file.sizeBytes,
+                            downloadedBytes = file.sizeBytes,
+                            status = TransferStatus.COMPLETED
+                        ))
+                        
+                        Timber.i("WebSocket download verified: ${file.name}")
+                        return@withContext Uri.fromFile(finalFile)
+                    } else {
+                        Timber.e("Hash mismatch after WebSocket download")
+                        tempFile.delete()
+                    }
+                }
+                
+                // Fall back to HTTP if WebSocket failed
+                Timber.w("WebSocket download failed, falling back to HTTP")
+                downloadFile(context, hostAddress, file)
+                
+            } catch (e: Exception) {
+                Timber.e("WebSocket download error, falling back to HTTP", e)
+                // Fall back to HTTP
+                downloadFile(context, hostAddress, file)
+            }
+        }
+    }
+    
+    private fun parseJsonMap(json: String): Map<String, Any?> {
+        return try {
+            val mapType = object : TypeToken<Map<String, Any?>>() {}.type
+            gson.fromJson(json, mapType)
+        } catch (e: Exception) {
+            emptyMap()
         }
     }
     
