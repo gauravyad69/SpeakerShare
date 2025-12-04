@@ -993,6 +993,7 @@ private fun VideoPlayerCard(
     isReadOnly: Boolean = false
 ) {
     var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
+    var isFullscreen by remember { mutableStateOf(false) }
     
     // Create ExoPlayer
     DisposableEffect(file.uri) {
@@ -1037,11 +1038,14 @@ private fun VideoPlayerCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Video player view
+            // Video player view with fullscreen support
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
+                    .then(
+                        if (isFullscreen) Modifier.fillMaxHeight()
+                        else Modifier.aspectRatio(16f / 9f)
+                    )
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color.Black)
             ) {
@@ -1066,78 +1070,101 @@ private fun VideoPlayerCard(
                         CircularProgressIndicator(color = Color.White)
                     }
                 }
-            }
-            
-            // Progress bar
-            Column {
-                Slider(
-                    value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
-                    onValueChange = { if (!isReadOnly) onSeek((it * duration).toLong()) },
-                    enabled = !isReadOnly
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                
+                // Fullscreen toggle button overlay
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(8.dp),
+                    contentAlignment = Alignment.TopEnd
                 ) {
-                    Text(formatDuration(currentPosition), style = MaterialTheme.typography.bodySmall)
-                    Text(formatDuration(duration), style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            
-            // Playback controls
-            if (!isReadOnly) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onPrevious, enabled = hasPrevious) {
-                        Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
-                    }
-                    
-                    IconButton(onClick = { onSeek(maxOf(0, currentPosition - 10000)) }) {
-                        Icon(Icons.Filled.Replay10, contentDescription = "Rewind 10s")
-                    }
-                    
-                    FilledIconButton(
-                        onClick = { if (isPlaying) onPause() else onPlay() },
-                        modifier = Modifier.size(56.dp)
+                    IconButton(
+                        onClick = { isFullscreen = !isFullscreen },
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color.Black.copy(alpha = 0.5f),
+                            contentColor = Color.White
+                        )
                     ) {
                         Icon(
-                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            modifier = Modifier.size(28.dp)
+                            imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen"
                         )
                     }
-                    
-                    IconButton(onClick = { onSeek(currentPosition + 10000) }) {
-                        Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s")
-                    }
-                    
-                    IconButton(onClick = onNext, enabled = hasNext) {
-                        Icon(Icons.Filled.SkipNext, contentDescription = "Next")
-                    }
-                }
-            } else {
-                // Sync indicator
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Filled.Sync,
-                        contentDescription = null,
-                        tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isPlaying) "Synced with host" else "Waiting for host",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
+            
+            // Hide controls in fullscreen mode
+            if (!isFullscreen) {
+                Column {
+                    Slider(
+                        value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
+                        onValueChange = { if (!isReadOnly) onSeek((it * duration).toLong()) },
+                        enabled = !isReadOnly
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(formatDuration(currentPosition), style = MaterialTheme.typography.bodySmall)
+                        Text(formatDuration(duration), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            
+                // Playback controls
+                if (!isReadOnly) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onPrevious, enabled = hasPrevious) {
+                            Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
+                        }
+                        
+                        IconButton(onClick = { onSeek(maxOf(0, currentPosition - 10000)) }) {
+                            Icon(Icons.Filled.Replay10, contentDescription = "Rewind 10s")
+                        }
+                        
+                        FilledIconButton(
+                            onClick = { if (isPlaying) onPause() else onPlay() },
+                            modifier = Modifier.size(56.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        
+                        IconButton(onClick = { onSeek(currentPosition + 10000) }) {
+                            Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s")
+                        }
+                        
+                        IconButton(onClick = onNext, enabled = hasNext) {
+                            Icon(Icons.Filled.SkipNext, contentDescription = "Next")
+                        }
+                    }
+                } else {
+                    // Sync indicator
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.Sync,
+                            contentDescription = null,
+                            tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isPlaying) "Synced with host" else "Waiting for host",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } // End of !isFullscreen
         }
     }
 }
