@@ -635,6 +635,8 @@ private fun AdvancedSettingsSection(
 ) {
     val enableDebugLogging by viewModel.enableDebugLogging.collectAsState()
     val autoStopTimer by viewModel.autoStopTimer.collectAsState()
+    val syncPositionTolerance by viewModel.syncPositionTolerance.collectAsState()
+    val syncMinSeekInterval by viewModel.syncMinSeekInterval.collectAsState()
     
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -688,6 +690,39 @@ private fun AdvancedSettingsSection(
                         steps = 11,
                         valueText = if (autoStopTimer == 0) "Disabled" else "$autoStopTimer min",
                         onValueChange = { viewModel.setAutoStopTimer(it.toInt()) }
+                    )
+                    
+                    Divider()
+                    
+                    Text(
+                        text = "Sync Settings",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    
+                    Text(
+                        text = "Configure media playback synchronization between devices. " +
+                               "Higher tolerance = more stable, lower tolerance = tighter sync.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    SliderSetting(
+                        title = "Position Tolerance",
+                        value = syncPositionTolerance.toFloat(),
+                        valueRange = 50f..1000f,
+                        steps = 18,
+                        valueText = "${syncPositionTolerance}ms",
+                        onValueChange = { viewModel.setSyncPositionTolerance(it.toInt()) }
+                    )
+                    
+                    SliderSetting(
+                        title = "Seek Cooldown",
+                        value = syncMinSeekInterval.toFloat(),
+                        valueRange = 500f..10000f,
+                        steps = 18,
+                        valueText = "${syncMinSeekInterval}ms",
+                        onValueChange = { viewModel.setSyncMinSeekInterval(it.toInt()) }
                     )
                     
                     Divider()

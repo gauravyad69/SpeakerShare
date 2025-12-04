@@ -81,6 +81,13 @@ class SettingsViewModel @Inject constructor(
     private val _autoStopTimer = MutableStateFlow(0) // 0 = no auto-stop
     val autoStopTimer: StateFlow<Int> = _autoStopTimer.asStateFlow()
 
+    // Sync settings (for media playback sync between devices)
+    private val _syncPositionTolerance = MutableStateFlow(250) // ms
+    val syncPositionTolerance: StateFlow<Int> = _syncPositionTolerance.asStateFlow()
+
+    private val _syncMinSeekInterval = MutableStateFlow(3000) // ms  
+    val syncMinSeekInterval: StateFlow<Int> = _syncMinSeekInterval.asStateFlow()
+
     // UI state
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -94,6 +101,7 @@ class SettingsViewModel @Inject constructor(
     init {
         loadSettings()
         loadLatencyProfile()
+        loadSyncSettings()
         observeSettingsChanges()
     }
     
@@ -105,6 +113,14 @@ class SettingsViewModel @Inject constructor(
         _latencyProfile.value = savedProfile
         _latencyConfig.value = LatencyConfig.fromProfile(savedProfile)
         audioStreamManager.setLatencyProfile(savedProfile)
+    }
+    
+    /**
+     * Load sync settings from settings repository
+     */
+    private fun loadSyncSettings() {
+        _syncPositionTolerance.value = settingsRepository.getSyncPositionTolerance()
+        _syncMinSeekInterval.value = settingsRepository.getSyncMinSeekInterval()
     }
 
     /**
@@ -262,6 +278,24 @@ class SettingsViewModel @Inject constructor(
 
     fun setAutoStopTimer(minutes: Int) {
         _autoStopTimer.value = minutes.coerceAtLeast(0)
+    }
+
+    /**
+     * Set sync position tolerance (how much drift before corrective seek)
+     */
+    fun setSyncPositionTolerance(toleranceMs: Int) {
+        val clamped = toleranceMs.coerceIn(50, 1000)
+        _syncPositionTolerance.value = clamped
+        settingsRepository.saveSyncPositionTolerance(clamped)
+    }
+
+    /**
+     * Set sync minimum seek interval (cooldown between corrective seeks)
+     */
+    fun setSyncMinSeekInterval(intervalMs: Int) {
+        val clamped = intervalMs.coerceIn(500, 10000)
+        _syncMinSeekInterval.value = clamped
+        settingsRepository.saveSyncMinSeekInterval(clamped)
     }
 
     /**

@@ -54,6 +54,8 @@ class SettingsRepository @Inject constructor(
         private const val KEY_CONNECTION_TIMEOUT = "connection_timeout"
         private const val KEY_DISCOVERY_TIMEOUT = "discovery_timeout"
         private const val KEY_LATENCY_PROFILE = "latency_profile"
+        private const val KEY_SYNC_POSITION_TOLERANCE = "sync_position_tolerance"
+        private const val KEY_SYNC_MIN_SEEK_INTERVAL = "sync_min_seek_interval"
         
         // Default values
         private const val DEFAULT_USER_NAME = "SpeakerShare User"
@@ -65,6 +67,8 @@ class SettingsRepository @Inject constructor(
         private const val DEFAULT_MAX_CLIENTS = 50
         private const val DEFAULT_CONNECTION_TIMEOUT = 5000L
         private const val DEFAULT_DISCOVERY_TIMEOUT = 10000L
+        private const val DEFAULT_SYNC_POSITION_TOLERANCE = 250  // ms
+        private const val DEFAULT_SYNC_MIN_SEEK_INTERVAL = 3000  // ms
     }
     
     /**
@@ -277,6 +281,36 @@ class SettingsRepository @Inject constructor(
     fun saveLatencyProfile(profile: LatencyProfile) {
         Timber.d("Saving latency profile: $profile")
         sharedPreferences.edit().putString(KEY_LATENCY_PROFILE, profile.name).apply()
+    }
+    
+    /**
+     * Get sync position tolerance (ms) - how much drift before corrective seek
+     */
+    fun getSyncPositionTolerance(): Int {
+        return sharedPreferences.getInt(KEY_SYNC_POSITION_TOLERANCE, DEFAULT_SYNC_POSITION_TOLERANCE)
+    }
+    
+    /**
+     * Save sync position tolerance
+     */
+    fun saveSyncPositionTolerance(toleranceMs: Int) {
+        Timber.d("Saving sync position tolerance: ${toleranceMs}ms")
+        sharedPreferences.edit().putInt(KEY_SYNC_POSITION_TOLERANCE, toleranceMs).apply()
+    }
+    
+    /**
+     * Get minimum seek interval (ms) - cooldown between corrective seeks
+     */
+    fun getSyncMinSeekInterval(): Int {
+        return sharedPreferences.getInt(KEY_SYNC_MIN_SEEK_INTERVAL, DEFAULT_SYNC_MIN_SEEK_INTERVAL)
+    }
+    
+    /**
+     * Save minimum seek interval
+     */
+    fun saveSyncMinSeekInterval(intervalMs: Int) {
+        Timber.d("Saving sync min seek interval: ${intervalMs}ms")
+        sharedPreferences.edit().putInt(KEY_SYNC_MIN_SEEK_INTERVAL, intervalMs).apply()
     }
     
     /**

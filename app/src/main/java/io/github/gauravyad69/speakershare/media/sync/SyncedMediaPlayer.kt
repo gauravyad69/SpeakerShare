@@ -9,6 +9,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import io.github.gauravyad69.speakershare.data.repository.SettingsRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
@@ -27,7 +28,8 @@ import javax.inject.Inject
  */
 class SyncedMediaPlayer(
     private val context: Context,
-    private val clockSync: ClockSynchronizer
+    private val clockSync: ClockSynchronizer,
+    private val settingsRepository: SettingsRepository
 ) {
     companion object {
         
@@ -47,6 +49,10 @@ class SyncedMediaPlayer(
         // Seek-ahead compensation disabled - WebSocket is fast enough
         // Adding compensation was causing overshoot/oscillation
         private const val SEEK_AHEAD_COMPENSATION_MS = 0L
+        
+        // Grace period after intentional seek during which sync pulses are relaxed
+        // This prevents race conditions when host seeks and stale sync pulses arrive
+        private const val SEEK_GRACE_PERIOD_MS = 2000L
     }
     
     private var player: ExoPlayer? = null
@@ -62,8 +68,13 @@ class SyncedMediaPlayer(
     // Scheduled playback
     private var scheduledPlayJob: Job? = null
     
-    // Last corrective seek time
+    // Last corrective seek time (for rate-limiting seeks)
     private var lastCorrectiveSeekTime: Long = 0L
+    
+    // Last intentional seek time (for ignoring stale sync pulses after seeking)
+    // This prevents race conditions when host seeks and stale sync pulses arrive
+    private var lastIntentionalSeekTime: Long = 0L
+    private var lastIntentionalSeekPosition: Long = 0L
     
     /**
      * Initialize the player
@@ -172,8 +183,12 @@ class SyncedMediaPlayer(
             return
         }
         
+        // Mark as intentional seek (from host Play command)
+        lastIntentionalSeekTime = System.currentTimeMillis()
+        lastIntentionalSeekPosition = safePositionMs
+        
         if (playerState == Player.STATE_ENDED) {
-            Timber.d("Player ended, seeking to beginning")
+            Timber.d("Player ended, seeking to beginning (intentional)")
             exo.seekTo(safePositionMs)
         } else {
             // Seek to position immediately
@@ -269,6 +284,11 @@ class SyncedMediaPlayer(
     
     private fun performSeek(positionMs: Long, resumePlayback: Boolean, syncTime: Long) {
         player?.let { exo ->
+            // Mark this as an intentional seek (from host command)
+            // This prevents sync pulses from fighting with intentional seeks
+            lastIntentionalSeekTime = System.currentTimeMillis()
+            lastIntentionalSeekPosition = positionMs
+            
             exo.seekTo(positionMs)
             
             if (resumePlayback) {
@@ -284,7 +304,7 @@ class SyncedMediaPlayer(
             }
         }
         
-        Timber.d("Seeked to $positionMs, resume=$resumePlayback")
+        Timber.d("Seeked to $positionMs (intentional), resume=$resumePlayback")
     }
     
     /**
@@ -305,6 +325,20 @@ class SyncedMediaPlayer(
         if (!exo.isPlaying) {
             Timber.d("Ignoring sync - player not playing")
             return
+        }
+        
+        // Check if we're within grace period after an intentional seek
+        // This prevents stale sync pulses from fighting with intentional seeks (race condition)
+        val timeSinceIntentionalSeek = System.currentTimeMillis() - lastIntentionalSeekTime
+        if (timeSinceIntentionalSeek < SEEK_GRACE_PERIOD_MS) {
+            // During grace period, only accept sync pulses that are close to our intentional seek position
+            // This allows valid sync pulses through while rejecting stale ones
+            val driftFromIntentional = kotlin.math.abs(hostPositionMs - lastIntentionalSeekPosition)
+            if (driftFromIntentional > LARGE_DRIFT_THRESHOLD_MS) {
+                Timber.d("Ignoring sync pulse during grace period (${timeSinceIntentionalSeek}ms since seek), hostPos=$hostPositionMs differs from intentional=$lastIntentionalSeekPosition by ${driftFromIntentional}ms")
+                return
+            }
+            Timber.d("Accepting sync pulse during grace period - hostPos=$hostPositionMs close to intentional=$lastIntentionalSeekPosition")
         }
         
         val currentPosition = exo.currentPosition
@@ -365,18 +399,22 @@ class SyncedMediaPlayer(
             Timber.d("Recorded drift: local=$currentPosition, expected=$expectedPositionMs, drift=${drift}ms")
         }
         
-        if (absDrift > POSITION_TOLERANCE_MS) {
-            Timber.w("Position drift detected: ${drift}ms (current=$currentPosition, expected=$expectedPositionMs)")
+        // Get sync thresholds from settings (user-configurable)
+        val positionTolerance = settingsRepository.getSyncPositionTolerance().toLong()
+        val minSeekInterval = settingsRepository.getSyncMinSeekInterval().toLong()
+        
+        if (absDrift > positionTolerance) {
+            Timber.w("Position drift detected: ${drift}ms (current=$currentPosition, expected=$expectedPositionMs, tolerance=$positionTolerance)")
             
             val now = System.currentTimeMillis()
             val timeSinceLastSeek = now - lastCorrectiveSeekTime
             
             // Determine if we should seek:
             // - Large drift (>500ms): seek immediately
-            // - Moderate drift (>100ms): only seek if enough time has passed since last seek
+            // - Moderate drift: only seek if enough time has passed since last seek
             val shouldSeek = when {
                 absDrift > LARGE_DRIFT_THRESHOLD_MS -> true  // Large drift - always seek
-                timeSinceLastSeek > MIN_SEEK_INTERVAL_MS -> true  // Enough time passed
+                timeSinceLastSeek > minSeekInterval -> true  // Enough time passed
                 else -> false
             }
             
@@ -502,9 +540,10 @@ data class SyncedPlayerState(
  * Factory for creating SyncedMediaPlayer instances
  */
 class SyncedMediaPlayerFactory @Inject constructor(
-    private val clockSync: ClockSynchronizer
+    private val clockSync: ClockSynchronizer,
+    private val settingsRepository: SettingsRepository
 ) {
     fun create(context: Context): SyncedMediaPlayer {
-        return SyncedMediaPlayer(context, clockSync)
+        return SyncedMediaPlayer(context, clockSync, settingsRepository)
     }
 }
