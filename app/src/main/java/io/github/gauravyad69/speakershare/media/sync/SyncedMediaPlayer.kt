@@ -76,6 +76,19 @@ class SyncedMediaPlayer(
     private var lastIntentionalSeekTime: Long = 0L
     private var lastIntentionalSeekPosition: Long = 0L
     
+    // Last reconnection time (for ignoring stale sync pulses after reconnecting)
+    // Similar to seek grace period - first sync pulse after reconnect may have stale data
+    private var lastReconnectionTime: Long = 0L
+    
+    /**
+     * Mark that a reconnection happened - ignore stale sync pulses briefly
+     * Call this when WebSocket reconnects to prevent stale position data from causing seeks
+     */
+    fun markReconnection() {
+        lastReconnectionTime = System.currentTimeMillis()
+        Timber.d("Marked reconnection at $lastReconnectionTime - will ignore stale sync pulses")
+    }
+    
     /**
      * Initialize the player
      */
@@ -329,16 +342,26 @@ class SyncedMediaPlayer(
         
         // Check if we're within grace period after an intentional seek
         // This prevents stale sync pulses from fighting with intentional seeks (race condition)
-        val timeSinceIntentionalSeek = System.currentTimeMillis() - lastIntentionalSeekTime
+        val now = System.currentTimeMillis()
+        val timeSinceIntentionalSeek = now - lastIntentionalSeekTime
         if (timeSinceIntentionalSeek < SEEK_GRACE_PERIOD_MS) {
             // During grace period, only accept sync pulses that are close to our intentional seek position
             // This allows valid sync pulses through while rejecting stale ones
             val driftFromIntentional = kotlin.math.abs(hostPositionMs - lastIntentionalSeekPosition)
             if (driftFromIntentional > LARGE_DRIFT_THRESHOLD_MS) {
-                Timber.d("Ignoring sync pulse during grace period (${timeSinceIntentionalSeek}ms since seek), hostPos=$hostPositionMs differs from intentional=$lastIntentionalSeekPosition by ${driftFromIntentional}ms")
+                Timber.d("Ignoring sync pulse during seek grace period (${timeSinceIntentionalSeek}ms since seek), hostPos=$hostPositionMs differs from intentional=$lastIntentionalSeekPosition by ${driftFromIntentional}ms")
                 return
             }
-            Timber.d("Accepting sync pulse during grace period - hostPos=$hostPositionMs close to intentional=$lastIntentionalSeekPosition")
+            Timber.d("Accepting sync pulse during seek grace period - hostPos=$hostPositionMs close to intentional=$lastIntentionalSeekPosition")
+        }
+        
+        // Check if we're within grace period after a reconnection
+        // First few sync pulses after reconnect may have stale position data
+        val timeSinceReconnection = now - lastReconnectionTime
+        if (timeSinceReconnection < SEEK_GRACE_PERIOD_MS) {
+            // During reconnection grace period, accept all sync pulses but don't do corrective seeks
+            // This allows clock drift recording while preventing stale seeks
+            Timber.d("In reconnection grace period (${timeSinceReconnection}ms since reconnect) - will record drift but skip corrective seeks")
         }
         
         val currentPosition = exo.currentPosition
@@ -406,7 +429,14 @@ class SyncedMediaPlayer(
         if (absDrift > positionTolerance) {
             Timber.w("Position drift detected: ${drift}ms (current=$currentPosition, expected=$expectedPositionMs, tolerance=$positionTolerance)")
             
-            val now = System.currentTimeMillis()
+            // Skip corrective seeks during reconnection grace period
+            // Clock drift is still recorded above, but we don't want to seek based on potentially stale data
+            if (timeSinceReconnection < SEEK_GRACE_PERIOD_MS) {
+                Timber.d("Skipping corrective seek during reconnection grace period (${timeSinceReconnection}ms)")
+                _playerState.update { it.copy(driftMs = drift) }
+                return
+            }
+            
             val timeSinceLastSeek = now - lastCorrectiveSeekTime
             
             // Determine if we should seek:

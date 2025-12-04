@@ -71,6 +71,10 @@ class SyncedPlaybackClient @Inject constructor(
     private val _sessionInfo = MutableStateFlow<JoinResponse?>(null)
     val sessionInfo: StateFlow<JoinResponse?> = _sessionInfo.asStateFlow()
     
+    // Reconnection events - emitted when WebSocket reconnects after disconnect
+    private val _reconnectionEvents = MutableSharedFlow<Unit>()
+    val reconnectionEvents: SharedFlow<Unit> = _reconnectionEvents.asSharedFlow()
+    
     /**
      * Connect to a sync host via WebSocket
      */
@@ -148,6 +152,7 @@ class SyncedPlaybackClient @Inject constructor(
         
         webSocketJob = scope.launch {
             var reconnectAttempts = 0
+            var wasConnectedBefore = false
             
             while (isActive && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
                 try {
@@ -155,6 +160,14 @@ class SyncedPlaybackClient @Inject constructor(
                     
                     client.webSocket("$wsUrl/sync/ws/$clientId") {
                         webSocketSession = this
+                        
+                        // Emit reconnection event if this is a reconnect (not first connection)
+                        if (wasConnectedBefore) {
+                            Timber.i("WebSocket reconnected - emitting reconnection event")
+                            _reconnectionEvents.emit(Unit)
+                        }
+                        wasConnectedBefore = true
+                        
                         reconnectAttempts = 0 // Reset on successful connection
                         Timber.i("WebSocket connected successfully")
                         

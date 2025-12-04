@@ -74,6 +74,9 @@ class SyncedPlaybackManager @Inject constructor(
     // Incoming commands from network (clients can observe this)
     val incomingCommands: SharedFlow<PlaybackCommand> = syncClient.commands
     
+    // Reconnection events from client (for grace period handling)
+    val reconnectionEvents: SharedFlow<Unit> = syncClient.reconnectionEvents
+    
     private var syncJob: Job? = null
     private var commandBroadcastJob: Job? = null
     

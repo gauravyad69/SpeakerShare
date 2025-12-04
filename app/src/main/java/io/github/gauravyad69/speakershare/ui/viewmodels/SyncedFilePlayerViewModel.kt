@@ -126,6 +126,14 @@ class SyncedFilePlayerViewModel @Inject constructor(
                 handleCommand(command)
             }
         }
+        
+        // Observe reconnection events (for client mode) - apply grace period after reconnect
+        viewModelScope.launch {
+            syncedPlaybackManager.reconnectionEvents.collect {
+                Timber.i("WebSocket reconnected - marking reconnection on player")
+                player?.markReconnection()
+            }
+        }
     }
     
     /**
@@ -169,8 +177,6 @@ class SyncedFilePlayerViewModel @Inject constructor(
                     
                     // If we're the host, update the manager's position so sync pulses are accurate
                     if (_uiState.value.isHost && playerState.isPlaying) {
-                        // Update both playback state AND actual position for sync pulses
-                        syncedPlaybackManager.lastActualPosition = playerState.currentPositionMs
                         syncedPlaybackManager.updatePlaybackPosition(
                             playerState.currentPositionMs,
                             playerState.durationMs
@@ -244,8 +250,9 @@ class SyncedFilePlayerViewModel @Inject constructor(
             
             _uiState.update { it.copy(isLoading = true) }
             
-            // Position tracking is handled by playerState collector in initializePlayer()
-            // which updates syncedPlaybackManager.lastActualPosition
+            // Start position tracking for accurate sync pulses
+            // This runs on main thread and updates position periodically
+            startHostPositionTracking()
             
             Timber.i("Calling syncedPlaybackManager.startHostSession...")
             val result = syncedPlaybackManager.startHostSession(context, files)
