@@ -1,8 +1,12 @@
 package io.github.gauravyad69.speakershare.ui.screens.synced
 
+import android.app.Activity
 import android.content.Context
 import android.net.Uri
+import android.view.View
+import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -25,12 +29,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
@@ -61,7 +71,8 @@ fun SyncedFilePlayerScreen(
     val discoveredHosts by viewModel.discoveredHosts.collectAsState()
     
     // Use rememberSaveable to survive configuration changes (rotation)
-    var selectedTabIndex by rememberSaveable { mutableStateOf(0) }
+    // Default to Client mode (1) instead of Host mode (0)
+    var selectedTabIndex by rememberSaveable { mutableStateOf(1) }
     
     // Auto-derive mode from session state - if we're in a session, show that mode
     val effectiveTabIndex = when (uiState.sessionState) {
@@ -121,6 +132,105 @@ fun SyncedFilePlayerScreen(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
+        },
+        bottomBar = {
+            // Mode selector - always pinned at bottom
+            val isInSession = uiState.sessionState is SyncSessionState.HostActive ||
+                              uiState.sessionState is SyncSessionState.ClientJoining ||
+                              uiState.sessionState is SyncSessionState.ClientReady
+            
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding(),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp,
+                shadowElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Session status indicator when in session
+                    if (isInSession) {
+                        val statusText = when (uiState.sessionState) {
+                            is SyncSessionState.HostActive -> "Hosting Session"
+                            is SyncSessionState.ClientJoining -> "Joining..."
+                            is SyncSessionState.ClientReady -> "Connected"
+                            else -> ""
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = statusText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    
+                    // Mode selector buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        tabs.forEachIndexed { index, title ->
+                            val isSelected = effectiveTabIndex == index
+                            val isActiveSession = when (index) {
+                                0 -> uiState.sessionState is SyncSessionState.HostActive
+                                1 -> uiState.sessionState is SyncSessionState.ClientJoining ||
+                                     uiState.sessionState is SyncSessionState.ClientReady
+                                else -> false
+                            }
+                            
+                            Button(
+                                onClick = { 
+                                    if (!isInSession) {
+                                        selectedTabIndex = index 
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = when {
+                                        isActiveSession -> MaterialTheme.colorScheme.primary
+                                        isSelected -> MaterialTheme.colorScheme.primaryContainer
+                                        else -> MaterialTheme.colorScheme.surfaceVariant
+                                    },
+                                    contentColor = when {
+                                        isActiveSession -> MaterialTheme.colorScheme.onPrimary
+                                        isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                ),
+                                enabled = !isInSession || isActiveSession
+                            ) {
+                                Icon(
+                                    imageVector = if (index == 0) Icons.Filled.Podcasts else Icons.Filled.Headphones,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = title,
+                                    fontWeight = if (isSelected || isActiveSession) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     ) { paddingValues ->
         Column(
@@ -128,53 +238,6 @@ fun SyncedFilePlayerScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Mode selector - only show when not in active session
-            val isInSession = uiState.sessionState is SyncSessionState.HostActive ||
-                              uiState.sessionState is SyncSessionState.ClientJoining ||
-                              uiState.sessionState is SyncSessionState.ClientReady
-            
-            if (!isInSession) {
-                // Segmented button style mode selector
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    tabs.forEachIndexed { index, title ->
-                        val isSelected = effectiveTabIndex == index
-                        FilledTonalButton(
-                            onClick = { selectedTabIndex = index },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (isSelected) 
-                                    MaterialTheme.colorScheme.primaryContainer 
-                                else 
-                                    MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            Icon(
-                                imageVector = if (index == 0) Icons.Filled.Podcasts else Icons.Filled.Headphones,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(title)
-                        }
-                    }
-                }
-            }
-            
-            // Show available hosts count when in host mode setup
-            if (!isInSession && effectiveTabIndex == 0 && discoveredHosts.isNotEmpty()) {
-                Text(
-                    text = "${discoveredHosts.size} host(s) available on network",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-            }
-            
             // Content based on selected tab (use effectiveTabIndex for rotation survival)
             AnimatedContent(
                 targetState = effectiveTabIndex,
@@ -196,6 +259,7 @@ fun SyncedFilePlayerScreen(
                         onPlay = { viewModel.play() },
                         onPause = { viewModel.pause() },
                         onSeek = { viewModel.seekTo(it) },
+                        onVolumeChange = { viewModel.setVolume(it) },
                         onNextTrack = { viewModel.nextTrack() },
                         onPreviousTrack = { viewModel.previousTrack() },
                         onStartHosting = { viewModel.startHostSession() },
@@ -229,6 +293,7 @@ private fun HostModeContent(
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onSeek: (Long) -> Unit,
+    onVolumeChange: (Float) -> Unit,
     onNextTrack: () -> Unit,
     onPreviousTrack: () -> Unit,
     onStartHosting: () -> Unit,
@@ -291,9 +356,11 @@ private fun HostModeContent(
                         isBuffering = uiState.isBuffering,
                         currentPosition = uiState.currentPositionMs,
                         duration = uiState.durationMs,
+                        volume = uiState.volume,
                         onPlay = onPlay,
                         onPause = onPause,
                         onSeek = onSeek,
+                        onVolumeChange = onVolumeChange,
                         onNext = onNextTrack,
                         onPrevious = onPreviousTrack,
                         hasNext = true,
@@ -307,9 +374,11 @@ private fun HostModeContent(
                         isBuffering = uiState.isBuffering,
                         currentPosition = uiState.currentPositionMs,
                         duration = uiState.durationMs,
+                        volume = uiState.volume,
                         onPlay = onPlay,
                         onPause = onPause,
                         onSeek = onSeek,
+                        onVolumeChange = onVolumeChange,
                         onNext = onNextTrack,
                         onPrevious = onPreviousTrack,
                         hasNext = true,
@@ -845,9 +914,11 @@ private fun AudioPlayerCard(
     isBuffering: Boolean,
     currentPosition: Long,
     duration: Long,
+    volume: Float = 1.0f,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onSeek: (Long) -> Unit,
+    onVolumeChange: ((Float) -> Unit)? = null,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     hasNext: Boolean,
@@ -972,6 +1043,39 @@ private fun AudioPlayerCard(
                         Icon(Icons.Filled.SkipNext, contentDescription = "Next")
                     }
                 }
+                
+                // Volume control (only shown for host)
+                if (onVolumeChange != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (volume == 0f) Icons.Filled.VolumeOff 
+                                         else if (volume < 0.5f) Icons.Filled.VolumeDown 
+                                         else Icons.Filled.VolumeUp,
+                            contentDescription = "Volume",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Slider(
+                            value = volume,
+                            onValueChange = onVolumeChange,
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.secondary,
+                                activeTrackColor = MaterialTheme.colorScheme.secondary
+                            )
+                        )
+                        Text(
+                            text = "${(volume * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.width(40.dp)
+                        )
+                    }
+                }
             } else {
                 // Sync indicator for clients
                 Row(
@@ -1004,9 +1108,11 @@ private fun VideoPlayerCard(
     isBuffering: Boolean,
     currentPosition: Long,
     duration: Long,
+    volume: Float = 1.0f,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onSeek: (Long) -> Unit,
+    onVolumeChange: ((Float) -> Unit)? = null,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     hasNext: Boolean,
@@ -1016,6 +1122,7 @@ private fun VideoPlayerCard(
 ) {
     var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
     var isFullscreen by remember { mutableStateOf(false) }
+    val view = LocalView.current
     
     // Create ExoPlayer
     DisposableEffect(file.uri) {
@@ -1052,6 +1159,28 @@ private fun VideoPlayerCard(
         }
     }
     
+    // Fullscreen Dialog
+    if (isFullscreen) {
+        FullscreenVideoDialog(
+            exoPlayer = exoPlayer,
+            isPlaying = isPlaying,
+            isBuffering = isBuffering,
+            currentPosition = currentPosition,
+            duration = duration,
+            volume = volume,
+            onPlay = onPlay,
+            onPause = onPause,
+            onSeek = onSeek,
+            onVolumeChange = onVolumeChange,
+            onNext = onNext,
+            onPrevious = onPrevious,
+            hasNext = hasNext,
+            hasPrevious = hasPrevious,
+            isReadOnly = isReadOnly,
+            onExitFullscreen = { isFullscreen = false }
+        )
+    }
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp)
@@ -1060,16 +1189,14 @@ private fun VideoPlayerCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Video player view with fullscreen support
+            // Video player view
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(
-                        if (isFullscreen) Modifier.fillMaxHeight()
-                        else Modifier.aspectRatio(16f / 9f)
-                    )
+                    .aspectRatio(16f / 9f)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color.Black)
+                    .clickable { isFullscreen = true }
             ) {
                 exoPlayer?.let { player ->
                     AndroidView(
@@ -1101,92 +1228,339 @@ private fun VideoPlayerCard(
                     contentAlignment = Alignment.TopEnd
                 ) {
                     IconButton(
-                        onClick = { isFullscreen = !isFullscreen },
+                        onClick = { isFullscreen = true },
                         colors = IconButtonDefaults.iconButtonColors(
                             containerColor = Color.Black.copy(alpha = 0.5f),
                             contentColor = Color.White
                         )
                     ) {
                         Icon(
-                            imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                            contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen"
+                            imageVector = Icons.Default.Fullscreen,
+                            contentDescription = "Fullscreen"
                         )
                     }
                 }
             }
             
-            // Hide controls in fullscreen mode
-            if (!isFullscreen) {
-                Column {
-                    Slider(
-                        value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
-                        onValueChange = { if (!isReadOnly) onSeek((it * duration).toLong()) },
-                        enabled = !isReadOnly
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(formatDuration(currentPosition), style = MaterialTheme.typography.bodySmall)
-                        Text(formatDuration(duration), style = MaterialTheme.typography.bodySmall)
-                    }
+            // Progress bar
+            Column {
+                Slider(
+                    value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
+                    onValueChange = { if (!isReadOnly) onSeek((it * duration).toLong()) },
+                    enabled = !isReadOnly
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(formatDuration(currentPosition), style = MaterialTheme.typography.bodySmall)
+                    Text(formatDuration(duration), style = MaterialTheme.typography.bodySmall)
                 }
-            
-                // Playback controls
-                if (!isReadOnly) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = onPrevious, enabled = hasPrevious) {
-                            Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
-                        }
-                        
-                        IconButton(onClick = { onSeek(maxOf(0, currentPosition - 10000)) }) {
-                            Icon(Icons.Filled.Replay10, contentDescription = "Rewind 10s")
-                        }
-                        
-                        FilledIconButton(
-                            onClick = { if (isPlaying) onPause() else onPlay() },
-                            modifier = Modifier.size(56.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        
-                        IconButton(onClick = { onSeek(currentPosition + 10000) }) {
-                            Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s")
-                        }
-                        
-                        IconButton(onClick = onNext, enabled = hasNext) {
-                            Icon(Icons.Filled.SkipNext, contentDescription = "Next")
-                        }
+            }
+        
+            // Playback controls
+            if (!isReadOnly) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onPrevious, enabled = hasPrevious) {
+                        Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
                     }
-                } else {
-                    // Sync indicator
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                    
+                    IconButton(onClick = { onSeek(maxOf(0, currentPosition - 10000)) }) {
+                        Icon(Icons.Filled.Replay10, contentDescription = "Rewind 10s")
+                    }
+                    
+                    FilledIconButton(
+                        onClick = { if (isPlaying) onPause() else onPlay() },
+                        modifier = Modifier.size(56.dp)
                     ) {
                         Icon(
-                            Icons.Filled.Sync,
-                            contentDescription = null,
-                            tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            modifier = Modifier.size(28.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    
+                    IconButton(onClick = { onSeek(currentPosition + 10000) }) {
+                        Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s")
+                    }
+                    
+                    IconButton(onClick = onNext, enabled = hasNext) {
+                        Icon(Icons.Filled.SkipNext, contentDescription = "Next")
+                    }
+                }
+                
+                // Volume control (only shown for host)
+                if (onVolumeChange != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (volume == 0f) Icons.Filled.VolumeOff 
+                                         else if (volume < 0.5f) Icons.Filled.VolumeDown 
+                                         else Icons.Filled.VolumeUp,
+                            contentDescription = "Volume",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Slider(
+                            value = volume,
+                            onValueChange = onVolumeChange,
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.secondary,
+                                activeTrackColor = MaterialTheme.colorScheme.secondary
+                            )
+                        )
                         Text(
-                            text = if (isPlaying) "Synced with host" else "Waiting for host",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "${(volume * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.width(40.dp)
                         )
                     }
                 }
-            } // End of !isFullscreen
+            } else {
+                // Sync indicator
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Filled.Sync,
+                        contentDescription = null,
+                        tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isPlaying) "Synced with host" else "Waiting for host",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Fullscreen video dialog with immersive mode
+ */
+@Composable
+private fun FullscreenVideoDialog(
+    exoPlayer: ExoPlayer?,
+    isPlaying: Boolean,
+    isBuffering: Boolean,
+    currentPosition: Long,
+    duration: Long,
+    volume: Float,
+    onPlay: () -> Unit,
+    onPause: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onVolumeChange: ((Float) -> Unit)?,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    hasNext: Boolean,
+    hasPrevious: Boolean,
+    isReadOnly: Boolean,
+    onExitFullscreen: () -> Unit
+) {
+    val context = LocalContext.current
+    var showControls by remember { mutableStateOf(true) }
+    
+    // Handle back button to exit fullscreen
+    BackHandler { onExitFullscreen() }
+    
+    // Hide controls after 3 seconds
+    LaunchedEffect(showControls) {
+        if (showControls && isPlaying) {
+            kotlinx.coroutines.delay(3000)
+            showControls = false
+        }
+    }
+    
+    Dialog(
+        onDismissRequest = onExitFullscreen,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        // Enter immersive mode
+        val activity = context as? Activity
+        DisposableEffect(Unit) {
+            activity?.window?.let { window ->
+                // Keep screen on during fullscreen playback
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                
+                // Hide system bars for immersive mode
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                val controller = WindowInsetsControllerCompat(window, window.decorView)
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+            
+            onDispose {
+                activity?.window?.let { window ->
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    WindowCompat.setDecorFitsSystemWindows(window, true)
+                    val controller = WindowInsetsControllerCompat(window, window.decorView)
+                    controller.show(WindowInsetsCompat.Type.systemBars())
+                }
+            }
+        }
+        
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .clickable { showControls = !showControls }
+        ) {
+            // Video player
+            exoPlayer?.let { player ->
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            this.player = player
+                            useController = false
+                            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            
+            // Buffering indicator
+            if (isBuffering) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+            
+            // Controls overlay
+            AnimatedVisibility(
+                visible = showControls,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.4f))
+                ) {
+                    // Close button (top right)
+                    IconButton(
+                        onClick = onExitFullscreen,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(16.dp),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color.Black.copy(alpha = 0.5f),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(
+                            Icons.Default.FullscreenExit,
+                            contentDescription = "Exit fullscreen"
+                        )
+                    }
+                    
+                    // Center playback controls
+                    if (!isReadOnly) {
+                        Row(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalArrangement = Arrangement.spacedBy(32.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { onSeek(maxOf(0, currentPosition - 10000)) },
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Replay10,
+                                    contentDescription = "Rewind 10s",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            }
+                            
+                            FilledIconButton(
+                                onClick = { 
+                                    if (isPlaying) onPause() else onPlay()
+                                    showControls = true
+                                },
+                                modifier = Modifier.size(72.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = Color.White.copy(alpha = 0.9f),
+                                    contentColor = Color.Black
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = if (isPlaying) "Pause" else "Play",
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            }
+                            
+                            IconButton(
+                                onClick = { onSeek(currentPosition + 10000) },
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Forward10,
+                                    contentDescription = "Forward 10s",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            }
+                        }
+                    }
+                    
+                    // Bottom progress bar
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Slider(
+                            value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
+                            onValueChange = { if (!isReadOnly) onSeek((it * duration).toLong()) },
+                            enabled = !isReadOnly,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = Color.White,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                            )
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                formatDuration(currentPosition),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White
+                            )
+                            Text(
+                                formatDuration(duration),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

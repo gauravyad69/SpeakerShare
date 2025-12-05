@@ -202,6 +202,11 @@ class SyncedPlaybackServer @Inject constructor(
                 type = "stop",
                 timestamp = command.timestamp
             )
+            is PlaybackCommand.Volume -> SyncCommand(
+                type = "volume",
+                timestamp = command.timestamp,
+                volume = command.volume
+            )
         }
         
         // Add command to each connected client's queue (for HTTP polling fallback)
@@ -597,7 +602,8 @@ data class SyncCommand(
     val positionMs: Long = 0L,
     val fileIndex: Int = 0,
     val resumePlayback: Boolean = false,
-    val autoPlay: Boolean = false
+    val autoPlay: Boolean = false,
+    val volume: Float = 1.0f
 )
 
 /**

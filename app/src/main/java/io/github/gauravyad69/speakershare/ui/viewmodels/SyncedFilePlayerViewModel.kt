@@ -416,6 +416,22 @@ class SyncedFilePlayerViewModel @Inject constructor(
     }
     
     /**
+     * Set volume (host only - broadcasts to all clients)
+     */
+    fun setVolume(volume: Float) {
+        viewModelScope.launch {
+            val clampedVolume = volume.coerceIn(0f, 1f)
+            // Apply locally
+            player?.setVolume(clampedVolume)
+            _uiState.update { it.copy(volume = clampedVolume) }
+            // Broadcast to clients if host
+            if (_uiState.value.isHost) {
+                syncedPlaybackManager.setVolume(clampedVolume)
+            }
+        }
+    }
+    
+    /**
      * Next track (host only)
      */
     fun nextTrack() {
@@ -536,6 +552,10 @@ class SyncedFilePlayerViewModel @Inject constructor(
                     val syncTime = syncedPlaybackManager.getSynchronizedTime()
                     player?.seekAtTime(syncTime, 0L, false)
                 }
+                is PlaybackCommand.Volume -> {
+                    player?.setVolume(command.volume)
+                    _uiState.update { it.copy(volume = command.volume) }
+                }
             }
         }
     }
@@ -592,6 +612,7 @@ data class SyncedPlayerUiState(
     val currentPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val driftMs: Long = 0L,
+    val volume: Float = 1.0f,
     val currentFile: SyncedMediaFile? = null,
     val sessionId: String? = null,
     val sessionState: SyncSessionState = SyncSessionState.Idle,

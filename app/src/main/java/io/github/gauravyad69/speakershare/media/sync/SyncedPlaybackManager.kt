@@ -400,6 +400,29 @@ class SyncedPlaybackManager @Inject constructor(
     }
     
     /**
+     * HOST: Set volume (broadcasts to all clients)
+     */
+    suspend fun setVolume(volume: Float) {
+        val state = _sessionState.value
+        if (state !is SyncSessionState.HostActive) {
+            Timber.w("Cannot set volume: not in host mode")
+            return
+        }
+        
+        val clampedVolume = volume.coerceIn(0f, 1f)
+        val timestamp = clockSync.getSynchronizedTime()
+        
+        val command = PlaybackCommand.Volume(
+            timestamp = timestamp,
+            volume = clampedVolume
+        )
+        
+        _playbackCommands.emit(command)
+        
+        Timber.d("Volume command sent: $clampedVolume")
+    }
+    
+    /**
      * HOST: Switch to next/previous file
      */
     suspend fun switchFile(index: Int) {
@@ -503,6 +526,11 @@ class SyncedPlaybackManager @Inject constructor(
                 _playbackState.update {
                     it.copy(isPlaying = false, positionMs = 0L)
                 }
+            }
+            
+            is PlaybackCommand.Volume -> {
+                // Volume is handled by the player directly, no state update needed here
+                Timber.d("Volume command received: ${command.volume}")
             }
         }
     }
@@ -782,5 +810,10 @@ sealed class PlaybackCommand {
     
     data class Stop(
         override val timestamp: Long
+    ) : PlaybackCommand()
+    
+    data class Volume(
+        override val timestamp: Long,
+        val volume: Float  // 0.0 to 1.0
     ) : PlaybackCommand()
 }

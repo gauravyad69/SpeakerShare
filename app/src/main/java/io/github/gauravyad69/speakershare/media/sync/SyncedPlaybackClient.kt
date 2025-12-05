@@ -276,6 +276,7 @@ class SyncedPlaybackClient @Inject constructor(
         val fileIndex = (data["fileIndex"] as? Number)?.toInt() ?: 0
         val resumePlayback = data["resumePlayback"] as? Boolean ?: false
         val autoPlay = data["autoPlay"] as? Boolean ?: false
+        val volume = (data["volume"] as? Number)?.toFloat() ?: 1.0f
         
         return when (type) {
             "play" -> PlaybackCommand.Play(
@@ -303,6 +304,10 @@ class SyncedPlaybackClient @Inject constructor(
             )
             "stop" -> PlaybackCommand.Stop(
                 timestamp = timestamp
+            )
+            "volume" -> PlaybackCommand.Volume(
+                timestamp = timestamp,
+                volume = volume
             )
             else -> null
         }

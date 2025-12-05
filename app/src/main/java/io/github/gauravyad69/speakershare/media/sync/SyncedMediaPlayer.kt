@@ -277,6 +277,24 @@ class SyncedMediaPlayer(
     }
     
     /**
+     * Set playback volume
+     * @param volume Volume level from 0.0 (mute) to 1.0 (full)
+     */
+    fun setVolume(volume: Float) {
+        val clampedVolume = volume.coerceIn(0f, 1f)
+        player?.volume = clampedVolume
+        _playerState.update { it.copy(volume = clampedVolume) }
+        Timber.d("Volume set to $clampedVolume")
+    }
+    
+    /**
+     * Get current volume
+     */
+    fun getVolume(): Float {
+        return player?.volume ?: 1f
+    }
+    
+    /**
      * Seek to position at scheduled time
      */
     fun seekAtTime(targetTime: Long, positionMs: Long, resumePlayback: Boolean) {
@@ -563,7 +581,8 @@ data class SyncedPlayerState(
     val expectedPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val driftMs: Long = 0L,
-    val error: String? = null
+    val error: String? = null,
+    val volume: Float = 1.0f
 )
 
 /**
