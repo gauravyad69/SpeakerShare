@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -147,6 +149,7 @@ fun SyncedFilePlayerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -446,19 +449,6 @@ private fun HostModeContent(
             }
         }
         
-        // Instructions Card
-        item {
-            InstructionsCard(
-                title = "HOW TO HOST",
-                instructions = listOf(
-                    "Select ${if (mediaType == "video") "video" else "audio"} file(s) from your device",
-                    "Tap 'START HOSTING' to begin the session",
-                    "Share the session ID with others on the same network",
-                    "All connected clients will play the same file in sync"
-                )
-            )
-        }
-        
         item {
             Spacer(modifier = Modifier.height(80.dp))
         }
@@ -719,21 +709,6 @@ private fun ClientModeContent(
                     color = DuoRed,
                     shadowColor = DuoRedShadow,
                     modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-        
-        // Instructions Card
-        if (!isConnected) {
-            item {
-                InstructionsCard(
-                    title = "HOW TO JOIN",
-                    instructions = listOf(
-                        "Make sure you're on the same WiFi network as the host",
-                        "Wait for hosts to appear automatically, or enter the IP manually",
-                        "Tap on a host to connect",
-                        "Files will be downloaded/verified automatically"
-                    )
                 )
             }
         }
@@ -1447,6 +1422,7 @@ private fun FullscreenVideoDialog(
     onExitFullscreen: () -> Unit
 ) {
     val context = LocalContext.current
+    val useLightSystemIcons = !isSystemInDarkTheme()
     var showControls by remember { mutableStateOf(true) }
     
     // Handle back button to exit fullscreen
@@ -1486,15 +1462,16 @@ private fun FullscreenVideoDialog(
             onDispose {
                 activity?.window?.let { window ->
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    WindowCompat.setDecorFitsSystemWindows(window, true)
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
                     val controller = WindowInsetsControllerCompat(window, window.decorView)
                     controller.show(WindowInsetsCompat.Type.systemBars())
                     
-                    // Restore system bar appearance
-                    window.statusBarColor = android.graphics.Color.TRANSPARENT
-                    window.navigationBarColor = android.graphics.Color.TRANSPARENT
-                    controller.isAppearanceLightStatusBars = false
-                    controller.isAppearanceLightNavigationBars = false
+                    // Restore system bar appearance to match app theme
+                    val systemBarColor = Color.Transparent.toArgb()
+                    window.statusBarColor = systemBarColor
+                    window.navigationBarColor = systemBarColor
+                    controller.isAppearanceLightStatusBars = useLightSystemIcons
+                    controller.isAppearanceLightNavigationBars = useLightSystemIcons
                 }
             }
         }
