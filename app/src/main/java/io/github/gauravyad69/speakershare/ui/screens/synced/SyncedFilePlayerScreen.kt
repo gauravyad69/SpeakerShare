@@ -1489,6 +1489,12 @@ private fun FullscreenVideoDialog(
                     WindowCompat.setDecorFitsSystemWindows(window, true)
                     val controller = WindowInsetsControllerCompat(window, window.decorView)
                     controller.show(WindowInsetsCompat.Type.systemBars())
+                    
+                    // Restore system bar appearance
+                    window.statusBarColor = android.graphics.Color.TRANSPARENT
+                    window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                    controller.isAppearanceLightStatusBars = false
+                    controller.isAppearanceLightNavigationBars = false
                 }
             }
         }
