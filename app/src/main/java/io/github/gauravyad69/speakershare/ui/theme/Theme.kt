@@ -17,43 +17,45 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = PrimaryLight,
-    onPrimary = Color.Black,
-    primaryContainer = PrimaryDark,
-    onPrimaryContainer = Color.White,
-    secondary = SecondaryLight,
-    onSecondary = Color.Black,
-    secondaryContainer = SecondaryDark,
-    onSecondaryContainer = Color.White,
-    tertiary = TertiaryLight,
-    onTertiary = Color.Black,
-    background = BackgroundDark,
-    onBackground = OnBackgroundDark,
-    surface = SurfaceDark,
-    onSurface = OnSurfaceDark,
-    surfaceVariant = SurfaceVariantDark,
-    onSurfaceVariant = OnSurfaceVariantDark,
-    error = Error
+    primary = DuoGreen,
+    onPrimary = DuoTextPrimary,
+    primaryContainer = DuoGreenShadow,
+    onPrimaryContainer = DuoTextPrimary,
+    secondary = DuoBlue,
+    onSecondary = DuoTextPrimary,
+    secondaryContainer = DuoBlueShadow,
+    onSecondaryContainer = DuoTextPrimary,
+    tertiary = DuoPurple,
+    onTertiary = DuoTextPrimary,
+    background = DuoBackground,
+    onBackground = DuoTextPrimary,
+    surface = DuoSurface,
+    onSurface = DuoTextPrimary,
+    surfaceVariant = DuoSurfaceHighlight,
+    onSurfaceVariant = DuoTextSecondary,
+    error = DuoRed,
+    outline = DuoOutline
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Primary,
-    onPrimary = OnPrimary,
-    primaryContainer = PrimaryLight,
-    onPrimaryContainer = PrimaryDark,
-    secondary = Secondary,
-    onSecondary = OnSecondary,
-    secondaryContainer = SecondaryLight,
-    onSecondaryContainer = SecondaryDark,
-    tertiary = Tertiary,
-    onTertiary = Color.White,
-    background = Background,
-    onBackground = OnBackground,
-    surface = Surface,
-    onSurface = OnSurface,
-    surfaceVariant = SurfaceVariant,
-    onSurfaceVariant = OnSurfaceVariant,
-    error = Error
+    primary = DuoGreen,
+    onPrimary = DuoTextPrimary,
+    primaryContainer = DuoGreenHighlight,
+    onPrimaryContainer = DuoGreenShadow,
+    secondary = DuoBlue,
+    onSecondary = DuoTextPrimary,
+    secondaryContainer = DuoBlueShadow,
+    onSecondaryContainer = DuoTextPrimary,
+    tertiary = DuoPurple,
+    onTertiary = DuoTextPrimary,
+    background = DuoBackground, // Force dark background even in light mode for "Dark Duolingo" feel
+    onBackground = DuoTextPrimary,
+    surface = DuoSurface,
+    onSurface = DuoTextPrimary,
+    surfaceVariant = DuoSurfaceHighlight,
+    onSurfaceVariant = DuoTextSecondary,
+    error = DuoRed,
+    outline = DuoOutline
 )
 
 @Composable
@@ -68,6 +70,8 @@ fun SpeakerShareTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
+        // Always use DarkColorScheme if we want "Duolingo but in dark" regardless of system setting?
+        // Or just map LightColorScheme to be dark-ish too (which I did above).
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }

@@ -6,12 +6,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,17 +21,32 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import compose.icons.TablerIcons
+import compose.icons.tablericons.ArrowLeft
+import compose.icons.tablericons.Check
+import compose.icons.tablericons.DeviceTv
+import compose.icons.tablericons.Headphones
+import compose.icons.tablericons.InfoCircle
+import compose.icons.tablericons.Unlink
+import compose.icons.tablericons.Refresh
+import compose.icons.tablericons.Search
+import compose.icons.tablericons.Volume
+import compose.icons.tablericons.Volume2
+import compose.icons.tablericons.Volume3
+import compose.icons.tablericons.Volume
+import compose.icons.tablericons.X
 import io.github.gauravyad69.speakershare.data.model.ConnectionStatus
 import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import io.github.gauravyad69.speakershare.network.discovery.DiscoveredHost
 import io.github.gauravyad69.speakershare.services.TransferRequest
+import io.github.gauravyad69.speakershare.ui.components.DuolingoButton
 import io.github.gauravyad69.speakershare.ui.components.ScreenViewer
 import io.github.gauravyad69.speakershare.ui.theme.*
 import io.github.gauravyad69.speakershare.ui.viewmodels.ClientViewModel
 
 /**
- * Modern Client Screen with improved UI/UX
+ * Modern Client Screen with Duolingo-inspired Dark UI
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,56 +115,62 @@ fun ClientScreen(
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
+        containerColor = DuoBackground,
         topBar = {
-            TopAppBar(
-                title = { 
-                    Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(
+                        TablerIcons.ArrowLeft,
+                        contentDescription = "Back",
+                        tint = DuoTextSecondary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "CLIENT MODE",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = DuoTextSecondary
+                    )
+                    connectedHost?.serviceName?.let {
                         Text(
-                            "Client Mode",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
+                            it,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = DuoTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        connectedHost?.serviceName?.let {
-                            Text(
-                                it,
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                }
+                
+                if (connectionState == ConnectionStatus.CONNECTED) {
+                    IconButton(onClick = { viewModel.disconnect() }) {
+                        Icon(
+                            TablerIcons.Unlink,
+                            contentDescription = "Disconnect",
+                            tint = DuoRed,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
-                },
-                actions = {
-                    if (connectionState == ConnectionStatus.CONNECTED) {
-                        IconButton(onClick = { viewModel.disconnect() }) {
-                            Icon(
-                                Icons.Outlined.LinkOff,
-                                contentDescription = "Disconnect",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
+                }
+            }
+        }
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .verticalScroll(scrollState)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             // Connection Status Card
             ConnectionStatusCard(
@@ -169,7 +186,7 @@ fun ClientScreen(
                 exit = fadeOut() + shrinkVertically()
             ) {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
                     // Audio Controls
                     AudioControlsCard(
@@ -227,25 +244,30 @@ fun ClientScreen(
             onDismissRequest = { viewModel.rejectTransferRequest() },
             icon = {
                 Icon(
-                    Icons.Filled.SwapHoriz,
+                    TablerIcons.Refresh,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = DuoPurple,
                     modifier = Modifier.size(48.dp)
                 )
             },
             title = { 
                 Text(
                     text = "Become Host?",
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.titleLarge,
+                    color = DuoTextPrimary
                 )
             },
             text = { 
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("The current host wants to transfer control to you.")
+                    Text(
+                        "The current host wants to transfer control to you.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = DuoTextSecondary
+                    )
                     
                     Card(
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            containerColor = DuoSurfaceHighlight
                         ),
                         shape = RoundedCornerShape(12.dp)
                     ) {
@@ -255,39 +277,37 @@ fun ClientScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                Icons.Outlined.Info,
+                                TablerIcons.InfoCircle,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = DuoBlue,
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
                                 text = "You'll start broadcasting audio to all connected clients.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = DuoTextPrimary
                             )
                         }
                     }
                 }
             },
             confirmButton = {
-                Button(
+                DuolingoButton(
+                    text = "ACCEPT",
                     onClick = { viewModel.acceptTransferRequest() },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Accept")
-                }
+                    color = DuoGreen,
+                    shadowColor = DuoGreenShadow,
+                    height = 40.dp
+                )
             },
             dismissButton = {
-                OutlinedButton(
-                    onClick = { viewModel.rejectTransferRequest() },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Decline")
+                TextButton(onClick = { viewModel.rejectTransferRequest() }) {
+                    Text("DECLINE", color = DuoTextSecondary, fontWeight = FontWeight.Bold)
                 }
             },
-            shape = RoundedCornerShape(24.dp)
+            containerColor = DuoSurface,
+            titleContentColor = DuoTextPrimary,
+            textContentColor = DuoTextSecondary
         )
     }
 }
@@ -300,31 +320,28 @@ private fun ConnectionStatusCard(
 ) {
     val isConnected = connectionState == ConnectionStatus.CONNECTED
     val statusColor = when (connectionState) {
-        ConnectionStatus.CONNECTED -> Success
-        ConnectionStatus.CONNECTING -> Warning
-        ConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
-        ConnectionStatus.KICKED -> Error
-        ConnectionStatus.ERROR -> Error
+        ConnectionStatus.CONNECTED -> DuoGreen
+        ConnectionStatus.CONNECTING -> DuoOrange
+        ConnectionStatus.DISCONNECTED -> DuoTextDisabled
+        ConnectionStatus.KICKED -> DuoRed
+        ConnectionStatus.ERROR -> DuoRed
     }
     val statusText = when (connectionState) {
-        ConnectionStatus.CONNECTED -> "Connected"
-        ConnectionStatus.CONNECTING -> "Connecting..."
-        ConnectionStatus.DISCONNECTED -> "Disconnected"
-        ConnectionStatus.KICKED -> "Kicked from Session"
-        ConnectionStatus.ERROR -> "Connection Error"
+        ConnectionStatus.CONNECTED -> "CONNECTED"
+        ConnectionStatus.CONNECTING -> "CONNECTING..."
+        ConnectionStatus.DISCONNECTED -> "DISCONNECTED"
+        ConnectionStatus.KICKED -> "KICKED"
+        ConnectionStatus.ERROR -> "ERROR"
     }
     
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isConnected) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            }
+            containerColor = DuoSurface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(24.dp),
@@ -333,25 +350,21 @@ private fun ConnectionStatusCard(
             // Status Icon
             Box(
                 modifier = Modifier
-                    .size(72.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(statusColor, statusColor.copy(alpha = 0.3f))
-                        )
-                    ),
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(statusColor.copy(alpha = 0.2f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     when (connectionState) {
-                        ConnectionStatus.CONNECTED -> Icons.Filled.Headphones
-                        ConnectionStatus.CONNECTING -> Icons.Outlined.Sync
-                        ConnectionStatus.KICKED -> Icons.Filled.Block
-                        else -> Icons.Outlined.HeadsetOff
+                        ConnectionStatus.CONNECTED -> TablerIcons.Headphones
+                        ConnectionStatus.CONNECTING -> TablerIcons.Refresh
+                        ConnectionStatus.KICKED -> TablerIcons.X
+                        else -> TablerIcons.Unlink
                     },
                     contentDescription = null,
-                    modifier = Modifier.size(36.dp),
-                    tint = if (isConnected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                    modifier = Modifier.size(40.dp),
+                    tint = statusColor
                 )
             }
             
@@ -359,15 +372,15 @@ private fun ConnectionStatusCard(
             
             Text(
                 text = statusText,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.titleLarge,
+                color = statusColor
             )
             
             if (connectedHost != null && isConnected) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 
                 Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                    color = DuoSurfaceHighlight,
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(
@@ -376,31 +389,27 @@ private fun ConnectionStatusCard(
                     ) {
                         Text(
                             text = connectedHost.serviceName,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Medium
+                            style = MaterialTheme.typography.titleMedium,
+                            color = DuoTextPrimary
                         )
                         Text(
                             text = "${connectedHost.localIpAddress}:${connectedHost.port}",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DuoTextSecondary
                         )
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(24.dp))
                 
-                OutlinedButton(
+                DuolingoButton(
+                    text = "DISCONNECT",
                     onClick = onDisconnect,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Error
-                    ),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Error)
-                ) {
-                    Icon(Icons.Filled.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Disconnect")
-                }
+                    color = DuoRed,
+                    shadowColor = DuoRedShadow,
+                    height = 45.dp,
+                    modifier = Modifier.fillMaxWidth(0.7f)
+                )
             }
         }
     }
@@ -416,11 +425,15 @@ private fun AudioControlsCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp)
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = DuoSurface
+        ),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -428,41 +441,43 @@ private fun AudioControlsCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Audio Controls",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 18.sp
+                    text = "AUDIO CONTROLS",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = DuoTextSecondary
                 )
                 
                 // Mute button
-                FilledTonalIconButton(
+                IconButton(
                     onClick = onMuteToggle,
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = if (isMuted) Error.copy(alpha = 0.15f) else MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = if (isMuted) Error else MaterialTheme.colorScheme.onSecondaryContainer
-                    )
+                    modifier = Modifier
+                        .background(
+                            if (isMuted) DuoRed.copy(alpha = 0.2f) else DuoBlue.copy(alpha = 0.2f),
+                            RoundedCornerShape(12.dp)
+                        )
                 ) {
                     Icon(
-                        if (isMuted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
-                        contentDescription = if (isMuted) "Unmute" else "Mute"
+                        if (isMuted) TablerIcons.Volume else TablerIcons.Volume,
+                        contentDescription = if (isMuted) "Unmute" else "Mute",
+                        tint = if (isMuted) DuoRed else DuoBlue
                     )
                 }
             }
             
             // Volume Slider
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Volume",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "VOLUME",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = DuoTextSecondary
                     )
                     Text(
                         text = "${(volume * 100).toInt()}%",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        style = MaterialTheme.typography.labelMedium,
+                        color = DuoBlue
                     )
                 }
                 
@@ -472,8 +487,9 @@ private fun AudioControlsCard(
                     enabled = !isMuted,
                     modifier = Modifier.fillMaxWidth(),
                     colors = SliderDefaults.colors(
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        thumbColor = MaterialTheme.colorScheme.primary
+                        activeTrackColor = DuoBlue,
+                        thumbColor = DuoBlue,
+                        inactiveTrackColor = DuoSurfaceHighlight
                     )
                 )
             }
@@ -483,7 +499,7 @@ private fun AudioControlsCard(
                 level = if (isMuted) 0f else audioLevel,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
+                    .height(60.dp)
             )
         }
     }
@@ -494,12 +510,12 @@ private fun ModernAudioVisualizer(
     level: Float,
     modifier: Modifier = Modifier
 ) {
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val surfaceColor = MaterialTheme.colorScheme.surfaceVariant
+    val primaryColor = DuoGreen
+    val surfaceColor = DuoSurfaceHighlight
     
-    Canvas(modifier = modifier.clip(RoundedCornerShape(8.dp))) {
-        val barCount = 40
-        val gap = 3.dp.toPx()
+    Canvas(modifier = modifier.clip(RoundedCornerShape(12.dp))) {
+        val barCount = 30
+        val gap = 4.dp.toPx()
         val barWidth = (size.width - gap * (barCount - 1)) / barCount
         val maxBarHeight = size.height
         
@@ -510,9 +526,9 @@ private fun ModernAudioVisualizer(
             
             val randomFactor = 0.7f + kotlin.random.Random.nextFloat() * 0.6f
             val targetHeight = maxBarHeight * level * waveScale * randomFactor
-            val barHeight = targetHeight.coerceIn(4.dp.toPx(), maxBarHeight)
+            val barHeight = targetHeight.coerceIn(6.dp.toPx(), maxBarHeight)
             
-            val alpha = if (level > 0.01f) 0.8f else 0.3f
+            val alpha = if (level > 0.01f) 1f else 0.3f
             val color = if (level > 0.01f) {
                 primaryColor.copy(alpha = alpha)
             } else {
@@ -526,7 +542,7 @@ private fun ModernAudioVisualizer(
                 color = color,
                 topLeft = androidx.compose.ui.geometry.Offset(x, y),
                 size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2)
             )
         }
     }
@@ -536,10 +552,11 @@ private fun ModernAudioVisualizer(
 private fun ConnectingCard() {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+            containerColor = DuoSurface
+        ),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Row(
             modifier = Modifier
@@ -550,19 +567,20 @@ private fun ConnectingCard() {
         ) {
             CircularProgressIndicator(
                 modifier = Modifier.size(32.dp),
-                strokeWidth = 3.dp
+                strokeWidth = 4.dp,
+                color = DuoOrange
             )
             
             Column {
                 Text(
-                    text = "Connecting to host...",
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 16.sp
+                    text = "CONNECTING...",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = DuoTextPrimary
                 )
                 Text(
                     text = "Please wait",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = DuoTextSecondary
                 )
             }
         }
@@ -575,10 +593,11 @@ private fun NoHostCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+            containerColor = DuoSurface
+        ),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier
@@ -587,37 +606,36 @@ private fun NoHostCard(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
-                Icons.Outlined.SearchOff,
+                TablerIcons.Search,
                 contentDescription = null,
                 modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                tint = DuoTextDisabled
             )
             
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(
-                text = "No Host Selected",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 18.sp
+                text = "NO HOST SELECTED",
+                style = MaterialTheme.typography.titleLarge,
+                color = DuoTextPrimary
             )
             
             Text(
                 text = "Go back and select a host from the discovery screen",
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+                color = DuoTextSecondary,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
             
             Spacer(modifier = Modifier.height(24.dp))
             
-            Button(
+            DuolingoButton(
+                text = "FIND HOSTS",
                 onClick = onNavigateBack,
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Filled.Search, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Find Hosts")
-            }
+                color = DuoBlue,
+                shadowColor = DuoBlueShadow,
+                icon = TablerIcons.Search
+            )
         }
     }
 }

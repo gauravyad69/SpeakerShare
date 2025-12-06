@@ -7,19 +7,38 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import io.github.gauravyad69.speakershare.data.model.ClientConnection
-import io.github.gauravyad69.speakershare.ui.viewmodels.ClientsViewModel
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import compose.icons.TablerIcons
+import compose.icons.tablericons.Activity
+import compose.icons.tablericons.ArrowLeft
+import compose.icons.tablericons.Check
+import compose.icons.tablericons.Clock
+import compose.icons.tablericons.DeviceSpeaker
+import compose.icons.tablericons.InfoCircle
+import compose.icons.tablericons.PlayerStop
+import compose.icons.tablericons.Refresh
+import compose.icons.tablericons.Trash
+import compose.icons.tablericons.UserOff
+import compose.icons.tablericons.UserX
+import compose.icons.tablericons.Users
+import compose.icons.tablericons.Volume
+import compose.icons.tablericons.Volume
+import compose.icons.tablericons.Wifi
+import compose.icons.tablericons.WifiOff
+import io.github.gauravyad69.speakershare.data.model.ClientConnection
+import io.github.gauravyad69.speakershare.ui.components.DuolingoButton
+import io.github.gauravyad69.speakershare.ui.theme.*
+import io.github.gauravyad69.speakershare.ui.viewmodels.ClientsViewModel
 import kotlinx.coroutines.delay
 
 /**
@@ -41,27 +60,49 @@ fun ClientsScreen(
     }
 
     Scaffold(
+        containerColor = DuoBackground,
         topBar = {
-            TopAppBar(
-                title = { 
-                    Text("Connected Clients (${uiState.clients.size})")
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (uiState.clients.isNotEmpty()) {
-                        IconButton(onClick = { showBulkActions = !showBulkActions }) {
-                            Icon(
-                                if (showBulkActions) Icons.Default.Close else Icons.Default.SelectAll,
-                                contentDescription = if (showBulkActions) "Cancel selection" else "Select multiple"
-                            )
-                        }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(
+                        TablerIcons.ArrowLeft,
+                        contentDescription = "Back",
+                        tint = DuoTextSecondary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "CLIENTS MANAGEMENT",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = DuoTextSecondary
+                    )
+                    Text(
+                        "CONNECTED (${uiState.clients.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = DuoTextPrimary
+                    )
+                }
+                
+                if (uiState.clients.isNotEmpty()) {
+                    IconButton(onClick = { showBulkActions = !showBulkActions }) {
+                        Icon(
+                            if (showBulkActions) TablerIcons.Check else TablerIcons.Users,
+                            contentDescription = if (showBulkActions) "Cancel selection" else "Select multiple",
+                            tint = if (showBulkActions) DuoGreen else DuoBlue,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
                 }
-            )
+            }
         },
         floatingActionButton = {
             if (showBulkActions && selectedClients.isNotEmpty()) {
@@ -71,15 +112,17 @@ fun ClientsScreen(
                         selectedClients = emptySet()
                         showBulkActions = false
                     },
-                    icon = { Icon(Icons.Default.PersonRemove, contentDescription = null) },
-                    text = { Text("Kick Selected (${selectedClients.size})") },
-                    containerColor = MaterialTheme.colorScheme.error
+                    icon = { Icon(TablerIcons.UserX, contentDescription = null, tint = DuoTextPrimary) },
+                    text = { Text("KICK SELECTED (${selectedClients.size})", color = DuoTextPrimary, fontWeight = FontWeight.Bold) },
+                    containerColor = DuoRed
                 )
             } else if (uiState.clients.isNotEmpty()) {
                 FloatingActionButton(
-                    onClick = { viewModel.refreshClients() }
+                    onClick = { viewModel.refreshClients() },
+                    containerColor = DuoBlue,
+                    contentColor = DuoTextPrimary
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    Icon(TablerIcons.Refresh, contentDescription = "Refresh")
                 }
             }
         }
@@ -132,8 +175,6 @@ fun ClientsScreen(
                     onUnmuteClient = { viewModel.unmuteClient(it.clientId) }
                 )
             }
-        }
-    }
 
     // Kick Confirmation Dialog
     showKickDialog?.let { client ->
@@ -155,6 +196,8 @@ fun ClientsScreen(
             viewModel.clearError()
         }
     }
+        }
+    }
 }
 
 @Composable
@@ -168,13 +211,9 @@ private fun SessionOverviewCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isActive) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            }
-        )
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -189,16 +228,13 @@ private fun SessionOverviewCard(
                     Text(
                         text = sessionName,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = DuoTextPrimary
                     )
                     Text(
-                        text = if (isActive) "Broadcasting Active" else "Session Stopped",
+                        text = if (isActive) "BROADCASTING ACTIVE" else "SESSION STOPPED",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = if (isActive) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                        color = if (isActive) DuoGreen else DuoTextSecondary
                     )
                 }
                 
@@ -211,7 +247,7 @@ private fun SessionOverviewCard(
                             modifier = Modifier
                                 .size(12.dp)
                                 .background(
-                                    MaterialTheme.colorScheme.primary,
+                                    DuoGreen,
                                     shape = CircleShape
                                 )
                         )
@@ -219,7 +255,7 @@ private fun SessionOverviewCard(
                             text = "LIVE",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = DuoGreen
                         )
                     }
                 }
@@ -246,17 +282,14 @@ private fun SessionOverviewCard(
 
             // Action Button
             if (isActive) {
-                Button(
+                DuolingoButton(
+                    text = "STOP BROADCASTING",
                     onClick = onStopSession,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Icon(Icons.Default.Stop, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Stop Broadcasting")
-                }
+                    icon = TablerIcons.PlayerStop,
+                    color = DuoRed,
+                    shadowColor = DuoRedShadow,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -271,12 +304,13 @@ private fun SessionStat(
         Text(
             text = value,
             style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            color = DuoTextPrimary
         )
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = DuoTextSecondary
         )
     }
 }
@@ -290,51 +324,57 @@ private fun QuickActionsCard(
     onToggleBulkActions: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Quick Actions",
+                text = "QUICK ACTIONS",
                 style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Bold,
+                color = DuoTextSecondary
             )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedButton(
+                DuolingoButton(
+                    text = "MUTE ALL",
                     onClick = onMuteAll,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.VolumeOff, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Mute All")
-                }
-                
-                OutlinedButton(
-                    onClick = onUnmuteAll,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Unmute All")
-                }
-                
-                Button(
-                    onClick = onKickAll,
+                    icon = TablerIcons.Volume,
+                    color = DuoSurfaceHighlight,
+                    shadowColor = DuoOutline,
+                    textColor = DuoTextSecondary,
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Icon(Icons.Default.PersonRemove, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Kick All")
-                }
+                    height = 40.dp
+                )
+                
+                DuolingoButton(
+                    text = "UNMUTE ALL",
+                    onClick = onUnmuteAll,
+                    icon = TablerIcons.Volume,
+                    color = DuoSurfaceHighlight,
+                    shadowColor = DuoOutline,
+                    textColor = DuoTextSecondary,
+                    modifier = Modifier.weight(1f),
+                    height = 40.dp
+                )
+                
+                DuolingoButton(
+                    text = "KICK ALL",
+                    onClick = onKickAll,
+                    icon = TablerIcons.UserX,
+                    color = DuoRed,
+                    shadowColor = DuoRedShadow,
+                    modifier = Modifier.weight(1f),
+                    height = 40.dp
+                )
             }
         }
     }
@@ -388,16 +428,17 @@ private fun ClientCard(
                     modifier
                 }
             },
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) {
-                MaterialTheme.colorScheme.primaryContainer
+                DuoSurfaceHighlight
             } else {
-                MaterialTheme.colorScheme.surface
+                DuoSurface
             }
         ),
         border = if (isSelected) {
-            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-        } else null
+            BorderStroke(2.dp, DuoBlue)
+        } else BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -416,22 +457,27 @@ private fun ClientCard(
                     if (isSelectionMode) {
                         Checkbox(
                             checked = isSelected,
-                            onCheckedChange = { onSelected() }
+                            onCheckedChange = { onSelected() },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = DuoBlue,
+                                uncheckedColor = DuoTextSecondary
+                            )
                         )
                     }
 
                     Column {
                         Text(
-                            text = client.ipAddress,
+                            text = client.clientName,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            color = DuoTextPrimary
                         )
                         Text(
                             text = client.ipAddress,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = DuoTextSecondary
                         )
                     }
                 }
@@ -439,22 +485,18 @@ private fun ClientCard(
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // Connection quality indicator (simplified)
-                    // TODO: Implement ConnectionQualityIndicator based on networkMetrics
-                    
                     // Transport protocol chip
-                    AssistChip(
-                        onClick = {},
-                        label = { 
-                            Text(
-                                "Unknown", // TODO: Add transport info to ClientConnection
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = DuoSurfaceHighlight
+                    ) {
+                        Text(
+                            text = "Unknown", // TODO: Add transport info to ClientConnection
+                            style = MaterialTheme.typography.labelSmall,
+                            color = DuoTextSecondary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
-                    )
+                    }
                 }
             }
 
@@ -464,22 +506,22 @@ private fun ClientCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 ClientStat(
-                    icon = Icons.Default.AccessTime,
+                    icon = TablerIcons.Clock,
                     label = "Connected",
                     value = formatDuration(System.currentTimeMillis() - client.connectionTime)
                 )
                 ClientStat(
-                    icon = Icons.Default.NetworkCheck,
+                    icon = TablerIcons.Wifi,
                     label = "Bandwidth",
                     value = "${String.format("%.1f", client.networkMetrics.bandwidth / 1000f)} KB/s"
                 )
                 ClientStat(
-                    icon = Icons.Default.SignalWifi4Bar,
+                    icon = TablerIcons.DeviceSpeaker,
                     label = "Latency",
                     value = "${client.networkMetrics.latency}ms"
                 )
                 ClientStat(
-                    icon = if (client.audioSettings.isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                    icon = if (client.audioSettings.isMuted) TablerIcons.Volume else TablerIcons.Volume,
                     label = "Audio",
                     value = if (client.audioSettings.isMuted) "Muted" else "Active"
                 )
@@ -491,29 +533,26 @@ private fun ClientCard(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    OutlinedButton(
+                    DuolingoButton(
+                        text = if (client.audioSettings.isMuted) "UNMUTE" else "MUTE",
                         onClick = if (client.audioSettings.isMuted) onUnmute else onMute,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            if (client.audioSettings.isMuted) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
-                            contentDescription = null
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (client.audioSettings.isMuted) "Unmute" else "Mute")
-                    }
-                    
-                    Button(
-                        onClick = onKick,
+                        icon = if (client.audioSettings.isMuted) TablerIcons.Volume else TablerIcons.Volume,
+                        color = DuoSurfaceHighlight,
+                        shadowColor = DuoOutline,
+                        textColor = DuoTextSecondary,
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error
-                        )
-                    ) {
-                        Icon(Icons.Default.PersonRemove, contentDescription = null)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Kick")
-                    }
+                        height = 40.dp
+                    )
+                    
+                    DuolingoButton(
+                        text = "KICK",
+                        onClick = onKick,
+                        icon = TablerIcons.UserX,
+                        color = DuoRed,
+                        shadowColor = DuoRedShadow,
+                        modifier = Modifier.weight(1f),
+                        height = 40.dp
+                    )
                 }
             }
         }
@@ -534,43 +573,29 @@ private fun ClientStat(
             icon,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            tint = DuoTextSecondary
         )
         Text(
             text = value,
             style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Bold,
+            color = DuoTextPrimary
         )
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = DuoTextSecondary
         )
     }
-}
-
-@Composable
-private fun ConnectionQualityIndicator(quality: String) {
-    val (icon, color) = when (quality.uppercase()) {
-        "EXCELLENT" -> Pair(Icons.Default.SignalWifi4Bar, MaterialTheme.colorScheme.primary)
-        "GOOD" -> Pair(Icons.Default.Wifi, MaterialTheme.colorScheme.primary)
-        "FAIR" -> Pair(Icons.Default.SignalWifiStatusbar4Bar, MaterialTheme.colorScheme.tertiary)
-        "POOR" -> Pair(Icons.Default.WifiOff, MaterialTheme.colorScheme.error)
-        else -> Pair(Icons.Default.SignalWifiOff, MaterialTheme.colorScheme.error)
-    }
-    
-    Icon(
-        icon,
-        contentDescription = "Connection quality: $quality",
-        modifier = Modifier.size(20.dp),
-        tint = color
-    )
 }
 
 @Composable
 private fun EmptyClientsCard() {
     Card(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier
@@ -580,22 +605,24 @@ private fun EmptyClientsCard() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Icon(
-                Icons.Default.PeopleOutline,
+                TablerIcons.Users,
                 contentDescription = null,
                 modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                tint = DuoTextDisabled
             )
             
             Text(
-                text = "No Connected Clients",
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "NO CONNECTED CLIENTS",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = DuoTextSecondary
             )
             
             Text(
                 text = "Clients will appear here once they connect to your broadcast session.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = DuoTextSecondary,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
     }
@@ -609,25 +636,27 @@ private fun KickClientDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Kick Client") },
+        title = { Text("Kick Client", style = MaterialTheme.typography.titleLarge) },
         text = {
-            Text("Are you sure you want to kick \"${client.ipAddress}\" from the session?")
+            Text("Are you sure you want to kick \"${client.ipAddress}\" from the session?", style = MaterialTheme.typography.bodyMedium)
         },
         confirmButton = {
-            TextButton(
+            DuolingoButton(
+                text = "KICK",
                 onClick = onConfirm,
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                )
-            ) {
-                Text("Kick")
-            }
+                color = DuoRed,
+                shadowColor = DuoRedShadow,
+                height = 40.dp
+            )
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text("CANCEL", color = DuoTextSecondary, fontWeight = FontWeight.Bold)
             }
-        }
+        },
+        containerColor = DuoSurface,
+        titleContentColor = DuoTextPrimary,
+        textContentColor = DuoTextSecondary
     )
 }
 

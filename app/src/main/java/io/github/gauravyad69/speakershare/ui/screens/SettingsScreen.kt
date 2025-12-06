@@ -5,8 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,7 +14,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import compose.icons.TablerIcons
+import compose.icons.tablericons.*
 import io.github.gauravyad69.speakershare.data.model.UserSettings
+import io.github.gauravyad69.speakershare.ui.theme.*
+import io.github.gauravyad69.speakershare.ui.components.DuolingoButton
 import io.github.gauravyad69.speakershare.ui.viewmodels.SettingsViewModel
 
 /**
@@ -43,24 +46,47 @@ fun SettingsScreen(
 
 
     Scaffold(
+        containerColor = DuoBackground,
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { 
+                    Text(
+                        "SETTINGS", 
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = DuoTextPrimary
+                    ) 
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            TablerIcons.ArrowLeft, 
+                            contentDescription = "Back",
+                            tint = DuoTextSecondary
+                        )
                     }
                 },
                 actions = {
                     if (hasUnsavedChanges) {
                         IconButton(onClick = { viewModel.saveSettings() }) {
-                            Icon(Icons.Default.Save, contentDescription = "Save")
+                            Icon(
+                                TablerIcons.DeviceFloppy, 
+                                contentDescription = "Save",
+                                tint = DuoGreen
+                            )
                         }
                     }
                     IconButton(onClick = { viewModel.resetToDefaults() }) {
-                        Icon(Icons.Default.RestartAlt, contentDescription = "Reset to defaults")
+                        Icon(
+                            TablerIcons.Refresh, 
+                            contentDescription = "Reset to defaults",
+                            tint = DuoTextSecondary
+                        )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = DuoBackground
+                )
             )
         }
     ) { paddingValues ->
@@ -68,14 +94,14 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(16.dp)
         ) {
             // Audio Settings Section
             item {
                 SettingsSectionCard(
-                    title = "Audio Settings",
-                    icon = Icons.Default.AudioFile
+                    title = "AUDIO SETTINGS",
+                    icon = TablerIcons.Music
                 ) {
                     // Latency Profile (Most Important Setting)
                     LatencyProfileSettings(
@@ -84,7 +110,7 @@ fun SettingsScreen(
                     )
                     
                     Spacer(modifier = Modifier.height(16.dp))
-                    Divider()
+                    HorizontalDivider(color = DuoSurfaceHighlight)
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     AudioQualitySettings(
@@ -133,8 +159,8 @@ fun SettingsScreen(
             // Network Settings Section
             item {
                 SettingsSectionCard(
-                    title = "Network Settings",
-                    icon = Icons.Default.NetworkWifi
+                    title = "NETWORK SETTINGS",
+                    icon = TablerIcons.Wifi
                 ) {
                     NetworkTransportSettings(
                         preferredTransport = preferredTransport.name,
@@ -164,8 +190,8 @@ fun SettingsScreen(
             // Host Settings Section
             item {
                 SettingsSectionCard(
-                    title = "Host Settings",
-                    icon = Icons.Default.Router
+                    title = "HOST SETTINGS",
+                    icon = TablerIcons.Server
                 ) {
                     HostLimitsSettings(
                         maxClients = maxClients,
@@ -179,8 +205,8 @@ fun SettingsScreen(
             // UI & Behavior Section
             item {
                 SettingsSectionCard(
-                    title = "Interface & Behavior",
-                    icon = Icons.Default.Tune
+                    title = "INTERFACE & BEHAVIOR",
+                    icon = TablerIcons.Adjustments
                 ) {
                     SwitchSetting(
                         title = "Keep Screen On",
@@ -204,8 +230,8 @@ fun SettingsScreen(
             // About Section
             item {
                 SettingsSectionCard(
-                    title = "About",
-                    icon = Icons.Default.Info
+                    title = "ABOUT",
+                    icon = TablerIcons.InfoCircle
                 ) {
                     AboutSection(
                         onExportSettings = { viewModel.exportSettings() },
@@ -225,7 +251,9 @@ private fun SettingsSectionCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -238,12 +266,13 @@ private fun SettingsSectionCard(
                 Icon(
                     icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = DuoTextSecondary
                 )
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = DuoTextSecondary
                 )
             }
             
@@ -261,13 +290,14 @@ private fun LatencyProfileSettings(
         Text(
             text = "Latency Profile",
             style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Bold,
+            color = DuoTextPrimary
         )
         
         Text(
             text = "Choose a preset that balances latency vs audio quality",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = DuoTextSecondary
         )
         
         val profiles = listOf(
@@ -295,7 +325,7 @@ private fun LatencyProfileSettings(
         
         Column(
             modifier = Modifier.selectableGroup(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             profiles.forEach { (profile, title, description) ->
                 val isSelected = currentProfile == profile
@@ -308,14 +338,16 @@ private fun LatencyProfileSettings(
                             onClick = { onProfileChange(profile) },
                             role = Role.RadioButton
                         ),
+                    shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = if (isSelected) 
-                            MaterialTheme.colorScheme.primaryContainer 
+                            DuoBlue.copy(alpha = 0.1f)
                         else 
-                            MaterialTheme.colorScheme.surfaceVariant
+                            DuoSurface
                     ),
-                    elevation = CardDefaults.cardElevation(
-                        defaultElevation = if (isSelected) 4.dp else 1.dp
+                    border = androidx.compose.foundation.BorderStroke(
+                        2.dp, 
+                        if (isSelected) DuoBlue else DuoSurfaceHighlight
                     )
                 ) {
                     Row(
@@ -326,22 +358,24 @@ private fun LatencyProfileSettings(
                     ) {
                         RadioButton(
                             selected = isSelected,
-                            onClick = null // handled by selectable
+                            onClick = null, // handled by selectable
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = DuoBlue,
+                                unselectedColor = DuoTextSecondary
+                            )
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = title,
                                 style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = DuoTextPrimary
                             )
                             Text(
                                 text = description,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (isSelected) 
-                                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                color = DuoTextSecondary
                             )
                         }
                     }
@@ -353,9 +387,11 @@ private fun LatencyProfileSettings(
         if (currentProfile == io.github.gauravyad69.speakershare.data.model.LatencyProfile.NO_LATENCY) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                )
+                    containerColor = DuoRed.copy(alpha = 0.1f)
+                ),
+                border = androidx.compose.foundation.BorderStroke(2.dp, DuoRed)
             ) {
                 Row(
                     modifier = Modifier.padding(12.dp),
@@ -363,14 +399,14 @@ private fun LatencyProfileSettings(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Default.Warning,
+                        TablerIcons.AlertTriangle,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onErrorContainer
+                        tint = DuoRed
                     )
                     Text(
                         text = "No Latency mode uses raw PCM audio which requires high bandwidth (~1.4 Mbps) and may cause audio glitches. Only use on excellent WiFi connections.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer
+                        color = DuoRed
                     )
                 }
             }
@@ -640,7 +676,9 @@ private fun AdvancedSettingsSection(
     
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -655,20 +693,22 @@ private fun AdvancedSettingsSection(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        Icons.Default.Engineering,
+                        TablerIcons.Settings,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = DuoTextSecondary
                     )
                     Text(
-                        text = "Advanced Settings",
+                        text = "ADVANCED SETTINGS",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = DuoTextSecondary
                     )
                 }
                 
                 Icon(
-                    if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null
+                    if (isExpanded) TablerIcons.ChevronUp else TablerIcons.ChevronDown,
+                    contentDescription = null,
+                    tint = DuoTextSecondary
                 )
             }
             
@@ -692,19 +732,20 @@ private fun AdvancedSettingsSection(
                         onValueChange = { viewModel.setAutoStopTimer(it.toInt()) }
                     )
                     
-                    Divider()
+                    HorizontalDivider(color = DuoSurfaceHighlight)
                     
                     Text(
-                        text = "Sync Settings",
+                        text = "SYNC SETTINGS",
                         style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Bold,
+                        color = DuoTextSecondary
                     )
                     
                     Text(
                         text = "Configure media playback synchronization between devices. " +
                                "Higher tolerance = more stable, lower tolerance = tighter sync.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = DuoTextSecondary
                     )
                     
                     SliderSetting(
@@ -725,19 +766,20 @@ private fun AdvancedSettingsSection(
                         onValueChange = { viewModel.setSyncMinSeekInterval(it.toInt()) }
                     )
                     
-                    Divider()
+                    HorizontalDivider(color = DuoSurfaceHighlight)
                     
                     Text(
-                        text = "Buffer Configuration",
+                        text = "BUFFER CONFIGURATION",
                         style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Bold,
+                        color = DuoTextSecondary
                     )
                     
                     Text(
                         text = "Smaller buffers = lower latency but may cause audio glitches. " +
                                "Larger buffers = more stable but higher latency.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = DuoTextSecondary
                     )
                 }
             }
@@ -754,36 +796,41 @@ private fun AboutSection(
         Text(
             text = "SpeakerShare v1.0.0",
             style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Bold,
+            color = DuoTextPrimary
         )
         
         Text(
             text = "Real-time audio broadcasting for Android",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = DuoTextSecondary
         )
         
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedButton(
+            DuolingoButton(
+                text = "EXPORT",
                 onClick = onExportSettings,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(Icons.Default.FileUpload, contentDescription = null)
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Export")
-            }
+                icon = TablerIcons.Upload,
+                color = DuoSurfaceHighlight,
+                shadowColor = DuoOutline,
+                textColor = DuoTextSecondary,
+                modifier = Modifier.weight(1f),
+                height = 40.dp
+            )
             
-            OutlinedButton(
+            DuolingoButton(
+                text = "IMPORT",
                 onClick = onImportSettings,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(Icons.Default.FileDownload, contentDescription = null)
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Import")
-            }
+                icon = TablerIcons.Download,
+                color = DuoSurfaceHighlight,
+                shadowColor = DuoOutline,
+                textColor = DuoTextSecondary,
+                modifier = Modifier.weight(1f),
+                height = 40.dp
+            )
         }
     }
 }
@@ -804,20 +851,29 @@ private fun SwitchSetting(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                color = DuoTextPrimary,
+                fontWeight = FontWeight.Medium
             )
             subtitle?.let {
                 Text(
                     text = it,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = DuoTextSecondary
                 )
             }
         }
         
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = DuoTextPrimary,
+                checkedTrackColor = DuoGreen,
+                uncheckedThumbColor = DuoTextSecondary,
+                uncheckedTrackColor = DuoSurfaceHighlight,
+                uncheckedBorderColor = DuoSurfaceHighlight
+            )
         )
     }
 }
@@ -838,12 +894,15 @@ private fun SliderSetting(
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                color = DuoTextPrimary,
+                fontWeight = FontWeight.Medium
             )
             Text(
                 text = valueText,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary
+                color = DuoBlue,
+                fontWeight = FontWeight.Bold
             )
         }
         
@@ -851,7 +910,14 @@ private fun SliderSetting(
             value = value,
             onValueChange = onValueChange,
             valueRange = valueRange,
-            steps = steps
+            steps = steps,
+            colors = SliderDefaults.colors(
+                thumbColor = DuoBlue,
+                activeTrackColor = DuoBlue,
+                inactiveTrackColor = DuoSurfaceHighlight,
+                activeTickColor = DuoBlue,
+                inactiveTickColor = DuoSurfaceHighlight
+            )
         )
     }
 }
@@ -869,7 +935,9 @@ private fun DropdownSetting(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = title,
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodyMedium,
+            color = DuoTextPrimary,
+            fontWeight = FontWeight.Medium
         )
         
         ExposedDropdownMenuBox(
@@ -881,15 +949,23 @@ private fun DropdownSetting(
                 onValueChange = {},
                 readOnly = true,
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                modifier = Modifier.menuAnchor()
+                modifier = Modifier.menuAnchor(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = DuoBlue,
+                    unfocusedBorderColor = DuoSurfaceHighlight,
+                    focusedTextColor = DuoTextPrimary,
+                    unfocusedTextColor = DuoTextPrimary
+                ),
+                shape = RoundedCornerShape(12.dp)
             )
             ExposedDropdownMenu(
                 expanded = expanded,
-                onDismissRequest = { expanded = false }
+                onDismissRequest = { expanded = false },
+                containerColor = DuoSurface
             ) {
                 options.forEach { option ->
                     DropdownMenuItem(
-                        text = { Text(option) },
+                        text = { Text(option, color = DuoTextPrimary) },
                         onClick = {
                             onSelectionChange(option)
                             expanded = false
@@ -912,7 +988,9 @@ private fun RadioGroupSetting(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = title,
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodyMedium,
+            color = DuoTextPrimary,
+            fontWeight = FontWeight.Medium
         )
         
         Column(
@@ -932,12 +1010,17 @@ private fun RadioGroupSetting(
                 ) {
                     RadioButton(
                         selected = (option == selectedOption),
-                        onClick = null
+                        onClick = null,
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = DuoBlue,
+                            unselectedColor = DuoTextSecondary
+                        )
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = optionLabels[option] ?: option,
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DuoTextPrimary
                     )
                 }
             }
@@ -957,7 +1040,9 @@ private fun NumberInputSetting(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = title,
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodyMedium,
+            color = DuoTextPrimary,
+            fontWeight = FontWeight.Medium
         )
         
         OutlinedTextField(
@@ -969,15 +1054,22 @@ private fun NumberInputSetting(
                     onValueChange(intValue)
                 }
             },
-            placeholder = { Text("${range.first}-${range.last}") },
+            placeholder = { Text("${range.first}-${range.last}", color = DuoTextDisabled) },
             singleLine = true,
             suffix = {
                 Text(
                     text = "(${range.first}-${range.last})",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = DuoTextSecondary
                 )
-            }
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = DuoBlue,
+                unfocusedBorderColor = DuoSurfaceHighlight,
+                focusedTextColor = DuoTextPrimary,
+                unfocusedTextColor = DuoTextPrimary
+            ),
+            shape = RoundedCornerShape(12.dp)
         )
     }
 }

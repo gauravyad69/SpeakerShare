@@ -2,52 +2,71 @@ package io.github.gauravyad69.speakershare.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Legacy colors (keeping for compatibility)
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
+// Duolingo-inspired Dark Palette
+val DuoBackground = Color(0xFF131F24)
+val DuoSurface = Color(0xFF202F36)
+val DuoSurfaceHighlight = Color(0xFF37464F)
 
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+// Primary - Green (Action/Success)
+val DuoGreen = Color(0xFF58CC02)
+val DuoGreenShadow = Color(0xFF46A302)
+val DuoGreenHighlight = Color(0xFF89E219)
 
-// Modern SpeakerShare color palette
-// Primary - Deep teal/cyan for audio streaming vibe
-val Primary = Color(0xFF00BFA5)
-val PrimaryLight = Color(0xFF5DF2D6)
-val PrimaryDark = Color(0xFF008E76)
-val OnPrimary = Color(0xFFFFFFFF)
+// Secondary - Blue (Info/Navigation)
+val DuoBlue = Color(0xFF1CB0F6)
+val DuoBlueShadow = Color(0xFF1899D6)
 
-// Secondary - Warm orange for actions/accents
-val Secondary = Color(0xFFFF7043)
-val SecondaryLight = Color(0xFFFFA270)
-val SecondaryDark = Color(0xFFC63F17)
-val OnSecondary = Color(0xFFFFFFFF)
+// Accent - Purple
+val DuoPurple = Color(0xFFCE82FF)
+val DuoPurpleShadow = Color(0xFFA568CC)
 
-// Tertiary - Electric blue for highlights
-val Tertiary = Color(0xFF448AFF)
-val TertiaryLight = Color(0xFF83B9FF)
-val TertiaryDark = Color(0xFF005ECB)
+// Error - Red
+val DuoRed = Color(0xFFFF4B4B)
+val DuoRedShadow = Color(0xFFD43F3F)
 
-// Background colors
-val Background = Color(0xFFF8F9FA)
-val BackgroundDark = Color(0xFF121212)
-val Surface = Color(0xFFFFFFFF)
-val SurfaceDark = Color(0xFF1E1E1E)
-val SurfaceVariant = Color(0xFFF0F4F8)
-val SurfaceVariantDark = Color(0xFF2D2D2D)
+// Warning - Orange/Yellow
+val DuoOrange = Color(0xFFFF9600)
+val DuoOrangeShadow = Color(0xFFCC7800)
 
-// Text colors
-val OnBackground = Color(0xFF1A1A1A)
-val OnBackgroundDark = Color(0xFFE0E0E0)
-val OnSurface = Color(0xFF1A1A1A)
-val OnSurfaceDark = Color(0xFFE0E0E0)
-val OnSurfaceVariant = Color(0xFF5F6368)
-val OnSurfaceVariantDark = Color(0xFF9AA0A6)
+// Text
+val DuoTextPrimary = Color(0xFFFFFFFF)
+val DuoTextSecondary = Color(0xFFAFAFAF)
+val DuoTextDisabled = Color(0xFF52656D)
 
-// Status colors
-val Success = Color(0xFF4CAF50)
-val Error = Color(0xFFE53935)
+// Outline
+val DuoOutline = Color(0xFF37464F)
+
+// Legacy/Material Mapping
+val Primary = DuoGreen
+val PrimaryLight = DuoGreenHighlight
+val PrimaryDark = DuoGreenShadow
+val OnPrimary = Color.White
+
+val Secondary = DuoBlue
+val SecondaryLight = Color(0xFF5AC8FA)
+val SecondaryDark = DuoBlueShadow
+val OnSecondary = Color.White
+
+val Tertiary = DuoPurple
+val TertiaryLight = Color(0xFFE0B3FF)
+val TertiaryDark = DuoPurpleShadow
+
+val Background = DuoBackground
+val BackgroundDark = DuoBackground
+val Surface = DuoSurface
+val SurfaceDark = DuoSurface
+val SurfaceVariant = DuoSurfaceHighlight
+val SurfaceVariantDark = DuoSurfaceHighlight
+
+val OnBackground = DuoTextPrimary
+val OnBackgroundDark = DuoTextPrimary
+val OnSurface = DuoTextPrimary
+val OnSurfaceDark = DuoTextPrimary
+val OnSurfaceVariant = DuoTextSecondary
+val OnSurfaceVariantDark = DuoTextSecondary
+
+val Success = DuoGreen
+val Error = DuoRed
 val Warning = Color(0xFFFF9800)
 val Info = Color(0xFF2196F3)
 
