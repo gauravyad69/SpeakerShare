@@ -671,8 +671,10 @@ private fun AdvancedSettingsSection(
 ) {
     val enableDebugLogging by viewModel.enableDebugLogging.collectAsState()
     val autoStopTimer by viewModel.autoStopTimer.collectAsState()
-    val syncPositionTolerance by viewModel.syncPositionTolerance.collectAsState()
-    val syncMinSeekInterval by viewModel.syncMinSeekInterval.collectAsState()
+    val audioSyncPositionTolerance by viewModel.audioSyncPositionTolerance.collectAsState()
+    val audioSyncMinSeekInterval by viewModel.audioSyncMinSeekInterval.collectAsState()
+    val videoSyncPositionTolerance by viewModel.videoSyncPositionTolerance.collectAsState()
+    val videoSyncMinSeekInterval by viewModel.videoSyncMinSeekInterval.collectAsState()
     
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -735,35 +737,69 @@ private fun AdvancedSettingsSection(
                     HorizontalDivider(color = DuoSurfaceHighlight)
                     
                     Text(
-                        text = "SYNC SETTINGS",
+                        text = "AUDIO SYNC SETTINGS",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = DuoTextSecondary
                     )
                     
                     Text(
-                        text = "Configure media playback synchronization between devices. " +
-                               "Higher tolerance = more stable, lower tolerance = tighter sync.",
+                        text = "Configure audio playback synchronization. " +
+                               "Audio requires tighter sync for a seamless experience.",
                         style = MaterialTheme.typography.bodySmall,
                         color = DuoTextSecondary
                     )
                     
                     SliderSetting(
-                        title = "Position Tolerance",
-                        value = syncPositionTolerance.toFloat(),
+                        title = "Audio Position Tolerance",
+                        value = audioSyncPositionTolerance.toFloat(),
                         valueRange = 50f..1000f,
                         steps = 18,
-                        valueText = "${syncPositionTolerance}ms",
-                        onValueChange = { viewModel.setSyncPositionTolerance(it.toInt()) }
+                        valueText = "${audioSyncPositionTolerance}ms",
+                        onValueChange = { viewModel.setAudioSyncPositionTolerance(it.toInt()) }
                     )
                     
                     SliderSetting(
-                        title = "Seek Cooldown",
-                        value = syncMinSeekInterval.toFloat(),
+                        title = "Audio Seek Cooldown",
+                        value = audioSyncMinSeekInterval.toFloat(),
                         valueRange = 500f..10000f,
                         steps = 18,
-                        valueText = "${syncMinSeekInterval}ms",
-                        onValueChange = { viewModel.setSyncMinSeekInterval(it.toInt()) }
+                        valueText = "${audioSyncMinSeekInterval}ms",
+                        onValueChange = { viewModel.setAudioSyncMinSeekInterval(it.toInt()) }
+                    )
+                    
+                    HorizontalDivider(color = DuoSurfaceHighlight)
+                    
+                    Text(
+                        text = "VIDEO SYNC SETTINGS",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = DuoTextSecondary
+                    )
+                    
+                    Text(
+                        text = "Configure video playback synchronization. " +
+                               "Video needs more relaxed sync due to buffering requirements.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DuoTextSecondary
+                    )
+                    
+                    SliderSetting(
+                        title = "Video Position Tolerance",
+                        value = videoSyncPositionTolerance.toFloat(),
+                        valueRange = 100f..2000f,
+                        steps = 18,
+                        valueText = "${videoSyncPositionTolerance}ms",
+                        onValueChange = { viewModel.setVideoSyncPositionTolerance(it.toInt()) }
+                    )
+                    
+                    SliderSetting(
+                        title = "Video Seek Cooldown",
+                        value = videoSyncMinSeekInterval.toFloat(),
+                        valueRange = 1000f..15000f,
+                        steps = 13,
+                        valueText = "${videoSyncMinSeekInterval}ms",
+                        onValueChange = { viewModel.setVideoSyncMinSeekInterval(it.toInt()) }
                     )
                     
                     HorizontalDivider(color = DuoSurfaceHighlight)

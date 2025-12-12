@@ -495,15 +495,22 @@ class SyncedMediaPlayer(
             Timber.d("Recorded drift: local=$currentPosition, expected=$expectedPositionMs, drift=${drift}ms")
         }
         
-        // Use media-type-specific thresholds (video needs more relaxed settings)
-        // Settings repo values are used as base, but we apply media-type multipliers
-        val basePositionTolerance = settingsRepository.getSyncPositionTolerance().toLong()
-        val baseMinSeekInterval = settingsRepository.getSyncMinSeekInterval().toLong()
+        // Use media-type-specific settings from repository
+        val positionTolerance: Long
+        val minSeekInterval: Long
+        val largeDriftThreshold: Long
         
-        // Video: use our constants which are more relaxed; Audio: use settings or our tighter constants
-        val positionTolerance = if (isVideoMode) VIDEO_POSITION_TOLERANCE_MS else minOf(basePositionTolerance, AUDIO_POSITION_TOLERANCE_MS)
-        val minSeekInterval = if (isVideoMode) VIDEO_MIN_SEEK_INTERVAL_MS else minOf(baseMinSeekInterval, AUDIO_MIN_SEEK_INTERVAL_MS)
-        val largeDriftThreshold = if (isVideoMode) VIDEO_LARGE_DRIFT_THRESHOLD_MS else AUDIO_LARGE_DRIFT_THRESHOLD_MS
+        if (isVideoMode) {
+            // Video: use video-specific settings
+            positionTolerance = settingsRepository.getVideoSyncPositionTolerance().toLong()
+            minSeekInterval = settingsRepository.getVideoSyncMinSeekInterval().toLong()
+            largeDriftThreshold = VIDEO_LARGE_DRIFT_THRESHOLD_MS
+        } else {
+            // Audio: use audio-specific settings
+            positionTolerance = settingsRepository.getAudioSyncPositionTolerance().toLong()
+            minSeekInterval = settingsRepository.getAudioSyncMinSeekInterval().toLong()
+            largeDriftThreshold = AUDIO_LARGE_DRIFT_THRESHOLD_MS
+        }
         
         if (absDrift > positionTolerance) {
             Timber.w("Position drift detected: ${drift}ms (current=$currentPosition, expected=$expectedPositionMs, tolerance=$positionTolerance, mode=${if (isVideoMode) "VIDEO" else "AUDIO"})")

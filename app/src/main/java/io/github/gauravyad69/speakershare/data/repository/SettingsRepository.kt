@@ -54,6 +54,13 @@ class SettingsRepository @Inject constructor(
         private const val KEY_CONNECTION_TIMEOUT = "connection_timeout"
         private const val KEY_DISCOVERY_TIMEOUT = "discovery_timeout"
         private const val KEY_LATENCY_PROFILE = "latency_profile"
+        // Audio sync settings
+        private const val KEY_AUDIO_SYNC_POSITION_TOLERANCE = "audio_sync_position_tolerance"
+        private const val KEY_AUDIO_SYNC_MIN_SEEK_INTERVAL = "audio_sync_min_seek_interval"
+        // Video sync settings
+        private const val KEY_VIDEO_SYNC_POSITION_TOLERANCE = "video_sync_position_tolerance"
+        private const val KEY_VIDEO_SYNC_MIN_SEEK_INTERVAL = "video_sync_min_seek_interval"
+        // Legacy keys (for migration)
         private const val KEY_SYNC_POSITION_TOLERANCE = "sync_position_tolerance"
         private const val KEY_SYNC_MIN_SEEK_INTERVAL = "sync_min_seek_interval"
         
@@ -67,6 +74,13 @@ class SettingsRepository @Inject constructor(
         private const val DEFAULT_MAX_CLIENTS = 50
         private const val DEFAULT_CONNECTION_TIMEOUT = 5000L
         private const val DEFAULT_DISCOVERY_TIMEOUT = 10000L
+        // Audio defaults - tighter sync
+        private const val DEFAULT_AUDIO_SYNC_POSITION_TOLERANCE = 250  // ms
+        private const val DEFAULT_AUDIO_SYNC_MIN_SEEK_INTERVAL = 2000  // ms
+        // Video defaults - more relaxed for buffering
+        private const val DEFAULT_VIDEO_SYNC_POSITION_TOLERANCE = 500  // ms
+        private const val DEFAULT_VIDEO_SYNC_MIN_SEEK_INTERVAL = 5000  // ms
+        // Legacy defaults
         private const val DEFAULT_SYNC_POSITION_TOLERANCE = 250  // ms
         private const val DEFAULT_SYNC_MIN_SEEK_INTERVAL = 3000  // ms
     }
@@ -284,14 +298,76 @@ class SettingsRepository @Inject constructor(
     }
     
     /**
-     * Get sync position tolerance (ms) - how much drift before corrective seek
+     * Get audio sync position tolerance (ms) - how much drift before corrective seek
+     */
+    fun getAudioSyncPositionTolerance(): Int {
+        return sharedPreferences.getInt(KEY_AUDIO_SYNC_POSITION_TOLERANCE, DEFAULT_AUDIO_SYNC_POSITION_TOLERANCE)
+    }
+    
+    /**
+     * Save audio sync position tolerance
+     */
+    fun saveAudioSyncPositionTolerance(toleranceMs: Int) {
+        Timber.d("Saving audio sync position tolerance: ${toleranceMs}ms")
+        sharedPreferences.edit().putInt(KEY_AUDIO_SYNC_POSITION_TOLERANCE, toleranceMs).apply()
+    }
+    
+    /**
+     * Get audio minimum seek interval (ms) - cooldown between corrective seeks
+     */
+    fun getAudioSyncMinSeekInterval(): Int {
+        return sharedPreferences.getInt(KEY_AUDIO_SYNC_MIN_SEEK_INTERVAL, DEFAULT_AUDIO_SYNC_MIN_SEEK_INTERVAL)
+    }
+    
+    /**
+     * Save audio minimum seek interval
+     */
+    fun saveAudioSyncMinSeekInterval(intervalMs: Int) {
+        Timber.d("Saving audio sync min seek interval: ${intervalMs}ms")
+        sharedPreferences.edit().putInt(KEY_AUDIO_SYNC_MIN_SEEK_INTERVAL, intervalMs).apply()
+    }
+    
+    /**
+     * Get video sync position tolerance (ms) - how much drift before corrective seek
+     */
+    fun getVideoSyncPositionTolerance(): Int {
+        return sharedPreferences.getInt(KEY_VIDEO_SYNC_POSITION_TOLERANCE, DEFAULT_VIDEO_SYNC_POSITION_TOLERANCE)
+    }
+    
+    /**
+     * Save video sync position tolerance
+     */
+    fun saveVideoSyncPositionTolerance(toleranceMs: Int) {
+        Timber.d("Saving video sync position tolerance: ${toleranceMs}ms")
+        sharedPreferences.edit().putInt(KEY_VIDEO_SYNC_POSITION_TOLERANCE, toleranceMs).apply()
+    }
+    
+    /**
+     * Get video minimum seek interval (ms) - cooldown between corrective seeks
+     */
+    fun getVideoSyncMinSeekInterval(): Int {
+        return sharedPreferences.getInt(KEY_VIDEO_SYNC_MIN_SEEK_INTERVAL, DEFAULT_VIDEO_SYNC_MIN_SEEK_INTERVAL)
+    }
+    
+    /**
+     * Save video minimum seek interval
+     */
+    fun saveVideoSyncMinSeekInterval(intervalMs: Int) {
+        Timber.d("Saving video sync min seek interval: ${intervalMs}ms")
+        sharedPreferences.edit().putInt(KEY_VIDEO_SYNC_MIN_SEEK_INTERVAL, intervalMs).apply()
+    }
+    
+    /**
+     * Get sync position tolerance (ms) - legacy, returns audio value
+     * @deprecated Use getAudioSyncPositionTolerance or getVideoSyncPositionTolerance instead
      */
     fun getSyncPositionTolerance(): Int {
         return sharedPreferences.getInt(KEY_SYNC_POSITION_TOLERANCE, DEFAULT_SYNC_POSITION_TOLERANCE)
     }
     
     /**
-     * Save sync position tolerance
+     * Save sync position tolerance - legacy
+     * @deprecated Use saveAudioSyncPositionTolerance or saveVideoSyncPositionTolerance instead
      */
     fun saveSyncPositionTolerance(toleranceMs: Int) {
         Timber.d("Saving sync position tolerance: ${toleranceMs}ms")
@@ -299,14 +375,16 @@ class SettingsRepository @Inject constructor(
     }
     
     /**
-     * Get minimum seek interval (ms) - cooldown between corrective seeks
+     * Get minimum seek interval (ms) - legacy, returns audio value
+     * @deprecated Use getAudioSyncMinSeekInterval or getVideoSyncMinSeekInterval instead
      */
     fun getSyncMinSeekInterval(): Int {
         return sharedPreferences.getInt(KEY_SYNC_MIN_SEEK_INTERVAL, DEFAULT_SYNC_MIN_SEEK_INTERVAL)
     }
     
     /**
-     * Save minimum seek interval
+     * Save minimum seek interval - legacy
+     * @deprecated Use saveAudioSyncMinSeekInterval or saveVideoSyncMinSeekInterval instead
      */
     fun saveSyncMinSeekInterval(intervalMs: Int) {
         Timber.d("Saving sync min seek interval: ${intervalMs}ms")
