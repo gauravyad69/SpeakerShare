@@ -754,7 +754,7 @@ private fun AdvancedSettingsSection(
                         title = "Audio Position Tolerance",
                         value = audioSyncPositionTolerance.toFloat(),
                         valueRange = 50f..1000f,
-                        steps = 18,
+                        steps = 37,  // 25ms increments
                         valueText = "${audioSyncPositionTolerance}ms",
                         onValueChange = { viewModel.setAudioSyncPositionTolerance(it.toInt()) }
                     )
@@ -788,7 +788,7 @@ private fun AdvancedSettingsSection(
                         title = "Video Position Tolerance",
                         value = videoSyncPositionTolerance.toFloat(),
                         valueRange = 100f..2000f,
-                        steps = 18,
+                        steps = 75,  // 25ms increments
                         valueText = "${videoSyncPositionTolerance}ms",
                         onValueChange = { viewModel.setVideoSyncPositionTolerance(it.toInt()) }
                     )
