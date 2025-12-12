@@ -39,7 +39,7 @@ class SyncedFileTransfer @Inject constructor() {
     
     companion object {
         private const val CACHE_DIR = "synced_media"
-        private const val CHUNK_SIZE = 64 * 1024 // 64KB chunks
+        private const val CHUNK_SIZE = 256 * 1024 // 256KB chunks for faster transfer
         const val FILE_SERVE_PORT = 9092
     }
     
@@ -168,7 +168,7 @@ class SyncedFileTransfer @Inject constructor() {
     }
     
     /**
-     * Download file from host
+     * Download file from host using streaming to avoid OOM
      */
     suspend fun downloadFile(
         context: Context,
@@ -187,13 +187,6 @@ class SyncedFileTransfer @Inject constructor() {
                     status = TransferStatus.DOWNLOADING
                 ))
                 
-                val client = HttpClient {
-                    install(HttpTimeout) {
-                        requestTimeoutMillis = 5 * 60 * 1000 // 5 minutes
-                        connectTimeoutMillis = 10_000
-                    }
-                }
-                
                 // Create cache directory
                 val cacheDir = File(context.cacheDir, CACHE_DIR)
                 cacheDir.mkdirs()
@@ -202,27 +195,36 @@ class SyncedFileTransfer @Inject constructor() {
                 val tempFile = File(cacheDir, "${file.contentHash}.tmp")
                 val finalFile = File(cacheDir, file.contentHash)
                 
-                val response = client.get("http://$hostAddress:${SyncedPlaybackServer.SYNC_SERVER_PORT}/file/${file.contentHash}") {
-                    onDownload { bytesSentTotal, contentLength ->
-                        updateProgress(file.contentHash, TransferProgress(
-                            fileName = file.name,
-                            totalBytes = contentLength,
-                            downloadedBytes = bytesSentTotal,
-                            status = TransferStatus.DOWNLOADING
-                        ))
-                    }
-                }
+                // Use raw URL connection for large file streaming to avoid Ktor OOM
+                val url = java.net.URL("http://$hostAddress:${SyncedPlaybackServer.SYNC_SERVER_PORT}/file/${file.contentHash}")
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 5 * 60 * 1000 // 5 minutes
+                connection.requestMethod = "GET"
                 
-                if (response.status == HttpStatusCode.OK) {
-                    // Write to file
-                    FileOutputStream(tempFile).use { output ->
-                        val channel = response.bodyAsChannel()
-                        val buffer = ByteArray(CHUNK_SIZE)
-                        
-                        while (!channel.isClosedForRead) {
-                            val bytesRead = channel.readAvailable(buffer, 0, buffer.size)
-                            if (bytesRead > 0) {
+                val responseCode = connection.responseCode
+                if (responseCode == java.net.HttpURLConnection.HTTP_OK) {
+                    val contentLength = connection.contentLengthLong.takeIf { it > 0 } ?: file.sizeBytes
+                    var downloadedBytes = 0L
+                    
+                    connection.inputStream.use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            val buffer = ByteArray(CHUNK_SIZE)
+                            var bytesRead: Int
+                            
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
                                 output.write(buffer, 0, bytesRead)
+                                downloadedBytes += bytesRead
+                                
+                                // Update progress periodically (every ~256KB)
+                                if (downloadedBytes % (CHUNK_SIZE * 4) < CHUNK_SIZE) {
+                                    updateProgress(file.contentHash, TransferProgress(
+                                        fileName = file.name,
+                                        totalBytes = contentLength,
+                                        downloadedBytes = downloadedBytes,
+                                        status = TransferStatus.DOWNLOADING
+                                    ))
+                                }
                             }
                         }
                     }
@@ -240,7 +242,6 @@ class SyncedFileTransfer @Inject constructor() {
                         ))
                         
                         Timber.i("Downloaded and verified: ${file.name}")
-                        client.close()
                         return@withContext Uri.fromFile(finalFile)
                     } else {
                         Timber.e("Hash mismatch after download")
@@ -254,17 +255,17 @@ class SyncedFileTransfer @Inject constructor() {
                         ))
                     }
                 } else {
-                    Timber.e("Download failed: ${response.status}")
+                    Timber.e("Download failed: HTTP $responseCode")
                     updateProgress(file.contentHash, TransferProgress(
                         fileName = file.name,
                         totalBytes = file.sizeBytes,
                         downloadedBytes = 0,
                         status = TransferStatus.FAILED,
-                        error = "HTTP ${response.status}"
+                        error = "HTTP $responseCode"
                     ))
                 }
                 
-                client.close()
+                connection.disconnect()
                 null
                 
             } catch (e: Exception) {

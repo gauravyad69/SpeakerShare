@@ -14,6 +14,7 @@ import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
+import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -372,17 +373,30 @@ class SyncedPlaybackServer @Inject constructor(
                         return@get
                     }
                     
-                    val bytes = inputStream.readBytes()
-                    inputStream.close()
-                    
-                    // Try to determine content type from file info
+                    // Try to determine content type and size from file info
                     val fileInfo = sessionInfo?.files?.find { it.hash == hash }
                     val contentType = fileInfo?.mimeType?.let { mimeType -> 
                         ContentType.parse(mimeType) 
                     } ?: ContentType.Application.OctetStream
+                    val fileSize = fileInfo?.sizeBytes ?: 0L
                     
-                    call.respondBytes(bytes, contentType)
-                    Timber.i("Served file: ${bytes.size} bytes")
+                    // Stream the file instead of loading into memory to avoid OOM
+                    call.respondBytesWriter(contentType = contentType, contentLength = fileSize) {
+                        val buffer = ByteArray(256 * 1024) // 256KB buffer for faster transfer
+                        var bytesWritten = 0L
+                        try {
+                            while (true) {
+                                val bytesRead = inputStream.read(buffer)
+                                if (bytesRead == -1) break
+                                writeFully(buffer, 0, bytesRead)
+                                bytesWritten += bytesRead
+                            }
+                            flush()
+                            Timber.i("Streamed file: $bytesWritten bytes")
+                        } finally {
+                            inputStream.close()
+                        }
+                    }
                 } catch (e: Exception) {
                     Timber.e("Error serving file", e)
                     call.respond(HttpStatusCode.InternalServerError, mapOf("error" to e.message))

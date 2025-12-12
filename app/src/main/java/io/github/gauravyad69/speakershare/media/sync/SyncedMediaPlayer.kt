@@ -8,6 +8,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import io.github.gauravyad69.speakershare.data.repository.SettingsRepository
 import kotlinx.coroutines.*
@@ -36,27 +37,45 @@ class SyncedMediaPlayer(
         // How far ahead to buffer (ms)
         private const val BUFFER_AHEAD_MS = 5000L
         
-        // Acceptable position error before forcing seek (relaxed to reduce oscillation)
-        // With WebSocket, we get low jitter - only correct large drifts
-        private const val POSITION_TOLERANCE_MS = 250L
+        // ========== AUDIO SETTINGS (tighter sync, smaller buffers) ==========
+        // Audio is lightweight - can afford tighter sync
+        private const val AUDIO_POSITION_TOLERANCE_MS = 250L
+        private const val AUDIO_MIN_SEEK_INTERVAL_MS = 2000L
+        private const val AUDIO_LARGE_DRIFT_THRESHOLD_MS = 500L
+        private const val AUDIO_MIN_BUFFER_MS = 5_000
+        private const val AUDIO_MAX_BUFFER_MS = 30_000
+        private const val AUDIO_PLAYBACK_BUFFER_MS = 2_500
+        private const val AUDIO_REBUFFER_MS = 2_500
         
-        // Minimum time between corrective seeks (increased to let playback settle)
-        private const val MIN_SEEK_INTERVAL_MS = 3000L
-        
-        // Threshold for immediate seek (very large drift)
-        private const val LARGE_DRIFT_THRESHOLD_MS = 500L
+        // ========== VIDEO SETTINGS (relaxed sync, larger buffers) ==========
+        // Video buffering is expensive - only correct significant drifts
+        private const val VIDEO_POSITION_TOLERANCE_MS = 500L
+        private const val VIDEO_MIN_SEEK_INTERVAL_MS = 5000L
+        private const val VIDEO_LARGE_DRIFT_THRESHOLD_MS = 1000L
+        private const val VIDEO_MIN_BUFFER_MS = 15_000
+        private const val VIDEO_MAX_BUFFER_MS = 60_000
+        private const val VIDEO_PLAYBACK_BUFFER_MS = 5_000
+        private const val VIDEO_REBUFFER_MS = 5_000
         
         // Seek-ahead compensation disabled - WebSocket is fast enough
-        // Adding compensation was causing overshoot/oscillation
         private const val SEEK_AHEAD_COMPENSATION_MS = 0L
         
         // Grace period after intentional seek during which sync pulses are relaxed
-        // This prevents race conditions when host seeks and stale sync pulses arrive
         private const val SEEK_GRACE_PERIOD_MS = 2000L
     }
     
+    // Current media type - affects sync and buffer settings
+    private var isVideoMode: Boolean = false
+    
     private var player: ExoPlayer? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    
+    /**
+     * Get the underlying ExoPlayer instance for UI rendering.
+     * Do NOT create separate ExoPlayer instances - use this one.
+     */
+    val exoPlayer: ExoPlayer?
+        get() = player
     
     // Player state
     private val _playerState = MutableStateFlow(SyncedPlayerState())
@@ -90,22 +109,50 @@ class SyncedMediaPlayer(
     }
     
     /**
-     * Initialize the player
+     * Initialize the player with optimized buffering based on media type
+     * @param isVideo true for video mode (larger buffers, relaxed sync), false for audio (tighter sync)
      */
     @OptIn(UnstableApi::class)
-    fun initialize() {
+    fun initialize(isVideo: Boolean = false) {
+        // If reinitializing with different mode, release old player
+        if (player != null && isVideoMode != isVideo) {
+            Timber.d("Reinitializing player for ${if (isVideo) "video" else "audio"} mode")
+            player?.release()
+            player = null
+        }
+        
         if (player != null) return
         
+        isVideoMode = isVideo
+        
+        // Select buffer settings based on media type
+        val minBuffer = if (isVideo) VIDEO_MIN_BUFFER_MS else AUDIO_MIN_BUFFER_MS
+        val maxBuffer = if (isVideo) VIDEO_MAX_BUFFER_MS else AUDIO_MAX_BUFFER_MS
+        val playbackBuffer = if (isVideo) VIDEO_PLAYBACK_BUFFER_MS else AUDIO_PLAYBACK_BUFFER_MS
+        val rebuffer = if (isVideo) VIDEO_REBUFFER_MS else AUDIO_REBUFFER_MS
+        
+        // Custom load control for better buffering - prevents constant rebuffering
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                minBuffer,       // Min buffer before playback starts
+                maxBuffer,       // Max buffer size
+                playbackBuffer,  // Buffer required to start playback
+                rebuffer         // Buffer required after rebuffer
+            )
+            .setPrioritizeTimeOverSizeThresholds(true) // Prioritize buffer time over memory
+            .build()
+        
         player = ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
             .build()
             .apply {
                 addListener(PlayerListener())
                 playWhenReady = false
             }
         
-        Timber.d("Player initialized")
+        Timber.d("Player initialized for ${if (isVideo) "VIDEO" else "AUDIO"} mode (minBuffer=${minBuffer}ms, maxBuffer=${maxBuffer}ms)")
     }
-    
+
     /**
      * Load a media file (async - caller should wait for player to be ready)
      */
@@ -352,6 +399,13 @@ class SyncedMediaPlayer(
             return
         }
         
+        // Don't sync if player is buffering - let it finish buffering first
+        // Seeking during buffering causes buffer reset and more buffering
+        if (exo.playbackState == Player.STATE_BUFFERING) {
+            Timber.d("Ignoring sync - player is buffering, let it complete")
+            return
+        }
+        
         // Don't sync if player is not playing
         if (!exo.isPlaying) {
             Timber.d("Ignoring sync - player not playing")
@@ -362,11 +416,12 @@ class SyncedMediaPlayer(
         // This prevents stale sync pulses from fighting with intentional seeks (race condition)
         val now = System.currentTimeMillis()
         val timeSinceIntentionalSeek = now - lastIntentionalSeekTime
+        val currentLargeDriftThreshold = if (isVideoMode) VIDEO_LARGE_DRIFT_THRESHOLD_MS else AUDIO_LARGE_DRIFT_THRESHOLD_MS
         if (timeSinceIntentionalSeek < SEEK_GRACE_PERIOD_MS) {
             // During grace period, only accept sync pulses that are close to our intentional seek position
             // This allows valid sync pulses through while rejecting stale ones
             val driftFromIntentional = kotlin.math.abs(hostPositionMs - lastIntentionalSeekPosition)
-            if (driftFromIntentional > LARGE_DRIFT_THRESHOLD_MS) {
+            if (driftFromIntentional > currentLargeDriftThreshold) {
                 Timber.d("Ignoring sync pulse during seek grace period (${timeSinceIntentionalSeek}ms since seek), hostPos=$hostPositionMs differs from intentional=$lastIntentionalSeekPosition by ${driftFromIntentional}ms")
                 return
             }
@@ -440,12 +495,18 @@ class SyncedMediaPlayer(
             Timber.d("Recorded drift: local=$currentPosition, expected=$expectedPositionMs, drift=${drift}ms")
         }
         
-        // Get sync thresholds from settings (user-configurable)
-        val positionTolerance = settingsRepository.getSyncPositionTolerance().toLong()
-        val minSeekInterval = settingsRepository.getSyncMinSeekInterval().toLong()
+        // Use media-type-specific thresholds (video needs more relaxed settings)
+        // Settings repo values are used as base, but we apply media-type multipliers
+        val basePositionTolerance = settingsRepository.getSyncPositionTolerance().toLong()
+        val baseMinSeekInterval = settingsRepository.getSyncMinSeekInterval().toLong()
+        
+        // Video: use our constants which are more relaxed; Audio: use settings or our tighter constants
+        val positionTolerance = if (isVideoMode) VIDEO_POSITION_TOLERANCE_MS else minOf(basePositionTolerance, AUDIO_POSITION_TOLERANCE_MS)
+        val minSeekInterval = if (isVideoMode) VIDEO_MIN_SEEK_INTERVAL_MS else minOf(baseMinSeekInterval, AUDIO_MIN_SEEK_INTERVAL_MS)
+        val largeDriftThreshold = if (isVideoMode) VIDEO_LARGE_DRIFT_THRESHOLD_MS else AUDIO_LARGE_DRIFT_THRESHOLD_MS
         
         if (absDrift > positionTolerance) {
-            Timber.w("Position drift detected: ${drift}ms (current=$currentPosition, expected=$expectedPositionMs, tolerance=$positionTolerance)")
+            Timber.w("Position drift detected: ${drift}ms (current=$currentPosition, expected=$expectedPositionMs, tolerance=$positionTolerance, mode=${if (isVideoMode) "VIDEO" else "AUDIO"})")
             
             // Skip corrective seeks during reconnection grace period
             // Clock drift is still recorded above, but we don't want to seek based on potentially stale data
@@ -458,10 +519,10 @@ class SyncedMediaPlayer(
             val timeSinceLastSeek = now - lastCorrectiveSeekTime
             
             // Determine if we should seek:
-            // - Large drift (>500ms): seek immediately
+            // - Large drift: seek immediately
             // - Moderate drift: only seek if enough time has passed since last seek
             val shouldSeek = when {
-                absDrift > LARGE_DRIFT_THRESHOLD_MS -> true  // Large drift - always seek
+                absDrift > largeDriftThreshold -> true  // Large drift - always seek
                 timeSinceLastSeek > minSeekInterval -> true  // Enough time passed
                 else -> false
             }

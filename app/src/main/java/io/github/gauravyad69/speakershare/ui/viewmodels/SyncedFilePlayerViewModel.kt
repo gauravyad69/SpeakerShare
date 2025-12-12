@@ -5,6 +5,7 @@ import android.net.Uri
 import timber.log.Timber
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.exoplayer.ExoPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.media.sync.*
@@ -41,6 +42,13 @@ class SyncedFilePlayerViewModel @Inject constructor(
     
     // Player instance
     private var player: SyncedMediaPlayer? = null
+    
+    /**
+     * Get the underlying ExoPlayer for UI rendering (video display).
+     * Do NOT create separate ExoPlayer instances - use this one.
+     */
+    val exoPlayer: ExoPlayer?
+        get() = player?.exoPlayer
     
     // Flag to prevent duplicate track-end handling
     private var handlingTrackEnd = false
@@ -157,40 +165,41 @@ class SyncedFilePlayerViewModel @Inject constructor(
     
     /**
      * Initialize the player
+     * @param isVideo true for video mode (larger buffers, relaxed sync), false for audio
      */
-    fun initializePlayer() {
+    fun initializePlayer(isVideo: Boolean = false) {
         if (player == null) {
             player = playerFactory.create(context)
-            player?.initialize()
-            
-            viewModelScope.launch {
-                player?.playerState?.collect { playerState ->
-                    _uiState.update { 
-                        it.copy(
-                            isBuffering = playerState.isBuffering,
-                            playerError = playerState.error,
-                            driftMs = playerState.driftMs,
-                            currentPositionMs = playerState.currentPositionMs,
-                            durationMs = playerState.durationMs
-                        ) 
-                    }
-                    
-                    // If we're the host, update the manager's position so sync pulses are accurate
-                    if (_uiState.value.isHost && playerState.isPlaying) {
-                        syncedPlaybackManager.updatePlaybackPosition(
-                            playerState.currentPositionMs,
-                            playerState.durationMs
-                        )
-                        // Reset track-end flag when playing
-                        handlingTrackEnd = false
-                    }
-                    
-                    // Auto-advance to next track when current track ends (host only)
-                    if (_uiState.value.isHost && playerState.isEnded && !handlingTrackEnd) {
-                        handlingTrackEnd = true
-                        Timber.i("Track ended, auto-advancing to next track")
-                        nextTrack()
-                    }
+        }
+        player?.initialize(isVideo)
+        
+        viewModelScope.launch {
+            player?.playerState?.collect { playerState ->
+                _uiState.update { 
+                    it.copy(
+                        isBuffering = playerState.isBuffering,
+                        playerError = playerState.error,
+                        driftMs = playerState.driftMs,
+                        currentPositionMs = playerState.currentPositionMs,
+                        durationMs = playerState.durationMs
+                    ) 
+                }
+                
+                // If we're the host, update the manager's position so sync pulses are accurate
+                if (_uiState.value.isHost && playerState.isPlaying) {
+                    syncedPlaybackManager.updatePlaybackPosition(
+                        playerState.currentPositionMs,
+                        playerState.durationMs
+                    )
+                    // Reset track-end flag when playing
+                    handlingTrackEnd = false
+                }
+                
+                // Auto-advance to next track when current track ends (host only)
+                if (_uiState.value.isHost && playerState.isEnded && !handlingTrackEnd) {
+                    handlingTrackEnd = true
+                    Timber.i("Track ended, auto-advancing to next track")
+                    nextTrack()
                 }
             }
         }

@@ -2,6 +2,7 @@ package io.github.gauravyad69.speakershare.ui.screens.synced
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.view.View
 import android.view.WindowManager
@@ -121,9 +122,30 @@ fun SyncedFilePlayerScreen(
         }
     }
     
-    // Initialize player when screen is created
-    LaunchedEffect(Unit) {
-        viewModel.initializePlayer()
+    // Keep screen on while this screen is active
+    val activity = context as? Activity
+    DisposableEffect(Unit) {
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+    
+    // Helper to force restart the app
+    fun restartApp() {
+        activity?.let { act ->
+            val packageManager = act.packageManager
+            val intent = packageManager.getLaunchIntentForPackage(act.packageName)
+            intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            act.startActivity(intent)
+            act.finishAffinity()
+            Runtime.getRuntime().exit(0)
+        }
+    }
+    
+    // Initialize player when screen is created with appropriate media type settings
+    LaunchedEffect(mediaType) {
+        viewModel.initializePlayer(isVideo = mediaType == "video")
     }
     
     // Always run discovery in background to find available hosts
@@ -291,8 +313,12 @@ fun SyncedFilePlayerScreen(
                         onNextTrack = { viewModel.nextTrack() },
                         onPreviousTrack = { viewModel.previousTrack() },
                         onStartHosting = { viewModel.startHostSession() },
-                        onStopHosting = { viewModel.stopSession() },
-                        context = context
+                        onStopHosting = { 
+                            viewModel.stopSession()
+                            restartApp()
+                        },
+                        context = context,
+                        exoPlayer = viewModel.exoPlayer
                     )
                     1 -> ClientModeContent(
                         uiState = uiState,
@@ -301,9 +327,13 @@ fun SyncedFilePlayerScreen(
                         onJoinSession = { host, sessionId, files -> 
                             viewModel.joinSession(host, sessionId, files)
                         },
-                        onLeaveSession = { viewModel.stopSession() },
+                        onLeaveSession = { 
+                            viewModel.stopSession()
+                            restartApp()
+                        },
                         onRefreshDiscovery = { viewModel.startDiscovery() },
-                        context = context
+                        context = context,
+                        exoPlayer = viewModel.exoPlayer
                     )
                 }
             }
@@ -326,7 +356,8 @@ private fun HostModeContent(
     onPreviousTrack: () -> Unit,
     onStartHosting: () -> Unit,
     onStopHosting: () -> Unit,
-    context: Context
+    context: Context,
+    exoPlayer: ExoPlayer? = null
 ) {
     val isHostActive = uiState.sessionState is SyncSessionState.HostActive
     
@@ -393,7 +424,8 @@ private fun HostModeContent(
                         onPrevious = onPreviousTrack,
                         hasNext = true,
                         hasPrevious = true,
-                        context = context
+                        context = context,
+                        exoPlayer = exoPlayer
                     )
                 } else {
                     AudioPlayerCard(
@@ -463,7 +495,8 @@ private fun ClientModeContent(
     onJoinSession: (String, String, List<SyncedMediaFile>) -> Unit,
     onLeaveSession: () -> Unit,
     onRefreshDiscovery: () -> Unit,
-    context: Context
+    context: Context,
+    exoPlayer: ExoPlayer? = null
 ) {
     var hostAddress by remember { mutableStateOf("") }
     var sessionId by remember { mutableStateOf("") }
@@ -662,7 +695,8 @@ private fun ClientModeContent(
                         hasNext = false,
                         hasPrevious = false,
                         context = context,
-                        isReadOnly = true
+                        isReadOnly = true,
+                        exoPlayer = exoPlayer
                     )
                 } else {
                     AudioPlayerCard(
@@ -1167,50 +1201,16 @@ private fun VideoPlayerCard(
     onPrevious: () -> Unit,
     hasNext: Boolean,
     hasPrevious: Boolean,
-    context: Context,
-    isReadOnly: Boolean = false
+    @Suppress("UNUSED_PARAMETER") context: Context, // Kept for API compatibility
+    isReadOnly: Boolean = false,
+    exoPlayer: ExoPlayer? = null // The ViewModel's single ExoPlayer instance
 ) {
-    var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
+    // Uses the ViewModel's ExoPlayer for video display - NO separate player created
     var isFullscreen by remember { mutableStateOf(false) }
-    val view = LocalView.current
-    
-    // Create ExoPlayer
-    DisposableEffect(file.uri) {
-        val player = ExoPlayer.Builder(context).build()
-        exoPlayer = player
-        
-        val mediaItem = MediaItem.fromUri(file.localUri ?: file.uri)
-        player.setMediaItem(mediaItem)
-        player.prepare()
-        
-        onDispose {
-            player.release()
-        }
-    }
-    
-    // Sync playback state
-    LaunchedEffect(isPlaying, exoPlayer) {
-        exoPlayer?.let { player ->
-            if (isPlaying && !player.isPlaying) {
-                player.play()
-            } else if (!isPlaying && player.isPlaying) {
-                player.pause()
-            }
-        }
-    }
-    
-    // Sync position
-    LaunchedEffect(currentPosition, exoPlayer) {
-        exoPlayer?.let { player ->
-            val diff = kotlin.math.abs(player.currentPosition - currentPosition)
-            if (diff > 500) {
-                player.seekTo(currentPosition)
-            }
-        }
-    }
+    val useLightSystemIcons = !isSystemInDarkTheme()
     
     // Fullscreen Dialog
-    if (isFullscreen) {
+    if (isFullscreen && exoPlayer != null) {
         FullscreenVideoDialog(
             exoPlayer = exoPlayer,
             isPlaying = isPlaying,
@@ -1248,16 +1248,34 @@ private fun VideoPlayerCard(
                     .background(Color.Black)
                     .clickable { isFullscreen = true }
             ) {
+                // Display video using the ViewModel's ExoPlayer (no new player created)
+                // Use key() to prevent unnecessary re-creation of PlayerView
                 exoPlayer?.let { player ->
-                    AndroidView(
-                        factory = { ctx ->
-                            PlayerView(ctx).apply {
-                                this.player = player
-                                useController = false
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    key(player) {
+                        AndroidView(
+                            factory = { ctx ->
+                                PlayerView(ctx).apply {
+                                    this.player = player
+                                    useController = false
+                                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER) // We show our own indicator
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                } ?: run {
+                    // Placeholder if no player
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            TablerIcons.Video,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
                 }
                 
                 // Buffering indicator
@@ -1482,18 +1500,20 @@ private fun FullscreenVideoDialog(
                 .background(Color.Black)
                 .clickable { showControls = !showControls }
         ) {
-            // Video player
+            // Video player - use key() to prevent unnecessary re-creation
             exoPlayer?.let { player ->
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            this.player = player
-                            useController = false
-                            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                key(player) {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                this.player = player
+                                useController = false
+                                setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
             
             // Buffering indicator
