@@ -316,9 +316,8 @@ class ClockSynchronizer @Inject constructor() {
      * Perform a single sync exchange with the host
      */
     private suspend fun performSyncExchange(hostAddress: String): SyncResult? {
+        val client = HttpClient()
         return try {
-            val client = HttpClient()
-            
             val t1 = System.currentTimeMillis()
             
             val response = client.get("http://$hostAddress:$SYNC_PORT/sync") {
@@ -338,16 +337,16 @@ class ClockSynchronizer @Inject constructor() {
                 val rtt = (t4 - t1) - (t3 - t2)
                 val offset = ((t2 - t1) + (t3 - t4)) / 2
                 
-                client.close()
                 SyncResult(offset, rtt)
             } else {
-                client.close()
                 null
             }
             
         } catch (e: Exception) {
             Timber.e("Sync exchange failed", e)
             null
+        } finally {
+            client.close()
         }
     }
     

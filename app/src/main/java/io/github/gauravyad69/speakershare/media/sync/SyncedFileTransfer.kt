@@ -232,7 +232,14 @@ class SyncedFileTransfer @Inject constructor() {
                     // Verify hash
                     val downloadedHash = calculateLocalFileHash(tempFile)
                     if (downloadedHash == file.contentHash) {
-                        tempFile.renameTo(finalFile)
+                        // Try rename, fall back to copy if rename fails (cross-filesystem)
+                        val renameSuccess = tempFile.renameTo(finalFile)
+                        if (!renameSuccess) {
+                            // Copy and delete if rename fails
+                            tempFile.copyTo(finalFile, overwrite = true)
+                            tempFile.delete()
+                            Timber.d("Used copy fallback for file rename")
+                        }
                         
                         updateProgress(file.contentHash, TransferProgress(
                             fileName = file.name,

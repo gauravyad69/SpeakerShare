@@ -83,6 +83,7 @@ import io.github.gauravyad69.speakershare.ui.viewmodels.SyncedFilePlayerViewMode
 import io.github.gauravyad69.speakershare.ui.viewmodels.SyncedPlayerUiState
 import androidx.compose.runtime.saveable.rememberSaveable
 import java.util.concurrent.TimeUnit
+import timber.log.Timber
 
 /**
  * Composable screen for synchronized file playback
@@ -113,12 +114,42 @@ fun SyncedFilePlayerScreen(
     
     val tabs = listOf("HOST", "CLIENT")
     
-    // File picker launcher for multiple files
+    // File picker launcher for multiple files using OpenMultipleDocuments
+    // This works better across different devices compared to GetMultipleContents
     val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
+        contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
+            // Take persistable URI permission for each file so we can access them later
+            uris.forEach { uri ->
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (e: Exception) {
+                    // Permission may not be grantable for some URIs, but file may still be readable
+                    Timber.w("Could not take persistable permission for $uri: ${e.message}")
+                }
+            }
             viewModel.addFiles(uris)
+        }
+    }
+    
+    // Fallback single file picker for devices that don't support multi-select well
+    val singleFilePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: Exception) {
+                Timber.w("Could not take persistable permission for $it: ${e.message}")
+            }
+            viewModel.addFiles(listOf(it))
         }
     }
     
@@ -302,8 +333,13 @@ fun SyncedFilePlayerScreen(
                         selectedFiles = selectedFiles,
                         mediaType = mediaType,
                         onSelectFiles = {
-                            val mimeType = if (mediaType == "video") "video/*" else "audio/*"
-                            filePickerLauncher.launch(mimeType)
+                            // OpenMultipleDocuments takes array of mime types
+                            val mimeTypes = if (mediaType == "video") {
+                                arrayOf("video/*")
+                            } else {
+                                arrayOf("audio/*")
+                            }
+                            filePickerLauncher.launch(mimeTypes)
                         },
                         onRemoveFile = { index -> viewModel.removeFile(index) },
                         onPlay = { viewModel.play() },

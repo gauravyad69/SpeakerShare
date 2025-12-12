@@ -68,7 +68,7 @@ class SyncedMediaPlayer(
     private var isVideoMode: Boolean = false
     
     private var player: ExoPlayer? = null
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
     /**
      * Get the underlying ExoPlayer instance for UI rendering.
@@ -565,15 +565,25 @@ class SyncedMediaPlayer(
     }
     
     /**
-     * Release the player
+     * Release the player and cleanup resources
      */
     fun release() {
         scheduledPlayJob?.cancel()
+        scheduledPlayJob = null
         stopPositionTracking()
         player?.release()
         player = null
         scope.cancel()
-        Timber.d("Player released")
+        // Recreate scope so player can be re-initialized later
+        scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+        // Reset state
+        isVideoMode = false
+        lastCorrectiveSeekTime = 0L
+        lastIntentionalSeekTime = 0L
+        lastIntentionalSeekPosition = 0L
+        lastReconnectionTime = 0L
+        _playerState.value = SyncedPlayerState()
+        Timber.d("Player released and state reset")
     }
     
     private fun startPositionTracking(startTime: Long, startPosition: Long) {
