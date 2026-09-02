@@ -231,6 +231,32 @@ fun SyncedFilePlayerScreen(
                         color = DuoTextPrimary
                     )
                 }
+                
+                // Refresh host discovery (client tab, not yet connected)
+                val showRefresh = selectedTabIndex == 1 &&
+                        uiState.sessionState !is SyncSessionState.ClientReady &&
+                        uiState.sessionState !is SyncSessionState.ClientJoining
+                if (showRefresh) {
+                    IconButton(
+                        onClick = { viewModel.startDiscovery() },
+                        enabled = !uiState.isDiscovering
+                    ) {
+                        if (uiState.isDiscovering) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = DuoTextDisabled
+                            )
+                        } else {
+                            Icon(
+                                TablerIcons.Refresh,
+                                contentDescription = "Refresh",
+                                tint = DuoBlue,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+                }
             }
         },
         bottomBar = {
@@ -248,67 +274,34 @@ fun SyncedFilePlayerScreen(
                 shadowElevation = 0.dp,
                 border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
             ) {
-                Column(
+                Row(
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Session status indicator when in session
-                    if (isInSession) {
-                        val statusText = when (uiState.sessionState) {
-                            is SyncSessionState.HostActive -> "Hosting Session"
-                            is SyncSessionState.ClientJoining -> "Joining..."
-                            is SyncSessionState.ClientReady -> "Connected"
-                            else -> ""
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(DuoGreen)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = statusText,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = DuoGreen
-                            )
-                        }
-                    }
-                    
                     // Mode selector buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        tabs.forEachIndexed { index, title ->
-                            val isSelected = effectiveTabIndex == index
-                            val isActiveSession = when (index) {
-                                0 -> uiState.sessionState is SyncSessionState.HostActive
-                                1 -> uiState.sessionState is SyncSessionState.ClientJoining ||
-                                     uiState.sessionState is SyncSessionState.ClientReady
-                                else -> false
-                            }
-                            
-                            DuolingoButton(
-                                text = title,
-                                onClick = { 
-                                    if (!isInSession) {
-                                        selectedTabIndex = index 
-                                    }
-                                },
-                                icon = if (index == 0) TablerIcons.DeviceSpeaker else TablerIcons.Headphones,
-                                color = if (isActiveSession || isSelected) DuoBlue else DuoSurfaceHighlight,
-                                shadowColor = if (isActiveSession || isSelected) DuoBlueShadow else DuoOutline,
-                                textColor = if (isActiveSession || isSelected) DuoTextPrimary else DuoTextSecondary,
-                                modifier = Modifier.weight(1f),
-                                enabled = !isInSession || isActiveSession
-                            )
+                    tabs.forEachIndexed { index, title ->
+                        val isSelected = effectiveTabIndex == index
+                        val isActiveSession = when (index) {
+                            0 -> uiState.sessionState is SyncSessionState.HostActive
+                            1 -> uiState.sessionState is SyncSessionState.ClientJoining ||
+                                 uiState.sessionState is SyncSessionState.ClientReady
+                            else -> false
                         }
+                        
+                        DuolingoButton(
+                            text = title,
+                            onClick = { 
+                                if (!isInSession) {
+                                    selectedTabIndex = index 
+                                }
+                            },
+                            icon = if (index == 0) TablerIcons.DeviceSpeaker else TablerIcons.Headphones,
+                            color = if (isActiveSession || isSelected) DuoBlue else DuoSurfaceHighlight,
+                            shadowColor = if (isActiveSession || isSelected) DuoBlueShadow else DuoOutline,
+                            textColor = if (isActiveSession || isSelected) DuoTextPrimary else DuoTextSecondary,
+                            modifier = Modifier.weight(1f),
+                            enabled = !isInSession || isActiveSession
+                        )
                     }
                 }
             }
@@ -402,47 +395,24 @@ private fun HostModeContent(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Status Banner
+        // Hero status card (matches main app's ON AIR card)
         item {
-            StatusBanner(
+            HeroStatusCard(
                 isActive = isHostActive,
-                activeText = "HOSTING • SESSION: ${uiState.sessionId ?: ""}",
-                inactiveText = "NOT HOSTING",
-                activeColor = DuoGreen
+                statusText = if (isHostActive) "IN SESSION" else "READY TO HOST",
+                icon = if (mediaType == "video") TablerIcons.Video else TablerIcons.Music,
+                activeColor = DuoGreen,
+                detailChip = if (isHostActive) {
+                    "${uiState.connectedClientsCount} LISTENER${if (uiState.connectedClientsCount == 1) "" else "S"} CONNECTED"
+                } else null
             )
         }
         
-        // File Selection Card
-        item {
-            FileSelectionCard(
-                filesCount = selectedFiles.size,
-                onSelectFiles = onSelectFiles,
-                isHosting = isHostActive
-            )
-        }
-        
-        // Selected Files List
-        if (selectedFiles.isNotEmpty()) {
-            item {
-                Text(
-                    text = "SELECTED FILES (${selectedFiles.size})",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = DuoTextSecondary
-                )
-            }
-            
-            itemsIndexed(selectedFiles) { index, file ->
-                FileItemCard(
-                    file = file,
-                    isCurrentFile = uiState.currentFile?.uri == file.uri,
-                    onRemove = { onRemoveFile(index) },
-                    canRemove = !isHostActive
-                )
-            }
-        }
-        
-        // Media Player Card (if files selected and hosting)
+        // Media Player (now-playing first when hosting, like main app's status-first layout)
         if (isHostActive && uiState.currentFile != null) {
+            item {
+                SectionLabel("NOW PLAYING")
+            }
             item {
                 if (mediaType == "video") {
                     VideoPlayerCard(
@@ -484,8 +454,40 @@ private fun HostModeContent(
             }
         }
         
-        // Host Control Card
+        // Session control (main action, like START BROADCAST in the main app)
+        if (!isHostActive) {
+            item {
+                SectionLabel("MEDIA FILES")
+            }
+            item {
+                FileSelectionCard(
+                    filesCount = selectedFiles.size,
+                    onSelectFiles = onSelectFiles,
+                    isHosting = isHostActive
+                )
+            }
+        }
+        
+        // Playlist
+        if (selectedFiles.isNotEmpty()) {
+            item {
+                SectionLabel("PLAYLIST (${selectedFiles.size})")
+            }
+            
+            itemsIndexed(selectedFiles) { index, file ->
+                FileItemCard(
+                    file = file,
+                    isCurrentFile = uiState.currentFile?.uri == file.uri,
+                    onRemove = { onRemoveFile(index) },
+                    canRemove = !isHostActive
+                )
+            }
+        }
+        
+        // Session Control Card
         item {
+            SectionLabel("SESSION CONTROL")
+            Spacer(modifier = Modifier.height(8.dp))
             HostControlCard(
                 isHosting = isHostActive,
                 hasFiles = selectedFiles.isNotEmpty(),
@@ -495,15 +497,14 @@ private fun HostModeContent(
             )
         }
         
-        // Drift indicator - always show when hosting
+        // Sync health (drift + stats combined when hosting)
         if (isHostActive) {
+            item {
+                SectionLabel("SYNC")
+            }
             item {
                 DriftIndicatorCard(driftMs = uiState.driftMs)
             }
-        }
-        
-        // Sync Stats Card (always show when hosting)
-        if (isHostActive) {
             item {
                 SyncStatsCard(
                     isHost = true,
@@ -538,35 +539,41 @@ private fun ClientModeContent(
     var sessionId by remember { mutableStateOf("") }
     var showManualEntry by remember { mutableStateOf(false) }
     
-    val isConnected = uiState.sessionState is SyncSessionState.ClientReady ||
-                      uiState.sessionState is SyncSessionState.ClientJoining
+    val isJoining = uiState.sessionState is SyncSessionState.ClientJoining
+    val isReady = uiState.sessionState is SyncSessionState.ClientReady
+    val isConnected = isJoining || isReady
     
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Status Banner
+        // Hero status card (matches main app's ClientScreen status card)
         item {
-            val statusText = when (uiState.sessionState) {
-                is SyncSessionState.ClientJoining -> {
-                    val state = uiState.sessionState as SyncSessionState.ClientJoining
-                    "JOINING... (${state.cachedFiles}/${state.totalFiles} FILES READY)"
+            HeroStatusCard(
+                isActive = isReady,
+                statusText = when {
+                    isReady -> "CONNECTED"
+                    isJoining -> "JOINING..."
+                    else -> "FINDING HOSTS"
+                },
+                icon = if (mediaType == "video") TablerIcons.Video else TablerIcons.Headphones,
+                activeColor = DuoBlue,
+                detailChip = when {
+                    isJoining -> {
+                        val state = uiState.sessionState as SyncSessionState.ClientJoining
+                        "${state.cachedFiles}/${state.totalFiles} FILES READY"
+                    }
+                    else -> null
                 }
-                is SyncSessionState.ClientReady -> "CONNECTED AND READY"
-                else -> "NOT CONNECTED"
-            }
-            
-            StatusBanner(
-                isActive = isConnected,
-                activeText = statusText,
-                inactiveText = "SEARCHING FOR HOSTS...",
-                activeColor = DuoBlue
             )
         }
         
         // Discovered Hosts Section
         if (!isConnected) {
+            item {
+                SectionLabel("AVAILABLE HOSTS (${discoveredHosts.size})")
+            }
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -574,72 +581,39 @@ private fun ClientModeContent(
                     colors = CardDefaults.cardColors(containerColor = DuoSurface),
                     border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "AVAILABLE HOSTS",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = DuoTextPrimary
-                            )
-                            
-                            IconButton(onClick = onRefreshDiscovery) {
-                                if (uiState.isDiscovering) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
-                                        color = DuoBlue
-                                    )
-                                } else {
-                                    Icon(
-                                        TablerIcons.Refresh, 
-                                        contentDescription = "Refresh",
-                                        tint = DuoBlue
-                                    )
-                                }
-                            }
-                        }
-                        
-                        if (discoveredHosts.isEmpty()) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 16.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (uiState.isDiscovering) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp,
-                                        color = DuoBlue
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        text = "Searching for hosts...",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = DuoTextSecondary
-                                    )
-                                } else {
-                                    Icon(
-                                        TablerIcons.Wifi,
-                                        contentDescription = null,
-                                        tint = DuoTextDisabled
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "No hosts found",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = DuoTextSecondary
-                                    )
-                                }
+                        if (uiState.isDiscovering || discoveredHosts.isEmpty()) {
+                            if (uiState.isDiscovering) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(28.dp),
+                                    strokeWidth = 3.dp,
+                                    color = DuoBlue
+                                )
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Text(
+                                    text = "Scanning the network...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = DuoTextSecondary
+                                )
+                            } else {
+                                Icon(
+                                    TablerIcons.Wifi,
+                                    contentDescription = null,
+                                    tint = DuoTextDisabled,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Text(
+                                    text = "No hosts found yet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = DuoTextSecondary
+                                )
                             }
                         }
                     }
@@ -667,7 +641,7 @@ private fun ClientModeContent(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(
-                        if (showManualEntry) TablerIcons.PlayerSkipBack else TablerIcons.PlayerSkipForward, // Using arrows as placeholder
+                        if (showManualEntry) TablerIcons.ArrowLeft else TablerIcons.Plus,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                         tint = DuoBlue
@@ -705,7 +679,10 @@ private fun ClientModeContent(
         }
         
         // Transfer Progress Card (when joining)
-        if (uiState.sessionState is SyncSessionState.ClientJoining) {
+        if (isJoining) {
+            item {
+                SectionLabel("PREPARING FILES")
+            }
             item {
                 TransferProgressCard(
                     progress = uiState.transferProgress
@@ -714,7 +691,10 @@ private fun ClientModeContent(
         }
         
         // Playback Status Card (when ready)
-        if (uiState.sessionState is SyncSessionState.ClientReady && uiState.currentFile != null) {
+        if (isReady && uiState.currentFile != null) {
+            item {
+                SectionLabel("NOW PLAYING")
+            }
             item {
                 if (mediaType == "video") {
                     VideoPlayerCard(
@@ -753,12 +733,13 @@ private fun ClientModeContent(
                 }
             }
             
-            // Drift indicator for client - always show when connected
+            // Sync health for client
+            item {
+                SectionLabel("SYNC")
+            }
             item {
                 DriftIndicatorCard(driftMs = uiState.driftMs)
             }
-            
-            // Sync Stats Card for client
             item {
                 SyncStatsCard(
                     isHost = false,
@@ -771,10 +752,10 @@ private fun ClientModeContent(
                 )
             }
             
-            // Disconnect button
+            // Leave session
             item {
                 DuolingoButton(
-                    text = "DISCONNECT",
+                    text = "LEAVE SESSION",
                     onClick = onLeaveSession,
                     color = DuoRed,
                     shadowColor = DuoRedShadow,
@@ -851,36 +832,83 @@ private fun DiscoveredHostCard(
 
 // ==================== UI Components ====================
 
+/**
+ * Large centered status card - matches the HostScreen "ON AIR" /
+ * ClientScreen "CONNECTED" hero cards in the main design system.
+ */
 @Composable
-private fun StatusBanner(
+private fun HeroStatusCard(
     isActive: Boolean,
-    activeText: String,
-    inactiveText: String,
-    activeColor: Color
+    statusText: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    activeColor: Color,
+    detailChip: String? = null
 ) {
-    Surface(
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = if (isActive) activeColor.copy(alpha = 0.1f) else DuoSurfaceHighlight
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
                 modifier = Modifier
-                    .size(12.dp)
-                    .clip(CircleShape)
-                    .background(if (isActive) activeColor else DuoTextDisabled)
-            )
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (isActive) activeColor.copy(alpha = 0.2f) else DuoTextDisabled.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                    tint = if (isActive) activeColor else DuoTextDisabled
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Text(
-                text = if (isActive) activeText else inactiveText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (isActive) activeColor else DuoTextSecondary
+                text = statusText,
+                style = MaterialTheme.typography.titleLarge,
+                color = if (isActive) activeColor else DuoTextDisabled
             )
+
+            if (detailChip != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    color = DuoSurfaceHighlight,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = detailChip,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = DuoTextSecondary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
         }
     }
+}
+
+/**
+ * Section label matching the main app (HomeScreen SectionTitle /
+ * HostScreen "AUDIO SOURCE" label style).
+ */
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = DuoTextDisabled,
+        modifier = Modifier.padding(start = 4.dp)
+    )
 }
 
 @Composable
@@ -1697,13 +1725,6 @@ private fun HostControlCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "SESSION CONTROL",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = DuoTextPrimary
-            )
-            
             if (isHosting) {
                 DuolingoButton(
                     text = "END SESSION",
@@ -1890,7 +1911,10 @@ private fun TransferProgressCard(
 @Composable
 private fun DriftIndicatorCard(driftMs: Long) {
     val absDrift = kotlin.math.abs(driftMs)
-    val isMeasuring = absDrift == 0L
+    // Show "measuring" only for the initial zero state before the first
+    // sync pulse arrives - a playing session never shows it (previously the
+    // value blinked between 0 and real drift, flipping this state constantly)
+    val isMeasuring = driftMs == 0L
     
     val driftColor = when {
         isMeasuring -> DuoTextDisabled

@@ -67,6 +67,30 @@ class HotspotNetworkHelper @Inject constructor(
     }
 
     /**
+     * The hotspot (SoftAP) as an android Network object, for APIs that
+     * operate per-network (e.g. NsdManager.registerService on API 33+).
+     * Null when no hotspot is active.
+     */
+    fun getHotspotNetwork(): android.net.Network? {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return null
+            for (network in cm.allNetworks) {
+                val caps = cm.getNetworkCapabilities(network) ?: continue
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                ) {
+                    return network
+                }
+            }
+            null
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to get hotspot Network")
+            null
+        }
+    }
+
+    /**
      * The active hotspot (SoftAP) interface, or null when this device is not
      * running a hotspot (e.g. it is a client connected to one).
      */

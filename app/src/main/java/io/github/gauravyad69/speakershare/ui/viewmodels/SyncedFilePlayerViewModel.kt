@@ -53,6 +53,10 @@ class SyncedFilePlayerViewModel @Inject constructor(
     // Flag to prevent duplicate track-end handling
     private var handlingTrackEnd = false
     
+    // Set when a SwitchFile command auto-played; the host follows SwitchFile
+    // with a standalone Play that must be dropped to avoid a double start
+    private var skipNextPlayCommand = false
+    
     // Job for tracking host position
     private var hostPositionTrackingJob: Job? = null
     
@@ -99,7 +103,11 @@ class SyncedFilePlayerViewModel @Inject constructor(
                     state.copy(
                         clockOffsetMs = syncedPlaybackManager.getClockOffset(),
                         connectedClientsCount = syncedPlaybackManager.getConnectedClientsCount(),
-                        driftMs = syncedPlaybackManager.getCurrentDrift()
+                        // driftMs intentionally NOT updated here: on clients the
+                        // live player-state collector publishes per-pulse drift.
+                        // Two writers alternating between the clock-sync value
+                        // and the player value made the UI indicator blink.
+                        driftMs = if (state.isHost) syncedPlaybackManager.getCurrentDrift() else state.driftMs
                     )
                 }
             }
@@ -388,13 +396,12 @@ class SyncedFilePlayerViewModel @Inject constructor(
      */
     fun play() {
         viewModelScope.launch {
-            syncedPlaybackManager.play()
-            
-            // Also play locally
-            val playbackState = syncedPlaybackManager.playbackState.value
+            // Broadcast a single scheduled start and play locally at the SAME
+            // timestamp so the host stays aligned with its own clients
+            val startTime = syncedPlaybackManager.play()
             player?.playAtTime(
-                playbackState.lastSyncTime,
-                playbackState.positionMs
+                startTime,
+                syncedPlaybackManager.playbackState.value.positionMs
             )
         }
     }
@@ -415,11 +422,13 @@ class SyncedFilePlayerViewModel @Inject constructor(
     fun seekTo(positionMs: Long) {
         viewModelScope.launch {
             val wasPlaying = _uiState.value.isPlaying
-            syncedPlaybackManager.seekTo(positionMs)
-            // Apply seek to local player immediately for host
+            // Apply the local seek at exactly the timestamp broadcast to
+            // clients - previously the host seeked 200ms off from its own
+            // clients, injecting drift on every seek
+            val seekTime = syncedPlaybackManager.seekTo(positionMs)
+            // Apply seek to local player for host
             if (_uiState.value.isHost) {
-                val syncTime = syncedPlaybackManager.getSynchronizedTime()
-                player?.seekAtTime(syncTime + 200L, positionMs, wasPlaying)
+                player?.seekAtTime(seekTime, positionMs, wasPlaying)
             }
         }
     }
@@ -464,9 +473,13 @@ class SyncedFilePlayerViewModel @Inject constructor(
                         val isReady = player?.awaitReady(5000L) ?: false
                         if (isReady) {
                             Timber.i("Player ready after track switch, resuming playback")
-                            syncedPlaybackManager.play()
-                            val playbackState = syncedPlaybackManager.playbackState.value
-                            player?.playAtTime(playbackState.lastSyncTime, 0L)
+                            // Broadcast a single scheduled start and play locally
+                            // at the SAME timestamp so the host stays aligned with
+                            // its own clients (the old code emitted an extra Play
+                            // AND started locally at lastSyncTime, which lagged
+                            // the broadcast by the player's ready delay)
+                            val startTime = syncedPlaybackManager.play()
+                            player?.playAtTime(startTime, 0L)
                         }
                     }
                 } else {
@@ -499,9 +512,9 @@ class SyncedFilePlayerViewModel @Inject constructor(
                         val isReady = player?.awaitReady(5000L) ?: false
                         if (isReady) {
                             Timber.i("Player ready after track switch, resuming playback")
-                            syncedPlaybackManager.play()
-                            val playbackState = syncedPlaybackManager.playbackState.value
-                            player?.playAtTime(playbackState.lastSyncTime, 0L)
+                            // Same single-start pattern as nextTrack()
+                            val startTime = syncedPlaybackManager.play()
+                            player?.playAtTime(startTime, 0L)
                         }
                     }
                 }
@@ -520,6 +533,15 @@ class SyncedFilePlayerViewModel @Inject constructor(
             Timber.i("Handling command: ${command::class.simpleName}, player=${player != null}")
             when (command) {
                 is PlaybackCommand.Play -> {
+                    // Ignore the host's follow-up Play when it (or we) already
+                    // auto-played from a SwitchFile command - handling both
+                    // caused a double-start ~100-300ms apart, leaving the
+                    // client ahead of the host after every skip.
+                    if (skipNextPlayCommand) {
+                        skipNextPlayCommand = false
+                        Timber.i("Skipping redundant Play command after SwitchFile auto-play")
+                        return@launch
+                    }
                     Timber.i("Calling player.playAtTime(${command.timestamp}, ${command.positionMs})")
                     player?.playAtTime(command.timestamp, command.positionMs)
                 }
@@ -548,8 +570,17 @@ class SyncedFilePlayerViewModel @Inject constructor(
                                 val isReady = player?.awaitReady(5000L) ?: false
                                 if (isReady) {
                                     Timber.i("Player ready after switch, auto-playing")
-                                    val syncTime = syncedPlaybackManager.getSynchronizedTime()
-                                    player?.playAtTime(syncTime + 100L, 0L)
+                                    // Start at the command's own timestamp so we align
+                                    // with the host exactly; the old code invented
+                                    // "syncTime + 100ms" here, guaranteeing an offset
+                                    // from the host on every track switch. If we're
+                                    // already past the timestamp, playAtTime handles
+                                    // the late start by advancing the position.
+                                    player?.playAtTime(command.timestamp, 0L)
+                                    // The host also broadcasts a standalone Play
+                                    // right after SwitchFile when it was playing -
+                                    // drop it to avoid a second, misaligned start
+                                    skipNextPlayCommand = true
                                 }
                             }
                         }

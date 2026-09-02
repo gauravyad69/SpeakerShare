@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "io.github.gauravyad69.speakershare"
-        minSdk = 21
+        minSdk = 23
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -75,6 +75,9 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.compose.tabler.icons)
     implementation("androidx.navigation:navigation-compose:2.7.5")
+    // 16 KB page-size aligned native lib (required for 16KB devices; the
+    // transitive 1.0.1 from compose ui-graphics is only 4KB aligned)
+    implementation("androidx.graphics:graphics-path:1.1.0")
     
     // WebRTC for real-time audio streaming
     implementation(libs.stream.webrtc.android.compose)

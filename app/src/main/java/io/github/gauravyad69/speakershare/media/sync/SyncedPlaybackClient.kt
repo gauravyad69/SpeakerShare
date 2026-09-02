@@ -236,21 +236,15 @@ class SyncedPlaybackClient @Inject constructor(
                         Timber.d("Received session info: ${joinResponse.sessionId}")
                     }
                 }
-                "clock_sync_response" -> {
-                    // Handle clock sync response (if we do clock sync over WebSocket)
-                    val t1 = (data["t1"] as? Number)?.toLong() ?: 0L
-                    val t2 = (data["t2"] as? Number)?.toLong() ?: 0L
-                    val t3 = (data["t3"] as? Number)?.toLong() ?: 0L
-                    val t4 = System.currentTimeMillis()
-                    
-                    val roundTripTime = (t4 - t1) - (t3 - t2)
-                    val offset = ((t2 - t1) + (t3 - t4)) / 2
-                    
-                    clockSynchronizer.setOffset(offset)
-                    Timber.d("WebSocket clock sync: offset=$offset, rtt=$roundTripTime")
-                }
                 "pong" -> {
                     // Heartbeat response
+                }
+                "clock_sync_response" -> {
+                    // Deliberately ignored: applying a clock offset derived from a
+                    // single exchange hard-sets the offset with jitter directly
+                    // becoming offset error. Clock maintenance during playback is
+                    // handled by ClockSynchronizer.recordDrift convergence, and the
+                    // initial multi-sample sync happens in syncClock().
                 }
                 else -> {
                     // Try to parse as a sync command
@@ -316,39 +310,55 @@ class SyncedPlaybackClient @Inject constructor(
     /**
      * Sync clock with host using multiple samples for accuracy
      * Uses HTTP for initial sync (more reliable than WebSocket for this)
+     *
+     * Uses the minimum-RTT sample's offset - standard NTP practice: the
+     * exchange with the lowest round-trip time suffered the least queueing
+     * delay, so its offset estimate has the least jitter-induced error.
+     * The median is used as a sanity fallback.
      */
     private suspend fun syncClock(baseUrl: String) {
         try {
-            val offsets = mutableListOf<Long>()
-            val rtts = mutableListOf<Long>()
+            data class Sample(val offset: Long, val rtt: Long)
+            val samples = mutableListOf<Sample>()
             
             // Take multiple samples for accuracy
             repeat(CLOCK_SYNC_SAMPLES) { i ->
                 val result = performSingleClockSync(baseUrl)
                 if (result != null) {
-                    offsets.add(result.first)
-                    rtts.add(result.second)
+                    samples.add(Sample(result.first, result.second))
                     Timber.d("Clock sample $i: offset=${result.first}ms, rtt=${result.second}ms")
                 }
                 delay(50) // Small delay between samples
             }
             
-            if (offsets.isEmpty()) {
+            if (samples.isEmpty()) {
                 Timber.w("No successful clock sync samples")
                 return
             }
             
-            // Use median to filter outliers (best accuracy)
-            offsets.sort()
-            rtts.sort()
+            // Minimum-RTT sample = least jitter-polluted offset estimate
+            val bestSample = samples.minBy { it.rtt }
             
-            val medianOffset = offsets[offsets.size / 2]
-            val medianRtt = rtts[rtts.size / 2]
+            // Median for comparison/logging (sanity check)
+            val medianOffset = samples.map { it.offset }.sorted()[samples.size / 2]
+            val medianRtt = samples.map { it.rtt }.sorted()[samples.size / 2]
+            
+            // Use the min-RTT offset; fall back to median if they wildly
+            // disagree (indicates an unstable path rather than jitter)
+            val chosenOffset = if (kotlin.math.abs(bestSample.offset - medianOffset) > 100) {
+                Timber.w("Min-RTT offset ${bestSample.offset}ms disagrees with median $medianOffset ms - using median")
+                medianOffset
+            } else {
+                bestSample.offset
+            }
             
             // Update the SHARED ClockSynchronizer so SyncedMediaPlayer uses correct time
-            clockSynchronizer.setOffset(medianOffset)
+            clockSynchronizer.setOffset(chosenOffset)
             
-            Timber.i("Clock synced with host: offset=${medianOffset}ms, rtt=${medianRtt}ms (${offsets.size} samples)")
+            Timber.i(
+                "Clock synced with host: offset=${chosenOffset}ms (min-RTT ${bestSample.rtt}ms, " +
+                "median offset=${medianOffset}ms, median rtt=${medianRtt}ms, ${samples.size} samples)"
+            )
             
         } catch (e: Exception) {
             Timber.w(e, "Clock sync failed")
@@ -388,13 +398,10 @@ class SyncedPlaybackClient @Inject constructor(
      * Request clock sync via WebSocket (for periodic re-sync)
      */
     suspend fun requestClockSyncViaWebSocket() {
-        try {
-            webSocketSession?.send(Frame.Text(gson.toJson(mapOf(
-                "type" to "clock_sync",
-                "t1" to System.currentTimeMillis()
-            ))))
-        } catch (e: Exception) {
-            Timber.w("Failed to request clock sync via WebSocket: ${e.message}")
-        }
+        // Intentionally not implemented: a single-exchange sync hard-sets the
+        // offset with jitter directly becoming offset error. If periodic
+        // resync is ever needed, it must take multiple samples and only
+        // apply a bounded correction (see syncClock for the correct pattern).
+        Timber.d("requestClockSyncViaWebSocket called - not supported by design")
     }
 }

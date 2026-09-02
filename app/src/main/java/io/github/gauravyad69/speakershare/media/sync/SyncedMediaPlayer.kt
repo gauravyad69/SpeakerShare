@@ -44,7 +44,11 @@ class SyncedMediaPlayer(
         private const val AUDIO_LARGE_DRIFT_THRESHOLD_MS = 500L
         private const val AUDIO_MIN_BUFFER_MS = 5_000
         private const val AUDIO_MAX_BUFFER_MS = 30_000
-        private const val AUDIO_PLAYBACK_BUFFER_MS = 2_500
+        // Buffer required before playback starts/resumes - this directly adds
+        // to perceived start latency after play/seek. Local files fill this
+        // in milliseconds, so 1000ms is safe while halving the previous
+        // 2500ms floor (rebuffer stays high for playback stability).
+        private const val AUDIO_PLAYBACK_BUFFER_MS = 1_000
         private const val AUDIO_REBUFFER_MS = 2_500
         
         // ========== VIDEO SETTINGS (relaxed sync, larger buffers) ==========
@@ -54,7 +58,10 @@ class SyncedMediaPlayer(
         private const val VIDEO_LARGE_DRIFT_THRESHOLD_MS = 1000L
         private const val VIDEO_MIN_BUFFER_MS = 15_000
         private const val VIDEO_MAX_BUFFER_MS = 60_000
-        private const val VIDEO_PLAYBACK_BUFFER_MS = 5_000
+        // Same reasoning as audio: local playback fills the buffer quickly,
+        // so 2500ms to start (was 5000) trims seek-to-first-frame latency
+        // while the 5000ms rebuffer threshold guards mid-playback stalls.
+        private const val VIDEO_PLAYBACK_BUFFER_MS = 2_500
         private const val VIDEO_REBUFFER_MS = 5_000
         
         // Seek-ahead compensation disabled - WebSocket is fast enough
@@ -208,6 +215,19 @@ class SyncedMediaPlayer(
     }
     
     /**
+     * Mark that an intentional seek just happened.
+     * Clears accumulated drift samples: a track switch or big seek makes the
+     * next few seconds of position data unrepresentative of clock error, and
+     * feeding those samples into clock convergence poisons the offset for
+     * minutes afterward.
+     */
+    private fun markIntentionalSeek(positionMs: Long) {
+        lastIntentionalSeekTime = System.currentTimeMillis()
+        lastIntentionalSeekPosition = positionMs
+        clockSync.resetDriftSamples()
+    }
+    
+    /**
      * Play starting at the scheduled synchronized time
      * 
      * @param startTime The synchronized time when playback should start
@@ -244,8 +264,7 @@ class SyncedMediaPlayer(
         }
         
         // Mark as intentional seek (from host Play command)
-        lastIntentionalSeekTime = System.currentTimeMillis()
-        lastIntentionalSeekPosition = safePositionMs
+        markIntentionalSeek(safePositionMs)
         
         if (playerState == Player.STATE_ENDED) {
             Timber.d("Player ended, seeking to beginning (intentional)")
@@ -364,8 +383,7 @@ class SyncedMediaPlayer(
         player?.let { exo ->
             // Mark this as an intentional seek (from host command)
             // This prevents sync pulses from fighting with intentional seeks
-            lastIntentionalSeekTime = System.currentTimeMillis()
-            lastIntentionalSeekPosition = positionMs
+            markIntentionalSeek(positionMs)
             
             exo.seekTo(positionMs)
             
@@ -465,32 +483,25 @@ class SyncedMediaPlayer(
         val drift = currentPosition - expectedPositionMs
         val absDrift = kotlin.math.abs(drift)
         
+        // Publish drift on EVERY pulse so the UI indicator doesn't flicker
+        // between "MEASURING" and a value (it previously only updated when
+        // drift exceeded tolerance, so in-sync playback showed a stale/zero
+        // drift that blinked)
+        _playerState.update { it.copy(driftMs = drift) }
+        
         // Record drift for dynamic clock adjustment
         // Only record if:
         // - drift is reasonable (not a clock sync issue)
         // - player is actually playing (currentPosition > 0)
         // - position has advanced beyond initial buffering
         if (absDrift < 5000 && currentPosition > 1000) {
-            // Drift direction:
-            //   drift > 0: client AHEAD of expected → need to DECREASE getSynchronizedTime() → DECREASE offset
-            //   drift < 0: client BEHIND expected → need to INCREASE getSynchronizedTime() → INCREASE offset  
-            // 
-            // ClockSynchronizer applies: newOffset = offset + (avgDrift / 3)
-            //   positive avgDrift → increase offset → increase getSynchronizedTime() → increase expectedPos
-            //   negative avgDrift → decrease offset → decrease getSynchronizedTime() → decrease expectedPos
-            //
-            // So we need to pass -drift:
-            //   drift > 0 (ahead) → pass negative → decrease offset → decrease expectedPos → client catches up
-            //   drift < 0 (behind) → pass positive → increase offset → increase expectedPos → wait, that makes it worse!
-            //
-            // Actually, let's trace through more carefully with the new calculation:
-            //   expectedPos = hostPos + (getSynchronizedTime() - hostTimestamp)
-            //   If we INCREASE offset → getSynchronizedTime goes UP → expectedPos goes UP
-            //   If client is BEHIND (drift < 0, localPos < expectedPos):
-            //     We want expectedPos to go DOWN to match localPos
-            //     So we need offset to DECREASE
-            //     So we should pass NEGATIVE avgDrift
-            //   Therefore, pass drift directly (negative when behind → negative adjustment)
+            // Drift sign: drift = localPosition - expectedPosition
+            //   Positive  = client AHEAD of expected
+            //   Negative  = client BEHIND expected
+            // ClockSynchronizer applies newOffset = offset + (avgDrift / 4):
+            //   positive drift -> offset up -> expectedPos up toward localPos
+            //   negative drift -> offset down -> expectedPos down toward localPos
+            // Both directions converge; see ClockSynchronizer.recordDrift.
             clockSync.recordDrift(drift, currentPosition)
             Timber.d("Recorded drift: local=$currentPosition, expected=$expectedPositionMs, drift=${drift}ms")
         }
@@ -519,7 +530,6 @@ class SyncedMediaPlayer(
             // Clock drift is still recorded above, but we don't want to seek based on potentially stale data
             if (timeSinceReconnection < SEEK_GRACE_PERIOD_MS) {
                 Timber.d("Skipping corrective seek during reconnection grace period (${timeSinceReconnection}ms)")
-                _playerState.update { it.copy(driftMs = drift) }
                 return
             }
             
@@ -548,11 +558,12 @@ class SyncedMediaPlayer(
                 Timber.i("Corrective seek: drift=${drift}ms, expectedPos=$expectedPositionMs, compensatedPos=$compensatedPosition, timeSinceLastSeek=${timeSinceLastSeek}ms")
                 exo.seekTo(compensatedPosition)
                 lastCorrectiveSeekTime = now
-                _playerState.update { it.copy(currentPositionMs = compensatedPosition, driftMs = 0) }
+                // Keep driftMs as the measured value (already published above) -
+                // zeroing it here made the UI indicator flash to "MEASURING"
+                _playerState.update { it.copy(currentPositionMs = compensatedPosition) }
             } else {
-                // Just track drift for now
+                // Just track drift for now (already published above)
                 Timber.d("Drift $drift ms but skipping seek (last seek ${timeSinceLastSeek}ms ago)")
-                _playerState.update { it.copy(driftMs = drift) }
             }
         }
     }

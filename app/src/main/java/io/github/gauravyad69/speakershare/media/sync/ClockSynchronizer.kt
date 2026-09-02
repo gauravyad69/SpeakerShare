@@ -1,10 +1,6 @@
 package io.github.gauravyad69.speakershare.media.sync
 
 import timber.log.Timber
-import io.ktor.client.*
-import io.ktor.client.request.*
-import io.ktor.client.statement.*
-import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -12,36 +8,18 @@ import kotlin.math.abs
 
 /**
  * Clock Synchronizer for distributed playback
- * 
- * Uses a simplified NTP-like algorithm to sync clocks between host and clients.
- * This allows all devices to have a common time reference for synchronized playback.
- * 
- * Algorithm:
- * 1. Client sends request with local timestamp T1
- * 2. Host receives at T2, responds with T2 and T3 (send time)
- * 3. Client receives at T4
- * 4. Round trip time = (T4 - T1) - (T3 - T2)
- * 5. Clock offset = ((T2 - T1) + (T3 - T4)) / 2
- * 
- * Accuracy: ~10-20ms on local WiFi networks
+ *
+ * Maintains the offset between this device's clock and the host's clock so
+ * that all devices share a common time reference for synchronized playback.
+ *
+ * The offset is established once at connect time by SyncedPlaybackClient
+ * (NTP-style exchange over HTTP, min-RTT sample selection) and then kept
+ * convergent during playback by recordDrift() feedback.
  */
 @Singleton
 class ClockSynchronizer @Inject constructor() {
     
     companion object {
-        
-        // Number of sync samples to average
-        const val SYNC_SAMPLES = 5
-        
-        // How often to resync (ms)
-        const val RESYNC_INTERVAL_MS = 30_000L
-        
-        // Maximum acceptable offset change between syncs
-        const val MAX_OFFSET_DRIFT_MS = 100L
-        
-        // Default port for clock sync
-        const val SYNC_PORT = 9091
-        
         // Number of drift samples to collect before adjusting offset
         // With ~1 sync pulse per second, 5 samples = 5 seconds of data
         const val DRIFT_SAMPLES_FOR_ADJUSTMENT = 5
@@ -56,8 +34,6 @@ class ClockSynchronizer @Inject constructor() {
         // Warmup period after joining session before drift adjustment starts
         const val WARMUP_PERIOD_MS = 5_000L
     }
-    
-    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
     // Current clock offset (add to local time to get synchronized time)
     private var clockOffset: Long = 0L
@@ -83,9 +59,6 @@ class ClockSynchronizer @Inject constructor() {
     private val _currentDrift = MutableStateFlow(0L)
     val currentDrift: StateFlow<Long> = _currentDrift.asStateFlow()
     
-    private var syncJob: Job? = null
-    private var hostServer: Job? = null
-    
     /**
      * Get the synchronized time across all devices
      */
@@ -101,19 +74,35 @@ class ClockSynchronizer @Inject constructor() {
     }
     
     /**
-     * Set clock offset manually (used when client syncs via different channel)
+     * Set clock offset manually (used by SyncedPlaybackClient after the
+     * NTP-style exchange with the host)
      */
     fun setOffset(offset: Long) {
         clockOffset = offset
+        // Mark session start time for warmup period
+        sessionStartTime = System.currentTimeMillis()
         _syncState.value = ClockSyncState.Synced(offset, roundTripTime)
-        Timber.i("Clock offset set manually: ${offset}ms")
+        Timber.i("Clock offset set: ${offset}ms")
     }
     
     /**
-     * Record a drift sample and potentially adjust the clock offset
-     * Called by the client when receiving sync pulses from host
-     * 
-     * @param signedDrift The drift (hostPosition - localPosition). Positive means we're behind, negative means ahead.
+     * Record a drift sample and potentially adjust the clock offset.
+     * Called by the client when receiving sync pulses from host.
+     *
+     * Sign convention (matches the live caller SyncedMediaPlayer.syncPosition):
+     *   signedDrift = localPosition - expectedPosition
+     *   Positive  = client is AHEAD of the host
+     *   Negative  = client is BEHIND the host
+     *
+     * Convergence logic:
+     *   expectedPos = hostPos + (getSynchronizedTime() - hostTimestamp)
+     *   where getSynchronizedTime() = localNow + clockOffset
+     *   - Client BEHIND (negative drift): lower the offset so expectedPos
+     *     comes DOWN toward the local position.
+     *   - Client AHEAD (positive drift): raise the offset so expectedPos
+     *     goes UP toward the local position.
+     *   adjustment = avgDrift / 4 therefore converges in both directions.
+     *
      * @param localPosition The local player position (used to detect if player is actually playing)
      */
     fun recordDrift(signedDrift: Long, localPosition: Long = -1L) {
@@ -185,29 +174,9 @@ class ClockSynchronizer @Inject constructor() {
                 val shouldAdjust = absAvgDrift > 100 && absAvgDrift < 2000 && consistentBias && isStable
                 
                 if (shouldAdjust) {
-                    // IMPORTANT: Drift is calculated as (localPosition - expectedPosition)
-                    //   Negative drift = client is BEHIND expected
-                    //   Positive drift = client is AHEAD of expected
-                    //
-                    // The adjustment should:
-                    //   If client consistently BEHIND (negative drift): 
-                    //     This likely means our clock offset is too high, making expectedPos too high
-                    //     DECREASE offset → expectedPos comes down → drift approaches zero
-                    //   If client consistently AHEAD (positive drift):
-                    //     This likely means our clock offset is too low
-                    //     INCREASE offset → expectedPos goes up → drift approaches zero
-                    //
-                    // So: newOffset = offset + avgDrift (NOT + avgDrift, since we want opposite effect)
-                    // Wait, let's trace through:
-                    //   expectedPos = hostPos + (getSynchronizedTime() - hostTimestamp)
-                    //   getSynchronizedTime() = System.currentTimeMillis() + offset
-                    //   If we INCREASE offset → syncTime UP → expectedPos UP
-                    //   If drift is negative (behind), expectedPos is too HIGH
-                    //   So we need to DECREASE offset to bring expectedPos DOWN
-                    //   DECREASE offset = add negative adjustment = add avgDrift (which is negative)
-                    //
-                    // So: adjustment = avgDrift / 4 is CORRECT!
-                    val adjustment = avgDrift / 4 
+                    // adjustment = avgDrift / 4 converges in both directions
+                    // (see recordDrift KDoc for the full derivation).
+                    val adjustment = avgDrift / 4
                     val newOffset = clockOffset + adjustment
                     
                     // Bound the offset to prevent unbounded growth
@@ -237,6 +206,22 @@ class ClockSynchronizer @Inject constructor() {
     fun getCurrentDrift(): Long = _currentDrift.value
     
     /**
+     * Discard accumulated drift samples without changing the offset.
+     * Call after intentional seeks / track switches: the next few seconds of
+     * position data are unrepresentative of clock error, and feeding them
+     * into convergence poisons the offset for minutes afterward.
+     */
+    fun resetDriftSamples() {
+        if (isHost) return
+        synchronized(driftSamples) {
+            if (driftSamples.isNotEmpty()) {
+                driftSamples.clear()
+                Timber.d("Drift samples reset (intentional seek or track switch)")
+            }
+        }
+    }
+    
+    /**
      * Get estimated network latency (one-way)
      */
     fun getNetworkLatency(): Long {
@@ -250,171 +235,26 @@ class ClockSynchronizer @Inject constructor() {
     fun startAsHost() {
         isHost = true
         clockOffset = 0L
+        roundTripTime = 0L
         _syncState.value = ClockSyncState.Synced(0L, 0L)
-        
-        // Start server to respond to sync requests
-        hostServer = scope.launch {
-            startSyncServer()
-        }
-        
         Timber.i("Started as host (time reference)")
-    }
-    
-    /**
-     * CLIENT: Sync clock with host
-     */
-    suspend fun syncWithHost(hostAddress: String): Result<Long> {
-        isHost = false
-        _syncState.value = ClockSyncState.Syncing
-        
-        return try {
-            val offsets = mutableListOf<Long>()
-            val rtts = mutableListOf<Long>()
-            
-            // Take multiple samples and average
-            repeat(SYNC_SAMPLES) { i ->
-                val result = performSyncExchange(hostAddress)
-                if (result != null) {
-                    offsets.add(result.offset)
-                    rtts.add(result.rtt)
-                    Timber.d("Sync sample $i: offset=${result.offset}ms, rtt=${result.rtt}ms")
-                }
-                delay(100) // Small delay between samples
-            }
-            
-            if (offsets.isEmpty()) {
-                _syncState.value = ClockSyncState.Error("Failed to sync with host")
-                return Result.failure(Exception("No successful sync samples"))
-            }
-            
-            // Use median to filter outliers
-            offsets.sort()
-            rtts.sort()
-            
-            clockOffset = offsets[offsets.size / 2]
-            roundTripTime = rtts[rtts.size / 2]
-            
-            // Mark session start time for warmup period
-            sessionStartTime = System.currentTimeMillis()
-            
-            _syncState.value = ClockSyncState.Synced(clockOffset, roundTripTime)
-            
-            // Start periodic resync
-            startPeriodicResync(hostAddress)
-            
-            Timber.i("Clock synced with host: offset=${clockOffset}ms, rtt=${roundTripTime}ms")
-            Result.success(clockOffset)
-            
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to sync clock")
-            _syncState.value = ClockSyncState.Error(e.message ?: "Unknown error")
-            Result.failure(e)
-        }
-    }
-    
-    /**
-     * Perform a single sync exchange with the host
-     */
-    private suspend fun performSyncExchange(hostAddress: String): SyncResult? {
-        val client = HttpClient()
-        return try {
-            val t1 = System.currentTimeMillis()
-            
-            val response = client.get("http://$hostAddress:$SYNC_PORT/sync") {
-                parameter("t1", t1)
-            }
-            
-            val t4 = System.currentTimeMillis()
-            
-            val body = response.bodyAsText()
-            val parts = body.split(",")
-            
-            if (parts.size >= 2) {
-                val t2 = parts[0].toLong()
-                val t3 = parts[1].toLong()
-                
-                // Calculate offset and RTT
-                val rtt = (t4 - t1) - (t3 - t2)
-                val offset = ((t2 - t1) + (t3 - t4)) / 2
-                
-                SyncResult(offset, rtt)
-            } else {
-                null
-            }
-            
-        } catch (e: Exception) {
-            Timber.e(e, "Sync exchange failed")
-            null
-        } finally {
-            client.close()
-        }
-    }
-    
-    /**
-     * Start the sync server (host only)
-     */
-    private suspend fun startSyncServer() {
-        // Using Ktor server for sync responses
-        // This will be integrated with the main HttpApiServer
-        Timber.d("Sync server started on port $SYNC_PORT")
-    }
-    
-    /**
-     * Start periodic resync to maintain accuracy
-     */
-    private fun startPeriodicResync(hostAddress: String) {
-        syncJob?.cancel()
-        syncJob = scope.launch {
-            while (isActive) {
-                delay(RESYNC_INTERVAL_MS)
-                
-                val result = performSyncExchange(hostAddress)
-                if (result != null) {
-                    val drift = abs(result.offset - clockOffset)
-                    
-                    if (drift < MAX_OFFSET_DRIFT_MS) {
-                        // Small drift, apply gradual correction
-                        clockOffset = (clockOffset + result.offset) / 2
-                        roundTripTime = (roundTripTime + result.rtt) / 2
-                    } else {
-                        // Large drift, full resync
-                        Timber.w("Large clock drift detected: ${drift}ms, resyncing")
-                        syncWithHost(hostAddress)
-                    }
-                }
-            }
-        }
     }
     
     /**
      * Stop clock sync
      */
     fun stop() {
-        syncJob?.cancel()
-        syncJob = null
-        hostServer?.cancel()
-        hostServer = null
         clockOffset = 0L
         roundTripTime = 0L
+        isHost = false
+        synchronized(driftSamples) {
+            driftSamples.clear()
+        }
+        lastDriftAdjustmentTime = 0L
+        sessionStartTime = 0L
         _syncState.value = ClockSyncState.NotSynced
         Timber.i("Clock sync stopped")
     }
-    
-    /**
-     * Handle incoming sync request (host side)
-     * Returns response string: "t2,t3"
-     */
-    fun handleSyncRequest(t1: Long): String {
-        val t2 = System.currentTimeMillis()
-        // Small delay for processing
-        val t3 = System.currentTimeMillis()
-        return "$t2,$t3"
-    }
-    
-    private data class SyncResult(
-        val offset: Long,
-        val rtt: Long
-    )
 }
 
 /**

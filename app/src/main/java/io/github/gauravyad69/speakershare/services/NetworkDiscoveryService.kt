@@ -1,8 +1,10 @@
 package io.github.gauravyad69.speakershare.services
 
 import android.content.Context
+import android.net.Network
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Build
 import timber.log.Timber
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
@@ -118,6 +120,29 @@ class NetworkDiscoveryService @Inject constructor(
                 setAttribute(SERVICE_INFO_KEY_CLIENTS, currentClients.toString())
                 setAttribute(SERVICE_INFO_KEY_MAX_CLIENTS, maxClients.toString())
                 setAttribute(SERVICE_INFO_KEY_MODE, mode.name.lowercase())
+
+                // Pin the advertised host address to the hotspot (SoftAP) IP when
+                // one is active: with several networks attached, mDNS would
+                // otherwise advertise whatever address the system picks (e.g. the
+                // router subnet), which hotspot clients cannot reach.
+                // NOTE: deliberately NOT using setNetwork() - binding the
+                // advertiser to the tethering network stalls registration on
+                // some devices (onServiceRegistered never fires, so the UDP
+                // fallback never starts either). Pinning addresses keeps the
+                // service discoverable on all links while still steering
+                // clients to the hotspot address.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    hotspotNetworkHelper.getHotspotInterface()?.inetAddresses
+                        ?.asSequence()
+                        ?.filterIsInstance<java.net.Inet4Address>()
+                        ?.filter { !it.isLoopbackAddress && it.isSiteLocalAddress }
+                        ?.toList()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { addrs ->
+                            setHostAddresses(addrs)
+                            Timber.i("mDNS service advertising hotspot address(es): ${addrs.map { it.hostAddress }}")
+                        }
+                }
             }
             
             val listener = object : NsdManager.RegistrationListener {
@@ -134,9 +159,6 @@ class NetworkDiscoveryService @Inject constructor(
                     Timber.i("Service registered: ${serviceInfo?.serviceName}")
                     registeredService = serviceInfo
                     _isRegistered.value = true
-                    
-                    // Start UDP broadcast for fallback discovery
-                    startUdpBroadcast(hostName, port, userName, currentClients, maxClients)
                 }
                 
                 override fun onServiceUnregistered(serviceInfo: NsdServiceInfo?) {
@@ -149,6 +171,13 @@ class NetworkDiscoveryService @Inject constructor(
             
             registrationListener = listener
             nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, listener)
+            
+            // Start the UDP broadcast fallback immediately rather than waiting
+            // for onServiceRegistered: on some devices the mDNS registration
+            // callback is delayed or never fires (e.g. tethering networks),
+            // which previously left clients with no discovery path at all.
+            startUdpBroadcast(hostName, port, userName, currentClients, maxClients)
+            
             Result.success(Unit)
             
         } catch (e: Exception) {
@@ -383,6 +412,9 @@ class NetworkDiscoveryService @Inject constructor(
         currentClients: Int, 
         maxClients: Int
     ) {
+        // Cancel any previous broadcast before starting a new one (safe when
+        // called repeatedly, e.g. re-registering a session)
+        udpBroadcastJob?.cancel()
         Timber.d("Starting UDP broadcast")
         
         udpBroadcastJob = serviceScope.launch {
