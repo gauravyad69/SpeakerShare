@@ -26,28 +26,23 @@ out/
 # Local configuration file (sdk path, etc)
 /local.properties
 
-# IntelliJ/Android Studio
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-/.idea/dictionaries
-.idea/gradle.xml
-.idea/tasks.xml
+# IDE
+.idea/
+.vscode/
 
 # Log Files
 *.log
 
-# Android Profiling
+# Android Profiler
 *.hprof
 
 # Kotlin
 *.kt~
+.kotlin/
 
-# Mac OS
+# OS
 .DS_Store
+Thumbs.db
 
 # Temporary files
 *.tmp
@@ -56,24 +51,17 @@ out/
 *.swp
 *.swo
 
-# SpeakerShare specific
-# Exclude audio test files
-/test-audio/
-*.wav
-*.mp3
-*.aac
-.kotlin/sessions/*
-.kotlin/*
-.idea/*
-client_dump.xml
-host_dump_new.xml
-host_dump_latest.xml
-client_dump_new.xml
-host_dump.xml
-.idea/deploymentTargetSelector.xml
-client_logs.txt
-
 # Release signing
 *.jks
 *.keystore
 /keystore.properties
+
+# Test audio / media files
+/test-audio/
+*.wav
+*.mp3
+*.aac
+
+# UI automator dumps from manual testing
+*_dump*.xml
+client_logs.txt
