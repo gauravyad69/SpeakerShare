@@ -342,6 +342,12 @@ class AudioDecoder @Inject constructor() {
                 if (currentPackets % 100 == 0L) {
                     Timber.d("Fed AAC packet #$currentPackets to decoder: ${inputPacket.data.size} bytes, queueSize=${inputPacketQueue.size}")
                 }
+            } else {
+                // Queue was drained between the hasData peek and this lock
+                // (e.g. clearBuffers during reconnect). Return the buffer to
+                // the codec, otherwise the input buffer pool leaks one slot
+                // each time and the decoder stalls permanently.
+                codec.queueInputBuffer(inputBufferIndex, 0, 0, 0, 0)
             }
         }
     }

@@ -99,16 +99,42 @@ class ClientManager @Inject constructor(
                     }
                     is UdpClientEvent.Disconnected -> {
                         Timber.d("UDP Client disconnected")
+                        // Host ended the session or dropped us - clean up the
+                        // audio pipeline and foreground service
+                        if (_isConnected.value) {
+                            serviceScope.launch {
+                                stopAudioPlayback()
+                                stopForegroundService()
+                                _isConnected.value = false
+                                _currentConnection.value = null
+                            }
+                        }
                     }
                     is UdpClientEvent.Kicked -> {
                         Timber.w("Kicked by host!")
-                        _isConnected.value = false
-                        _currentConnection.value = null
+                        if (_isConnected.value) {
+                            serviceScope.launch {
+                                stopAudioPlayback()
+                                stopForegroundService()
+                                _isConnected.value = false
+                                _currentConnection.value = null
+                            }
+                        }
                         // Notify UI that we were kicked
                         _kickedByHost.value = true
                     }
                     is UdpClientEvent.ConnectionError -> {
                         Timber.e("UDP Connection error: ${event.message}")
+                    }
+                    is UdpClientEvent.HostLost -> {
+                        Timber.w("Host lost - no packets received, attempting reconnection")
+                        if (_isConnected.value) {
+                            // Run outside the observer job: handleConnectionLoss
+                            // cancels the observers as part of the teardown
+                            serviceScope.launch {
+                                handleConnectionLoss()
+                            }
+                        }
                     }
                     is UdpClientEvent.ReceiveError -> {
                         Timber.e("UDP Receive error: ${event.message}")
@@ -161,6 +187,11 @@ class ClientManager @Inject constructor(
     // Host transfer request state
     private val _pendingTransferRequest = MutableStateFlow<TransferRequest?>(null)
     val pendingTransferRequest: StateFlow<TransferRequest?> = _pendingTransferRequest.asStateFlow()
+    
+    // Last connection parameters for reconnection
+    private var lastHostSession: HostSession? = null
+    private var lastClientName: String = "Client"
+    private var lastClientId: String = ""
     
     // Callback when client becomes host (requires MediaProjection)
     private var onBecomeHostCallback: ((String) -> Unit)? = null
@@ -225,7 +256,7 @@ class ClientManager @Inject constructor(
             
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to start discovery", e)
+            Timber.e(e, "Failed to start discovery")
             _isDiscovering.value = false
             Result.failure(e)
         }
@@ -249,13 +280,26 @@ class ClientManager @Inject constructor(
         hostSession: HostSession,
         clientName: String
     ): Result<Unit> {
+        // Remember parameters so handleConnectionLoss can reconnect
+        lastHostSession = hostSession
+        lastClientName = clientName
+        return connectToHostInternal(hostSession, clientName, UUID.randomUUID().toString())
+    }
+    
+    private suspend fun connectToHostInternal(
+        hostSession: HostSession,
+        clientName: String,
+        clientId: String
+    ): Result<Unit> {
         return try {
             if (_isConnected.value) {
                 return Result.failure(IllegalStateException("Already connected to a host"))
             }
             
-            val clientId = UUID.randomUUID().toString()
             Timber.d("Connecting to host: ${hostSession.hostName} (${hostSession.sessionId})")
+            
+            // Remember for reconnection / disconnection requests
+            lastClientId = clientId
             
             // Create client connection
             val clientConnection = ClientConnection(
@@ -295,7 +339,7 @@ class ClientManager @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Timber.e("Failed to connect to host", e)
+            Timber.e(e, "Failed to connect to host")
             _currentConnection.value = _currentConnection.value?.copy(status = ConnectionStatus.ERROR)
             Result.failure(e)
         }
@@ -333,7 +377,7 @@ class ClientManager @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Timber.e("Failed to disconnect", e)
+            Timber.e(e, "Failed to disconnect")
             Result.failure(e)
         }
     }
@@ -369,7 +413,7 @@ class ClientManager @Inject constructor(
             
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to set volume", e)
+            Timber.e(e, "Failed to set volume")
             Result.failure(e)
         }
     }
@@ -397,18 +441,22 @@ class ClientManager @Inject constructor(
             
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to toggle mute", e)
+            Timber.e(e, "Failed to toggle mute")
             Result.failure(e)
         }
     }
     
     /**
-     * Handle connection loss and attempt reconnection
+     * Handle connection loss and attempt reconnection.
+     * Performs a full teardown and reconnects through the standard
+     * HTTP + UDP flow with the SAME clientId (so host-side kick blacklists
+     * and dedup still apply).
      */
     suspend fun handleConnectionLoss(): Result<Unit> {
         return try {
             val connection = _currentConnection.value
-            if (connection == null) {
+            val hostSession = lastHostSession
+            if (connection == null || hostSession == null) {
                 return Result.failure(IllegalStateException("No connection to recover"))
             }
             
@@ -417,7 +465,11 @@ class ClientManager @Inject constructor(
             _currentConnection.value = connection.copy(status = ConnectionStatus.CONNECTING)
             _isConnected.value = false
             
-            // Attempt reconnection with exponential backoff
+            // Tear down the old audio pipeline (stops observers, UDP client,
+            // decoder and playback) so reconnect starts from a clean state
+            stopAudioPlayback()
+            
+            // Attempt reconnection with backoff
             var attempts = 0
             while (attempts < MAX_RECONNECT_ATTEMPTS) {
                 attempts++
@@ -425,8 +477,7 @@ class ClientManager @Inject constructor(
                 
                 delay(RECONNECT_DELAY_MS * attempts)
                 
-                // Try to reconnect
-                val reconnectResult = attemptReconnection(connection)
+                val reconnectResult = connectToHostInternal(hostSession, connection.clientName, connection.clientId)
                 if (reconnectResult.isSuccess) {
                     Timber.d("Reconnected successfully")
                     return Result.success(Unit)
@@ -440,11 +491,12 @@ class ClientManager @Inject constructor(
             // All reconnection attempts failed
             Timber.e("All reconnection attempts failed")
             _currentConnection.value = connection.copy(status = ConnectionStatus.ERROR)
+            _isConnected.value = false
             
             Result.failure(Exception("Failed to reconnect after $MAX_RECONNECT_ATTEMPTS attempts"))
             
         } catch (e: Exception) {
-            Timber.e("Failed to handle connection loss", e)
+            Timber.e(e, "Failed to handle connection loss")
             Result.failure(e)
         }
     }
@@ -486,16 +538,29 @@ class ClientManager @Inject constructor(
                 Result.failure(Exception("Connection rejected: ${response.reason}"))
             }
         } catch (e: Exception) {
-            Timber.e("Connection request failed", e)
+            Timber.e(e, "Connection request failed")
             Result.failure(e)
         }
     }
     
     private suspend fun sendDisconnectionRequest(connection: ClientConnection) {
-        Timber.d("Sending disconnection request")
-        // TODO: Implement HTTP disconnection request
-        // We need the host IP to send the request. 
-        // For now, we'll just log it as we don't have the host session stored in this context easily.
+        val hostSession = lastHostSession ?: run {
+            Timber.w("No host session stored, skipping HTTP disconnect request")
+            return
+        }
+        
+        try {
+            val hostIp = hostSession.networkInfo.localIpAddress
+            val port = hostSession.networkInfo.port
+            val url = "http://$hostIp:$port/api/v1/clients/${connection.clientId}/disconnect"
+            
+            Timber.d("Sending disconnection request to $url")
+            
+            httpClient.post(url)
+        } catch (e: Exception) {
+            // Best-effort: the host also drops us via UDP disconnect/heartbeat timeout
+            Timber.w("Disconnection request failed (host may already be gone): ${e.message}")
+        }
     }
     
     private suspend fun startAudioPlayback(hostSession: HostSession, sampleRate: Int, clientId: String) {
@@ -557,8 +622,10 @@ class ClientManager @Inject constructor(
     
     private fun stopForegroundService() {
         Timber.d("Stopping client foreground service")
-        val intent = ClientForegroundService.stopPlayback(context)
-        context.startService(intent)
+        // stopService is safe from the background; startService would throw
+        // IllegalStateException on Android O+ when the app is backgrounded
+        // (e.g. kicked while the screen is off)
+        context.stopService(Intent(context, ClientForegroundService::class.java))
     }
     
     private suspend fun applyVolumeChange(volume: Float) {
@@ -569,25 +636,6 @@ class ClientManager @Inject constructor(
     private suspend fun applyMuteChange(muted: Boolean) {
         Timber.d("Applying mute change: $muted")
         audioPlaybackService.setMuted(muted)
-    }
-    
-    private suspend fun attemptReconnection(connection: ClientConnection): Result<Unit> {
-        return try {
-            Timber.d("Attempting to reconnect...")
-            // TODO: Implement reconnection logic
-            
-            // For now, simulate reconnection attempt
-            delay(1000)
-            
-            // Update connection status
-            _currentConnection.value = connection.copy(status = ConnectionStatus.CONNECTED)
-            _isConnected.value = true
-            
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Timber.e("Reconnection attempt failed", e)
-            Result.failure(e)
-        }
     }
     
     // ========== Host Transfer Methods ==========
@@ -632,7 +680,7 @@ class ClientManager @Inject constructor(
             
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to accept transfer request", e)
+            Timber.e(e, "Failed to accept transfer request")
             Result.failure(e)
         }
     }
@@ -655,7 +703,7 @@ class ClientManager @Inject constructor(
             
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to reject transfer request", e)
+            Timber.e(e, "Failed to reject transfer request")
             Result.failure(e)
         }
     }
@@ -670,26 +718,29 @@ class ClientManager @Inject constructor(
             // Stop current connection
             udpAudioClient.disconnect()
             
-            // Short delay before reconnecting
-            delay(500)
-            
-            // Connect to new host
-            val success = udpAudioClient.connectToHost(
-                hostIp = newHostAddress,
-                audioPort = newHostPort
-            )
-            
-            if (success) {
-                Timber.d("Successfully reconnected to new host")
-                // Update connection info in current session
-                _currentConnection.value = _currentConnection.value?.copy(
-                    // Could add new host address here if needed
+            // The new host needs time to start its server after accepting the
+            // transfer, so retry the connection instead of attempting once
+            val maxAttempts = 5
+            var connected = false
+            for (attempt in 1..maxAttempts) {
+                delay(1000L * attempt)
+                
+                connected = udpAudioClient.connectToHost(
+                    hostIp = newHostAddress,
+                    audioPort = newHostPort
                 )
+                if (connected) break
+                
+                Timber.w("Redirect reconnect attempt $attempt/$maxAttempts failed")
+            }
+            
+            if (connected) {
+                Timber.d("Successfully reconnected to new host")
             } else {
-                Timber.e("Failed to connect to new host")
+                Timber.e("Failed to connect to new host after $maxAttempts attempts")
             }
         } catch (e: Exception) {
-            Timber.e("Failed to handle host redirect", e)
+            Timber.e(e, "Failed to handle host redirect")
         }
     }
     

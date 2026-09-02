@@ -72,7 +72,7 @@ class SignalingServer @Inject constructor() {
             Timber.i("Signaling server started on port $port")
             true
         } catch (e: Exception) {
-            Timber.e("Failed to start signaling server", e)
+            Timber.e(e, "Failed to start signaling server")
             false
         }
     }
@@ -95,7 +95,7 @@ class SignalingServer @Inject constructor() {
                 
                 Timber.i("Signaling server stopped")
             } catch (e: Exception) {
-                Timber.e("Error stopping signaling server", e)
+                Timber.e(e, "Error stopping signaling server")
             }
         }
     }
@@ -137,7 +137,7 @@ class SignalingServer @Inject constructor() {
                                 handleSignalingMessage(signalingMessage)
                             }
                         } catch (e: Exception) {
-                            Timber.e("Failed to parse signaling message", e)
+                            Timber.e(e, "Failed to parse signaling message")
                         }
                     }
                     is Frame.Close -> {
@@ -150,7 +150,7 @@ class SignalingServer @Inject constructor() {
                 }
             }
         } catch (e: Exception) {
-            Timber.e("WebSocket connection error", e)
+            Timber.e(e, "WebSocket connection error")
         } finally {
             // Clean up client connection
             clientId?.let { id ->
@@ -218,7 +218,7 @@ class SignalingServer @Inject constructor() {
                 Timber.d("Sent offer to client: $clientId")
                 true
             } catch (e: Exception) {
-                Timber.e("Failed to send offer to client: $clientId", e)
+                Timber.e(e, "Failed to send offer to client: $clientId")
                 false
             }
         } ?: false
@@ -244,7 +244,7 @@ class SignalingServer @Inject constructor() {
                 Timber.d("Sent ICE candidate to client: $clientId")
                 true
             } catch (e: Exception) {
-                Timber.e("Failed to send ICE candidate to client: $clientId", e)
+                Timber.e(e, "Failed to send ICE candidate to client: $clientId")
                 false
             }
         } ?: false
@@ -266,7 +266,7 @@ class SignalingServer @Inject constructor() {
                 Timber.d("Sent answer to client: $clientId")
                 true
             } catch (e: Exception) {
-                Timber.e("Failed to send answer to client: $clientId", e)
+                Timber.e(e, "Failed to send answer to client: $clientId")
                 false
             }
         } ?: false
@@ -288,7 +288,7 @@ class SignalingServer @Inject constructor() {
                 
                 Timber.d("Disconnected client: $clientId")
             } catch (e: Exception) {
-                Timber.e("Failed to disconnect client: $clientId", e)
+                Timber.e(e, "Failed to disconnect client: $clientId")
             }
         }
     }
@@ -301,7 +301,7 @@ class SignalingServer @Inject constructor() {
             try {
                 sendMessage(session, message)
             } catch (e: Exception) {
-                Timber.e("Failed to broadcast message to client", e)
+                Timber.e(e, "Failed to broadcast message to client")
             }
         }
     }

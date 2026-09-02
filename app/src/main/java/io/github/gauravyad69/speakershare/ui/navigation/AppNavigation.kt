@@ -88,17 +88,17 @@ sealed class Screen(
         unselectedIcon = Icons.Outlined.Podcasts
     )
     
-    // Synced File Player routes
+    // Group Playback routes (synchronized multi-device media playback)
     data object SyncedAudioPlayer : Screen(
         route = "synced_player/audio",
-        title = "Synced Audio",
+        title = "Listen Together",
         selectedIcon = Icons.Filled.MusicNote,
         unselectedIcon = Icons.Outlined.MusicNote
     )
     
     data object SyncedVideoPlayer : Screen(
         route = "synced_player/video",
-        title = "Synced Video",
+        title = "Watch Together",
         selectedIcon = Icons.Filled.VideoLibrary,
         unselectedIcon = Icons.Outlined.VideoLibrary
     )

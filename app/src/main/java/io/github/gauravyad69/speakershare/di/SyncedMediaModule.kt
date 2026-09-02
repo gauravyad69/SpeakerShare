@@ -6,6 +6,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import io.github.gauravyad69.speakershare.data.repository.SettingsRepository
 import io.github.gauravyad69.speakershare.media.sync.*
 import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import javax.inject.Singleton
@@ -60,8 +61,9 @@ object SyncedMediaModule {
     @Provides
     @Singleton
     fun provideSyncedMediaPlayerFactory(
-        clockSync: ClockSynchronizer
+        clockSync: ClockSynchronizer,
+        settingsRepository: SettingsRepository
     ): SyncedMediaPlayerFactory {
-        return SyncedMediaPlayerFactory(clockSync)
+        return SyncedMediaPlayerFactory(clockSync, settingsRepository)
     }
 }

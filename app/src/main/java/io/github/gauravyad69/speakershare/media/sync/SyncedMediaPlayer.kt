@@ -8,7 +8,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import io.github.gauravyad69.speakershare.data.repository.SettingsRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
@@ -27,25 +29,60 @@ import javax.inject.Inject
  */
 class SyncedMediaPlayer(
     private val context: Context,
-    private val clockSync: ClockSynchronizer
+    private val clockSync: ClockSynchronizer,
+    private val settingsRepository: SettingsRepository
 ) {
     companion object {
         
         // How far ahead to buffer (ms)
         private const val BUFFER_AHEAD_MS = 5000L
         
-        // Acceptable position error before forcing seek (larger value to avoid constant seeking)
-        private const val POSITION_TOLERANCE_MS = 500L
+        // ========== AUDIO SETTINGS (tighter sync, smaller buffers) ==========
+        // Audio is lightweight - can afford tighter sync
+        private const val AUDIO_POSITION_TOLERANCE_MS = 250L
+        private const val AUDIO_MIN_SEEK_INTERVAL_MS = 2000L
+        private const val AUDIO_LARGE_DRIFT_THRESHOLD_MS = 500L
+        private const val AUDIO_MIN_BUFFER_MS = 5_000
+        private const val AUDIO_MAX_BUFFER_MS = 30_000
+        // Buffer required before playback starts/resumes - this directly adds
+        // to perceived start latency after play/seek. Local files fill this
+        // in milliseconds, so 1000ms is safe while halving the previous
+        // 2500ms floor (rebuffer stays high for playback stability).
+        private const val AUDIO_PLAYBACK_BUFFER_MS = 1_000
+        private const val AUDIO_REBUFFER_MS = 2_500
         
-        // Minimum time between corrective seeks (prevent seek spam)
-        private const val MIN_SEEK_INTERVAL_MS = 3000L
+        // ========== VIDEO SETTINGS (relaxed sync, larger buffers) ==========
+        // Video buffering is expensive - only correct significant drifts
+        private const val VIDEO_POSITION_TOLERANCE_MS = 500L
+        private const val VIDEO_MIN_SEEK_INTERVAL_MS = 5000L
+        private const val VIDEO_LARGE_DRIFT_THRESHOLD_MS = 1000L
+        private const val VIDEO_MIN_BUFFER_MS = 15_000
+        private const val VIDEO_MAX_BUFFER_MS = 60_000
+        // Same reasoning as audio: local playback fills the buffer quickly,
+        // so 2500ms to start (was 5000) trims seek-to-first-frame latency
+        // while the 5000ms rebuffer threshold guards mid-playback stalls.
+        private const val VIDEO_PLAYBACK_BUFFER_MS = 2_500
+        private const val VIDEO_REBUFFER_MS = 5_000
         
-        // Threshold for immediate seek (very large drift)
-        private const val LARGE_DRIFT_THRESHOLD_MS = 1500L
+        // Seek-ahead compensation disabled - WebSocket is fast enough
+        private const val SEEK_AHEAD_COMPENSATION_MS = 0L
+        
+        // Grace period after intentional seek during which sync pulses are relaxed
+        private const val SEEK_GRACE_PERIOD_MS = 2000L
     }
     
+    // Current media type - affects sync and buffer settings
+    private var isVideoMode: Boolean = false
+    
     private var player: ExoPlayer? = null
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    
+    /**
+     * Get the underlying ExoPlayer instance for UI rendering.
+     * Do NOT create separate ExoPlayer instances - use this one.
+     */
+    val exoPlayer: ExoPlayer?
+        get() = player
     
     // Player state
     private val _playerState = MutableStateFlow(SyncedPlayerState())
@@ -57,26 +94,72 @@ class SyncedMediaPlayer(
     // Scheduled playback
     private var scheduledPlayJob: Job? = null
     
-    // Last corrective seek time
+    // Last corrective seek time (for rate-limiting seeks)
     private var lastCorrectiveSeekTime: Long = 0L
     
+    // Last intentional seek time (for ignoring stale sync pulses after seeking)
+    // This prevents race conditions when host seeks and stale sync pulses arrive
+    private var lastIntentionalSeekTime: Long = 0L
+    private var lastIntentionalSeekPosition: Long = 0L
+    
+    // Last reconnection time (for ignoring stale sync pulses after reconnecting)
+    // Similar to seek grace period - first sync pulse after reconnect may have stale data
+    private var lastReconnectionTime: Long = 0L
+    
     /**
-     * Initialize the player
+     * Mark that a reconnection happened - ignore stale sync pulses briefly
+     * Call this when WebSocket reconnects to prevent stale position data from causing seeks
+     */
+    fun markReconnection() {
+        lastReconnectionTime = System.currentTimeMillis()
+        Timber.d("Marked reconnection at $lastReconnectionTime - will ignore stale sync pulses")
+    }
+    
+    /**
+     * Initialize the player with optimized buffering based on media type
+     * @param isVideo true for video mode (larger buffers, relaxed sync), false for audio (tighter sync)
      */
     @OptIn(UnstableApi::class)
-    fun initialize() {
+    fun initialize(isVideo: Boolean = false) {
+        // If reinitializing with different mode, release old player
+        if (player != null && isVideoMode != isVideo) {
+            Timber.d("Reinitializing player for ${if (isVideo) "video" else "audio"} mode")
+            player?.release()
+            player = null
+        }
+        
         if (player != null) return
         
+        isVideoMode = isVideo
+        
+        // Select buffer settings based on media type
+        val minBuffer = if (isVideo) VIDEO_MIN_BUFFER_MS else AUDIO_MIN_BUFFER_MS
+        val maxBuffer = if (isVideo) VIDEO_MAX_BUFFER_MS else AUDIO_MAX_BUFFER_MS
+        val playbackBuffer = if (isVideo) VIDEO_PLAYBACK_BUFFER_MS else AUDIO_PLAYBACK_BUFFER_MS
+        val rebuffer = if (isVideo) VIDEO_REBUFFER_MS else AUDIO_REBUFFER_MS
+        
+        // Custom load control for better buffering - prevents constant rebuffering
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                minBuffer,       // Min buffer before playback starts
+                maxBuffer,       // Max buffer size
+                playbackBuffer,  // Buffer required to start playback
+                rebuffer         // Buffer required after rebuffer
+            )
+            .setPrioritizeTimeOverSizeThresholds(true) // Prioritize buffer time over memory
+            .build()
+        
         player = ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
             .build()
             .apply {
                 addListener(PlayerListener())
                 playWhenReady = false
             }
         
-        Timber.d("Player initialized")
+        Timber.d("Player initialized for ${if (isVideo) "VIDEO" else "AUDIO"} mode (minBuffer=${minBuffer}ms, maxBuffer=${maxBuffer}ms)")
     }
-    
+
     /**
      * Load a media file (async - caller should wait for player to be ready)
      */
@@ -132,6 +215,19 @@ class SyncedMediaPlayer(
     }
     
     /**
+     * Mark that an intentional seek just happened.
+     * Clears accumulated drift samples: a track switch or big seek makes the
+     * next few seconds of position data unrepresentative of clock error, and
+     * feeding those samples into clock convergence poisons the offset for
+     * minutes afterward.
+     */
+    private fun markIntentionalSeek(positionMs: Long) {
+        lastIntentionalSeekTime = System.currentTimeMillis()
+        lastIntentionalSeekPosition = positionMs
+        clockSync.resetDriftSamples()
+    }
+    
+    /**
      * Play starting at the scheduled synchronized time
      * 
      * @param startTime The synchronized time when playback should start
@@ -167,8 +263,11 @@ class SyncedMediaPlayer(
             return
         }
         
+        // Mark as intentional seek (from host Play command)
+        markIntentionalSeek(safePositionMs)
+        
         if (playerState == Player.STATE_ENDED) {
-            Timber.d("Player ended, seeking to beginning")
+            Timber.d("Player ended, seeking to beginning (intentional)")
             exo.seekTo(safePositionMs)
         } else {
             // Seek to position immediately
@@ -244,6 +343,24 @@ class SyncedMediaPlayer(
     }
     
     /**
+     * Set playback volume
+     * @param volume Volume level from 0.0 (mute) to 1.0 (full)
+     */
+    fun setVolume(volume: Float) {
+        val clampedVolume = volume.coerceIn(0f, 1f)
+        player?.volume = clampedVolume
+        _playerState.update { it.copy(volume = clampedVolume) }
+        Timber.d("Volume set to $clampedVolume")
+    }
+    
+    /**
+     * Get current volume
+     */
+    fun getVolume(): Float {
+        return player?.volume ?: 1f
+    }
+    
+    /**
      * Seek to position at scheduled time
      */
     fun seekAtTime(targetTime: Long, positionMs: Long, resumePlayback: Boolean) {
@@ -264,6 +381,10 @@ class SyncedMediaPlayer(
     
     private fun performSeek(positionMs: Long, resumePlayback: Boolean, syncTime: Long) {
         player?.let { exo ->
+            // Mark this as an intentional seek (from host command)
+            // This prevents sync pulses from fighting with intentional seeks
+            markIntentionalSeek(positionMs)
+            
             exo.seekTo(positionMs)
             
             if (resumePlayback) {
@@ -279,7 +400,7 @@ class SyncedMediaPlayer(
             }
         }
         
-        Timber.d("Seeked to $positionMs, resume=$resumePlayback")
+        Timber.d("Seeked to $positionMs (intentional), resume=$resumePlayback")
     }
     
     /**
@@ -296,10 +417,42 @@ class SyncedMediaPlayer(
             return
         }
         
+        // Don't sync if player is buffering - let it finish buffering first
+        // Seeking during buffering causes buffer reset and more buffering
+        if (exo.playbackState == Player.STATE_BUFFERING) {
+            Timber.d("Ignoring sync - player is buffering, let it complete")
+            return
+        }
+        
         // Don't sync if player is not playing
         if (!exo.isPlaying) {
             Timber.d("Ignoring sync - player not playing")
             return
+        }
+        
+        // Check if we're within grace period after an intentional seek
+        // This prevents stale sync pulses from fighting with intentional seeks (race condition)
+        val now = System.currentTimeMillis()
+        val timeSinceIntentionalSeek = now - lastIntentionalSeekTime
+        val currentLargeDriftThreshold = if (isVideoMode) VIDEO_LARGE_DRIFT_THRESHOLD_MS else AUDIO_LARGE_DRIFT_THRESHOLD_MS
+        if (timeSinceIntentionalSeek < SEEK_GRACE_PERIOD_MS) {
+            // During grace period, only accept sync pulses that are close to our intentional seek position
+            // This allows valid sync pulses through while rejecting stale ones
+            val driftFromIntentional = kotlin.math.abs(hostPositionMs - lastIntentionalSeekPosition)
+            if (driftFromIntentional > currentLargeDriftThreshold) {
+                Timber.d("Ignoring sync pulse during seek grace period (${timeSinceIntentionalSeek}ms since seek), hostPos=$hostPositionMs differs from intentional=$lastIntentionalSeekPosition by ${driftFromIntentional}ms")
+                return
+            }
+            Timber.d("Accepting sync pulse during seek grace period - hostPos=$hostPositionMs close to intentional=$lastIntentionalSeekPosition")
+        }
+        
+        // Check if we're within grace period after a reconnection
+        // First few sync pulses after reconnect may have stale position data
+        val timeSinceReconnection = now - lastReconnectionTime
+        if (timeSinceReconnection < SEEK_GRACE_PERIOD_MS) {
+            // During reconnection grace period, accept all sync pulses but don't do corrective seeks
+            // This allows clock drift recording while preventing stale seeks
+            Timber.d("In reconnection grace period (${timeSinceReconnection}ms since reconnect) - will record drift but skip corrective seeks")
         }
         
         val currentPosition = exo.currentPosition
@@ -330,60 +483,87 @@ class SyncedMediaPlayer(
         val drift = currentPosition - expectedPositionMs
         val absDrift = kotlin.math.abs(drift)
         
+        // Publish drift on EVERY pulse so the UI indicator doesn't flicker
+        // between "MEASURING" and a value (it previously only updated when
+        // drift exceeded tolerance, so in-sync playback showed a stale/zero
+        // drift that blinked)
+        _playerState.update { it.copy(driftMs = drift) }
+        
         // Record drift for dynamic clock adjustment
         // Only record if:
         // - drift is reasonable (not a clock sync issue)
         // - player is actually playing (currentPosition > 0)
         // - position has advanced beyond initial buffering
         if (absDrift < 5000 && currentPosition > 1000) {
-            // Drift direction:
-            //   drift > 0: client AHEAD of expected → need to DECREASE getSynchronizedTime() → DECREASE offset
-            //   drift < 0: client BEHIND expected → need to INCREASE getSynchronizedTime() → INCREASE offset  
-            // 
-            // ClockSynchronizer applies: newOffset = offset + (avgDrift / 3)
-            //   positive avgDrift → increase offset → increase getSynchronizedTime() → increase expectedPos
-            //   negative avgDrift → decrease offset → decrease getSynchronizedTime() → decrease expectedPos
-            //
-            // So we need to pass -drift:
-            //   drift > 0 (ahead) → pass negative → decrease offset → decrease expectedPos → client catches up
-            //   drift < 0 (behind) → pass positive → increase offset → increase expectedPos → wait, that makes it worse!
-            //
-            // Actually, let's trace through more carefully with the new calculation:
-            //   expectedPos = hostPos + (getSynchronizedTime() - hostTimestamp)
-            //   If we INCREASE offset → getSynchronizedTime goes UP → expectedPos goes UP
-            //   If client is BEHIND (drift < 0, localPos < expectedPos):
-            //     We want expectedPos to go DOWN to match localPos
-            //     So we need offset to DECREASE
-            //     So we should pass NEGATIVE avgDrift
-            //   Therefore, pass drift directly (negative when behind → negative adjustment)
+            // Drift sign: drift = localPosition - expectedPosition
+            //   Positive  = client AHEAD of expected
+            //   Negative  = client BEHIND expected
+            // ClockSynchronizer applies newOffset = offset + (avgDrift / 4):
+            //   positive drift -> offset up -> expectedPos up toward localPos
+            //   negative drift -> offset down -> expectedPos down toward localPos
+            // Both directions converge; see ClockSynchronizer.recordDrift.
             clockSync.recordDrift(drift, currentPosition)
             Timber.d("Recorded drift: local=$currentPosition, expected=$expectedPositionMs, drift=${drift}ms")
         }
         
-        if (absDrift > POSITION_TOLERANCE_MS) {
-            Timber.w("Position drift detected: ${drift}ms (current=$currentPosition, expected=$expectedPositionMs)")
+        // Use media-type-specific settings from repository
+        val positionTolerance: Long
+        val minSeekInterval: Long
+        val largeDriftThreshold: Long
+        
+        if (isVideoMode) {
+            // Video: use video-specific settings
+            positionTolerance = settingsRepository.getVideoSyncPositionTolerance().toLong()
+            minSeekInterval = settingsRepository.getVideoSyncMinSeekInterval().toLong()
+            largeDriftThreshold = VIDEO_LARGE_DRIFT_THRESHOLD_MS
+        } else {
+            // Audio: use audio-specific settings
+            positionTolerance = settingsRepository.getAudioSyncPositionTolerance().toLong()
+            minSeekInterval = settingsRepository.getAudioSyncMinSeekInterval().toLong()
+            largeDriftThreshold = AUDIO_LARGE_DRIFT_THRESHOLD_MS
+        }
+        
+        if (absDrift > positionTolerance) {
+            Timber.w("Position drift detected: ${drift}ms (current=$currentPosition, expected=$expectedPositionMs, tolerance=$positionTolerance, mode=${if (isVideoMode) "VIDEO" else "AUDIO"})")
             
-            val now = System.currentTimeMillis()
+            // Skip corrective seeks during reconnection grace period
+            // Clock drift is still recorded above, but we don't want to seek based on potentially stale data
+            if (timeSinceReconnection < SEEK_GRACE_PERIOD_MS) {
+                Timber.d("Skipping corrective seek during reconnection grace period (${timeSinceReconnection}ms)")
+                return
+            }
+            
             val timeSinceLastSeek = now - lastCorrectiveSeekTime
             
             // Determine if we should seek:
-            // - Large drift (>1500ms): seek immediately
-            // - Moderate drift (>500ms): only seek if enough time has passed since last seek
+            // - Large drift: seek immediately
+            // - Moderate drift: only seek if enough time has passed since last seek
             val shouldSeek = when {
-                absDrift > LARGE_DRIFT_THRESHOLD_MS -> true  // Large drift - always seek
-                timeSinceLastSeek > MIN_SEEK_INTERVAL_MS -> true  // Enough time passed
+                absDrift > largeDriftThreshold -> true  // Large drift - always seek
+                timeSinceLastSeek > minSeekInterval -> true  // Enough time passed
                 else -> false
             }
             
             if (shouldSeek) {
-                Timber.i("Corrective seek: drift=${drift}ms, expectedPos=$expectedPositionMs, timeSinceLastSeek=${timeSinceLastSeek}ms")
-                exo.seekTo(expectedPositionMs)
+                // Apply seek-ahead compensation when behind (drift < 0)
+                // This accounts for seek latency - by the time seek completes, we need to be at expectedPos
+                val compensatedPosition = if (drift < 0) {
+                    // We're behind, seek ahead to compensate for seek latency
+                    (expectedPositionMs + SEEK_AHEAD_COMPENSATION_MS).coerceAtMost(duration)
+                } else {
+                    // We're ahead, just seek to expected position
+                    expectedPositionMs
+                }
+                
+                Timber.i("Corrective seek: drift=${drift}ms, expectedPos=$expectedPositionMs, compensatedPos=$compensatedPosition, timeSinceLastSeek=${timeSinceLastSeek}ms")
+                exo.seekTo(compensatedPosition)
                 lastCorrectiveSeekTime = now
-                _playerState.update { it.copy(currentPositionMs = expectedPositionMs, driftMs = 0) }
+                // Keep driftMs as the measured value (already published above) -
+                // zeroing it here made the UI indicator flash to "MEASURING"
+                _playerState.update { it.copy(currentPositionMs = compensatedPosition) }
             } else {
-                // Just track drift for now
+                // Just track drift for now (already published above)
                 Timber.d("Drift $drift ms but skipping seek (last seek ${timeSinceLastSeek}ms ago)")
-                _playerState.update { it.copy(driftMs = drift) }
             }
         }
     }
@@ -403,30 +583,38 @@ class SyncedMediaPlayer(
     }
     
     /**
-     * Release the player
+     * Release the player and cleanup resources
      */
     fun release() {
         scheduledPlayJob?.cancel()
+        scheduledPlayJob = null
         stopPositionTracking()
         player?.release()
         player = null
         scope.cancel()
-        Timber.d("Player released")
+        // Recreate scope so player can be re-initialized later
+        scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+        // Reset state
+        isVideoMode = false
+        lastCorrectiveSeekTime = 0L
+        lastIntentionalSeekTime = 0L
+        lastIntentionalSeekPosition = 0L
+        lastReconnectionTime = 0L
+        _playerState.value = SyncedPlayerState()
+        Timber.d("Player released and state reset")
     }
     
     private fun startPositionTracking(startTime: Long, startPosition: Long) {
         positionTrackingJob?.cancel()
         positionTrackingJob = scope.launch {
             while (isActive) {
-                val elapsed = clockSync.getSynchronizedTime() - startTime
-                val expectedPosition = startPosition + elapsed
                 val actualPosition = player?.currentPosition ?: 0L
                 
+                // Just update the position, not the drift
+                // Drift is calculated accurately in syncPosition() from host sync pulses
                 _playerState.update { 
                     it.copy(
-                        currentPositionMs = actualPosition,
-                        expectedPositionMs = expectedPosition,
-                        driftMs = actualPosition - expectedPosition
+                        currentPositionMs = actualPosition
                     ) 
                 }
                 
@@ -482,16 +670,18 @@ data class SyncedPlayerState(
     val expectedPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val driftMs: Long = 0L,
-    val error: String? = null
+    val error: String? = null,
+    val volume: Float = 1.0f
 )
 
 /**
  * Factory for creating SyncedMediaPlayer instances
  */
 class SyncedMediaPlayerFactory @Inject constructor(
-    private val clockSync: ClockSynchronizer
+    private val clockSync: ClockSynchronizer,
+    private val settingsRepository: SettingsRepository
 ) {
     fun create(context: Context): SyncedMediaPlayer {
-        return SyncedMediaPlayer(context, clockSync)
+        return SyncedMediaPlayer(context, clockSync, settingsRepository)
     }
 }

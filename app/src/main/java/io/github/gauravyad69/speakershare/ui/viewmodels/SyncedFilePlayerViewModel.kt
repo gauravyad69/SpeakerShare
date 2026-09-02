@@ -5,13 +5,17 @@ import android.net.Uri
 import timber.log.Timber
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.exoplayer.ExoPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.media.sync.*
 import io.github.gauravyad69.speakershare.services.NetworkDiscoveryService
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -39,8 +43,22 @@ class SyncedFilePlayerViewModel @Inject constructor(
     // Player instance
     private var player: SyncedMediaPlayer? = null
     
+    /**
+     * Get the underlying ExoPlayer for UI rendering (video display).
+     * Do NOT create separate ExoPlayer instances - use this one.
+     */
+    val exoPlayer: ExoPlayer?
+        get() = player?.exoPlayer
+    
     // Flag to prevent duplicate track-end handling
     private var handlingTrackEnd = false
+    
+    // Set when a SwitchFile command auto-played; the host follows SwitchFile
+    // with a standalone Play that must be dropped to avoid a double start
+    private var skipNextPlayCommand = false
+    
+    // Job for tracking host position
+    private var hostPositionTrackingJob: Job? = null
     
     // Selected files
     private val _selectedFiles = MutableStateFlow<List<SyncedMediaFile>>(emptyList())
@@ -85,7 +103,11 @@ class SyncedFilePlayerViewModel @Inject constructor(
                     state.copy(
                         clockOffsetMs = syncedPlaybackManager.getClockOffset(),
                         connectedClientsCount = syncedPlaybackManager.getConnectedClientsCount(),
-                        driftMs = syncedPlaybackManager.getCurrentDrift()
+                        // driftMs intentionally NOT updated here: on clients the
+                        // live player-state collector publishes per-pulse drift.
+                        // Two writers alternating between the clock-sync value
+                        // and the player value made the UI indicator blink.
+                        driftMs = if (state.isHost) syncedPlaybackManager.getCurrentDrift() else state.driftMs
                     )
                 }
             }
@@ -98,9 +120,9 @@ class SyncedFilePlayerViewModel @Inject constructor(
             }
         }
         
-        // Observe discovered hosts
+        // Observe discovered SYNC hosts only (filter out streaming hosts)
         viewModelScope.launch {
-            discoveryService.discoveredHosts.collect { hosts ->
+            discoveryService.syncHosts.collect { hosts ->
                 _discoveredHosts.value = hosts
                 _uiState.update { it.copy(isDiscovering = discoveryService.isDiscovering.value) }
             }
@@ -118,6 +140,14 @@ class SyncedFilePlayerViewModel @Inject constructor(
             syncedPlaybackManager.incomingCommands.collect { command ->
                 Timber.d("Received command from host: $command")
                 handleCommand(command)
+            }
+        }
+        
+        // Observe reconnection events (for client mode) - apply grace period after reconnect
+        viewModelScope.launch {
+            syncedPlaybackManager.reconnectionEvents.collect {
+                Timber.i("WebSocket reconnected - marking reconnection on player")
+                player?.markReconnection()
             }
         }
     }
@@ -143,40 +173,41 @@ class SyncedFilePlayerViewModel @Inject constructor(
     
     /**
      * Initialize the player
+     * @param isVideo true for video mode (larger buffers, relaxed sync), false for audio
      */
-    fun initializePlayer() {
+    fun initializePlayer(isVideo: Boolean = false) {
         if (player == null) {
             player = playerFactory.create(context)
-            player?.initialize()
-            
-            viewModelScope.launch {
-                player?.playerState?.collect { playerState ->
-                    _uiState.update { 
-                        it.copy(
-                            isBuffering = playerState.isBuffering,
-                            playerError = playerState.error,
-                            driftMs = playerState.driftMs,
-                            currentPositionMs = playerState.currentPositionMs,
-                            durationMs = playerState.durationMs
-                        ) 
-                    }
-                    
-                    // If we're the host, update the manager's position so sync pulses are accurate
-                    if (_uiState.value.isHost && playerState.isPlaying) {
-                        syncedPlaybackManager.updatePlaybackPosition(
-                            playerState.currentPositionMs,
-                            playerState.durationMs
-                        )
-                        // Reset track-end flag when playing
-                        handlingTrackEnd = false
-                    }
-                    
-                    // Auto-advance to next track when current track ends (host only)
-                    if (_uiState.value.isHost && playerState.isEnded && !handlingTrackEnd) {
-                        handlingTrackEnd = true
-                        Timber.i("Track ended, auto-advancing to next track")
-                        nextTrack()
-                    }
+        }
+        player?.initialize(isVideo)
+        
+        viewModelScope.launch {
+            player?.playerState?.collect { playerState ->
+                _uiState.update { 
+                    it.copy(
+                        isBuffering = playerState.isBuffering,
+                        playerError = playerState.error,
+                        driftMs = playerState.driftMs,
+                        currentPositionMs = playerState.currentPositionMs,
+                        durationMs = playerState.durationMs
+                    ) 
+                }
+                
+                // If we're the host, update the manager's position so sync pulses are accurate
+                if (_uiState.value.isHost && playerState.isPlaying) {
+                    syncedPlaybackManager.updatePlaybackPosition(
+                        playerState.currentPositionMs,
+                        playerState.durationMs
+                    )
+                    // Reset track-end flag when playing
+                    handlingTrackEnd = false
+                }
+                
+                // Auto-advance to next track when current track ends (host only)
+                if (_uiState.value.isHost && playerState.isEnded && !handlingTrackEnd) {
+                    handlingTrackEnd = true
+                    Timber.i("Track ended, auto-advancing to next track")
+                    nextTrack()
                 }
             }
         }
@@ -197,6 +228,31 @@ class SyncedFilePlayerViewModel @Inject constructor(
     }
     
     /**
+     * Start tracking host position for accurate sync pulses
+     * This runs on main thread to safely access ExoPlayer
+     */
+    private fun startHostPositionTracking() {
+        hostPositionTrackingJob?.cancel()
+        hostPositionTrackingJob = viewModelScope.launch(Dispatchers.Main) {
+            while (isActive) {
+                // Update position every 200ms for accuracy (more frequent than sync pulses)
+                val position = player?.getCurrentPosition() ?: 0L
+                syncedPlaybackManager.lastActualPosition = position
+                delay(200)
+            }
+        }
+    }
+    
+    /**
+     * Stop host position tracking
+     */
+    private fun stopHostPositionTracking() {
+        hostPositionTrackingJob?.cancel()
+        hostPositionTrackingJob = null
+        syncedPlaybackManager.lastActualPosition = -1L
+    }
+    
+    /**
      * Start hosting a synced playback session
      */
     fun startHostSession() {
@@ -210,6 +266,10 @@ class SyncedFilePlayerViewModel @Inject constructor(
             }
             
             _uiState.update { it.copy(isLoading = true) }
+            
+            // Start position tracking for accurate sync pulses
+            // This runs on main thread and updates position periodically
+            startHostPositionTracking()
             
             Timber.i("Calling syncedPlaybackManager.startHostSession...")
             val result = syncedPlaybackManager.startHostSession(context, files)
@@ -336,13 +396,12 @@ class SyncedFilePlayerViewModel @Inject constructor(
      */
     fun play() {
         viewModelScope.launch {
-            syncedPlaybackManager.play()
-            
-            // Also play locally
-            val playbackState = syncedPlaybackManager.playbackState.value
+            // Broadcast a single scheduled start and play locally at the SAME
+            // timestamp so the host stays aligned with its own clients
+            val startTime = syncedPlaybackManager.play()
             player?.playAtTime(
-                playbackState.lastSyncTime,
-                playbackState.positionMs
+                startTime,
+                syncedPlaybackManager.playbackState.value.positionMs
             )
         }
     }
@@ -363,11 +422,29 @@ class SyncedFilePlayerViewModel @Inject constructor(
     fun seekTo(positionMs: Long) {
         viewModelScope.launch {
             val wasPlaying = _uiState.value.isPlaying
-            syncedPlaybackManager.seekTo(positionMs)
-            // Apply seek to local player immediately for host
+            // Apply the local seek at exactly the timestamp broadcast to
+            // clients - previously the host seeked 200ms off from its own
+            // clients, injecting drift on every seek
+            val seekTime = syncedPlaybackManager.seekTo(positionMs)
+            // Apply seek to local player for host
             if (_uiState.value.isHost) {
-                val syncTime = syncedPlaybackManager.getSynchronizedTime()
-                player?.seekAtTime(syncTime + 200L, positionMs, wasPlaying)
+                player?.seekAtTime(seekTime, positionMs, wasPlaying)
+            }
+        }
+    }
+    
+    /**
+     * Set volume (host only - broadcasts to all clients)
+     */
+    fun setVolume(volume: Float) {
+        viewModelScope.launch {
+            val clampedVolume = volume.coerceIn(0f, 1f)
+            // Apply locally
+            player?.setVolume(clampedVolume)
+            _uiState.update { it.copy(volume = clampedVolume) }
+            // Broadcast to clients if host
+            if (_uiState.value.isHost) {
+                syncedPlaybackManager.setVolume(clampedVolume)
             }
         }
     }
@@ -396,9 +473,13 @@ class SyncedFilePlayerViewModel @Inject constructor(
                         val isReady = player?.awaitReady(5000L) ?: false
                         if (isReady) {
                             Timber.i("Player ready after track switch, resuming playback")
-                            syncedPlaybackManager.play()
-                            val playbackState = syncedPlaybackManager.playbackState.value
-                            player?.playAtTime(playbackState.lastSyncTime, 0L)
+                            // Broadcast a single scheduled start and play locally
+                            // at the SAME timestamp so the host stays aligned with
+                            // its own clients (the old code emitted an extra Play
+                            // AND started locally at lastSyncTime, which lagged
+                            // the broadcast by the player's ready delay)
+                            val startTime = syncedPlaybackManager.play()
+                            player?.playAtTime(startTime, 0L)
                         }
                     }
                 } else {
@@ -431,9 +512,9 @@ class SyncedFilePlayerViewModel @Inject constructor(
                         val isReady = player?.awaitReady(5000L) ?: false
                         if (isReady) {
                             Timber.i("Player ready after track switch, resuming playback")
-                            syncedPlaybackManager.play()
-                            val playbackState = syncedPlaybackManager.playbackState.value
-                            player?.playAtTime(playbackState.lastSyncTime, 0L)
+                            // Same single-start pattern as nextTrack()
+                            val startTime = syncedPlaybackManager.play()
+                            player?.playAtTime(startTime, 0L)
                         }
                     }
                 }
@@ -452,6 +533,15 @@ class SyncedFilePlayerViewModel @Inject constructor(
             Timber.i("Handling command: ${command::class.simpleName}, player=${player != null}")
             when (command) {
                 is PlaybackCommand.Play -> {
+                    // Ignore the host's follow-up Play when it (or we) already
+                    // auto-played from a SwitchFile command - handling both
+                    // caused a double-start ~100-300ms apart, leaving the
+                    // client ahead of the host after every skip.
+                    if (skipNextPlayCommand) {
+                        skipNextPlayCommand = false
+                        Timber.i("Skipping redundant Play command after SwitchFile auto-play")
+                        return@launch
+                    }
                     Timber.i("Calling player.playAtTime(${command.timestamp}, ${command.positionMs})")
                     player?.playAtTime(command.timestamp, command.positionMs)
                 }
@@ -480,8 +570,17 @@ class SyncedFilePlayerViewModel @Inject constructor(
                                 val isReady = player?.awaitReady(5000L) ?: false
                                 if (isReady) {
                                     Timber.i("Player ready after switch, auto-playing")
-                                    val syncTime = syncedPlaybackManager.getSynchronizedTime()
-                                    player?.playAtTime(syncTime + 100L, 0L)
+                                    // Start at the command's own timestamp so we align
+                                    // with the host exactly; the old code invented
+                                    // "syncTime + 100ms" here, guaranteeing an offset
+                                    // from the host on every track switch. If we're
+                                    // already past the timestamp, playAtTime handles
+                                    // the late start by advancing the position.
+                                    player?.playAtTime(command.timestamp, 0L)
+                                    // The host also broadcasts a standalone Play
+                                    // right after SwitchFile when it was playing -
+                                    // drop it to avoid a second, misaligned start
+                                    skipNextPlayCommand = true
                                 }
                             }
                         }
@@ -492,6 +591,10 @@ class SyncedFilePlayerViewModel @Inject constructor(
                     // Seek to beginning
                     val syncTime = syncedPlaybackManager.getSynchronizedTime()
                     player?.seekAtTime(syncTime, 0L, false)
+                }
+                is PlaybackCommand.Volume -> {
+                    player?.setVolume(command.volume)
+                    _uiState.update { it.copy(volume = command.volume) }
                 }
             }
         }
@@ -519,6 +622,7 @@ class SyncedFilePlayerViewModel @Inject constructor(
      * Stop session and cleanup
      */
     fun stopSession() {
+        stopHostPositionTracking()
         syncedPlaybackManager.stopSession()
         player?.release()
         player = null
@@ -528,6 +632,9 @@ class SyncedFilePlayerViewModel @Inject constructor(
     
     override fun onCleared() {
         super.onCleared()
+        // Full cleanup when ViewModel is destroyed (leaving screen)
+        stopHostPositionTracking()
+        syncedPlaybackManager.stopSession()
         player?.release()
         player = null
     }
@@ -545,6 +652,7 @@ data class SyncedPlayerUiState(
     val currentPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val driftMs: Long = 0L,
+    val volume: Float = 1.0f,
     val currentFile: SyncedMediaFile? = null,
     val sessionId: String? = null,
     val sessionState: SyncSessionState = SyncSessionState.Idle,

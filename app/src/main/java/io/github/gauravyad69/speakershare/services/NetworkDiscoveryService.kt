@@ -1,12 +1,17 @@
 package io.github.gauravyad69.speakershare.services
 
 import android.content.Context
+import android.net.Network
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Build
 import timber.log.Timber
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
+import io.github.gauravyad69.speakershare.data.model.HostMode
+import io.github.gauravyad69.speakershare.network.HotspotNetworkHelper
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -14,14 +19,21 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -32,7 +44,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class NetworkDiscoveryService @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val hotspotNetworkHelper: HotspotNetworkHelper
 ) {
     
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
@@ -41,6 +54,15 @@ class NetworkDiscoveryService @Inject constructor(
     // Service discovery state
     private val _discoveredHosts = MutableStateFlow<List<NetworkInfo>>(emptyList())
     val discoveredHosts: StateFlow<List<NetworkInfo>> = _discoveredHosts.asStateFlow()
+    
+    // Filtered views by mode
+    val syncHosts: StateFlow<List<NetworkInfo>> = _discoveredHosts
+        .map { hosts -> hosts.filter { it.hostMode == HostMode.SYNC } }
+        .stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
+    
+    val streamHosts: StateFlow<List<NetworkInfo>> = _discoveredHosts
+        .map { hosts -> hosts.filter { it.hostMode == HostMode.STREAM } }
+        .stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
     
     private val _isDiscovering = MutableStateFlow(false)
     val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
@@ -55,6 +77,7 @@ class NetworkDiscoveryService @Inject constructor(
     private var udpSocket: DatagramSocket? = null
     private var udpBroadcastJob: Job? = null
     private var registeredService: NsdServiceInfo? = null
+    private var discoveryTimeoutJob: Job? = null
     
     companion object {
         private const val SERVICE_TYPE = "_speakershare._tcp"
@@ -66,6 +89,7 @@ class NetworkDiscoveryService @Inject constructor(
         private const val SERVICE_INFO_KEY_VERSION = "version"
         private const val SERVICE_INFO_KEY_CLIENTS = "clients"
         private const val SERVICE_INFO_KEY_MAX_CLIENTS = "maxClients"
+        private const val SERVICE_INFO_KEY_MODE = "mode" // "sync" or "stream"
     }
     
     /**
@@ -76,7 +100,8 @@ class NetworkDiscoveryService @Inject constructor(
         port: Int,
         userName: String,
         currentClients: Int = 0,
-        maxClients: Int = 50
+        maxClients: Int = 50,
+        mode: HostMode = HostMode.STREAM
     ): Result<Unit> = withContext(Dispatchers.IO) {
         Timber.d("Registering host: $hostName on port $port")
         
@@ -94,6 +119,30 @@ class NetworkDiscoveryService @Inject constructor(
                 setAttribute(SERVICE_INFO_KEY_VERSION, "1.0")
                 setAttribute(SERVICE_INFO_KEY_CLIENTS, currentClients.toString())
                 setAttribute(SERVICE_INFO_KEY_MAX_CLIENTS, maxClients.toString())
+                setAttribute(SERVICE_INFO_KEY_MODE, mode.name.lowercase())
+
+                // Pin the advertised host address to the hotspot (SoftAP) IP when
+                // one is active: with several networks attached, mDNS would
+                // otherwise advertise whatever address the system picks (e.g. the
+                // router subnet), which hotspot clients cannot reach.
+                // NOTE: deliberately NOT using setNetwork() - binding the
+                // advertiser to the tethering network stalls registration on
+                // some devices (onServiceRegistered never fires, so the UDP
+                // fallback never starts either). Pinning addresses keeps the
+                // service discoverable on all links while still steering
+                // clients to the hotspot address.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    hotspotNetworkHelper.getHotspotInterface()?.inetAddresses
+                        ?.asSequence()
+                        ?.filterIsInstance<java.net.Inet4Address>()
+                        ?.filter { !it.isLoopbackAddress && it.isSiteLocalAddress }
+                        ?.toList()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { addrs ->
+                            setHostAddresses(addrs)
+                            Timber.i("mDNS service advertising hotspot address(es): ${addrs.map { it.hostAddress }}")
+                        }
+                }
             }
             
             val listener = object : NsdManager.RegistrationListener {
@@ -110,9 +159,6 @@ class NetworkDiscoveryService @Inject constructor(
                     Timber.i("Service registered: ${serviceInfo?.serviceName}")
                     registeredService = serviceInfo
                     _isRegistered.value = true
-                    
-                    // Start UDP broadcast for fallback discovery
-                    startUdpBroadcast(hostName, port, userName, currentClients, maxClients)
                 }
                 
                 override fun onServiceUnregistered(serviceInfo: NsdServiceInfo?) {
@@ -125,10 +171,17 @@ class NetworkDiscoveryService @Inject constructor(
             
             registrationListener = listener
             nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, listener)
+            
+            // Start the UDP broadcast fallback immediately rather than waiting
+            // for onServiceRegistered: on some devices the mDNS registration
+            // callback is delayed or never fires (e.g. tethering networks),
+            // which previously left clients with no discovery path at all.
+            startUdpBroadcast(hostName, port, userName, currentClients, maxClients)
+            
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Timber.e("Failed to register host", e)
+            Timber.e(e, "Failed to register host")
             _isRegistered.value = false
             Result.failure(e)
         }
@@ -151,7 +204,7 @@ class NetworkDiscoveryService @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Timber.e("Failed to unregister host", e)
+            Timber.e(e, "Failed to unregister host")
             Result.failure(e)
         }
     }
@@ -208,8 +261,11 @@ class NetworkDiscoveryService @Inject constructor(
             // Start UDP discovery as fallback
             startUdpDiscovery()
             
-            // Auto-stop discovery after timeout
-            serviceScope.launch {
+            // Auto-stop discovery after timeout.
+            // Track the job so a restarted discovery cancels the previous
+            // timer - otherwise an old timer silently kills the new session.
+            discoveryTimeoutJob?.cancel()
+            discoveryTimeoutJob = serviceScope.launch {
                 delay(DISCOVERY_TIMEOUT)
                 stopDiscovery()
             }
@@ -217,7 +273,7 @@ class NetworkDiscoveryService @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Timber.e("Failed to start discovery", e)
+            Timber.e(e, "Failed to start discovery")
             _isDiscovering.value = false
             Result.failure(e)
         }
@@ -230,6 +286,10 @@ class NetworkDiscoveryService @Inject constructor(
         Timber.d("Stopping host discovery")
         
         return@withContext try {
+            // Cancel the pending auto-stop timer
+            discoveryTimeoutJob?.cancel()
+            discoveryTimeoutJob = null
+            
             discoveryListener?.let { listener ->
                 nsdManager.stopServiceDiscovery(listener)
                 discoveryListener = null
@@ -240,29 +300,46 @@ class NetworkDiscoveryService @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Timber.e("Failed to stop discovery", e)
+            Timber.e(e, "Failed to stop discovery")
             Result.failure(e)
         }
     }
     
     /**
-     * Resolve discovered service to get full connection details
+     * Resolve discovered service to get full connection details.
+     * Resolves are serialized - NsdManager fails concurrent resolve calls with
+     * FAILURE_ALREADY_ACTIVE on API levels below 34.
      */
+    private val resolveMutex = Mutex()
+    
     private fun resolveService(service: NsdServiceInfo) {
         Timber.d("Resolving service: ${service.serviceName}")
         
-        val resolveListener = object : NsdManager.ResolveListener {
-            override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
-                Timber.e("Resolve failed: $errorCode")
-            }
-            
-            override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
-                Timber.d("Service resolved: ${serviceInfo?.serviceName}")
-                serviceInfo?.let { addDiscoveredHost(it) }
+        serviceScope.launch {
+            resolveMutex.withLock {
+                val resolved = CompletableDeferred<Unit>()
+                val resolveListener = object : NsdManager.ResolveListener {
+                    override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
+                        Timber.e("Resolve failed: $errorCode")
+                        resolved.complete(Unit)
+                    }
+                    
+                    override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
+                        Timber.d("Service resolved: ${serviceInfo?.serviceName}")
+                        serviceInfo?.let { addDiscoveredHost(it) }
+                        resolved.complete(Unit)
+                    }
+                }
+                
+                try {
+                    nsdManager.resolveService(service, resolveListener)
+                    // Hold the lock until this resolve finishes (or times out)
+                    withTimeoutOrNull(10_000L) { resolved.await() }
+                } catch (e: Exception) {
+                    Timber.e(e, "Resolve request failed for ${service.serviceName}")
+                }
             }
         }
-        
-        nsdManager.resolveService(service, resolveListener)
     }
     
     /**
@@ -281,16 +358,26 @@ class NetworkDiscoveryService @Inject constructor(
             String(it).toIntOrNull() 
         } ?: 50
         
+        // Parse host mode (sync or stream)
+        val modeStr = serviceInfo.attributes?.get(SERVICE_INFO_KEY_MODE)?.let { 
+            String(it) 
+        } ?: "stream"
+        val hostMode = when (modeStr.lowercase()) {
+            "sync" -> HostMode.SYNC
+            else -> HostMode.STREAM
+        }
+        
         val networkInfo = NetworkInfo(
             localIpAddress = serviceInfo.host.hostAddress ?: "",
             port = serviceInfo.port,
             networkInterface = "wlan0", // Default Wi-Fi interface
             isHotspot = false,
             discoveryMethod = DiscoveryMethod.MDNS,
-            serviceName = serviceInfo.serviceName
+            serviceName = serviceInfo.serviceName,
+            hostMode = hostMode
         )
         
-        Timber.d("Adding discovered host: ${networkInfo.serviceName} at ${networkInfo.localIpAddress}:${networkInfo.port}")
+        Timber.d("Adding discovered host: ${networkInfo.serviceName} at ${networkInfo.localIpAddress}:${networkInfo.port} (mode=${hostMode.name})")
         
         val currentHosts = _discoveredHosts.value.toMutableList()
         
@@ -325,6 +412,9 @@ class NetworkDiscoveryService @Inject constructor(
         currentClients: Int, 
         maxClients: Int
     ) {
+        // Cancel any previous broadcast before starting a new one (safe when
+        // called repeatedly, e.g. re-registering a session)
+        udpBroadcastJob?.cancel()
         Timber.d("Starting UDP broadcast")
         
         udpBroadcastJob = serviceScope.launch {
@@ -336,13 +426,19 @@ class NetworkDiscoveryService @Inject constructor(
                 
                 val message = createBroadcastMessage(hostName, port, userName, currentClients, maxClients)
                 val data = message.toByteArray()
-                val broadcastAddress = InetAddress.getByName("255.255.255.255")
-                val packet = DatagramPacket(data, data.size, broadcastAddress, UDP_DISCOVERY_PORT)
+                // Limited broadcast (255.255.255.255) exits via the default-route
+                // interface (station/cellular); also target the hotspot subnet
+                // broadcast so hotspot clients always receive the announcement.
+                val targets = hotspotNetworkHelper.getDiscoveryBroadcastTargets()
+                Timber.d("UDP broadcast targets: ${targets.map { it.hostAddress }}")
                 
                 while (udpBroadcastJob?.isActive == true) {
                     try {
-                        socket.send(packet)
-                        Timber.v("UDP broadcast sent")
+                        targets.forEach { target ->
+                            val packet = DatagramPacket(data, data.size, target, UDP_DISCOVERY_PORT)
+                            socket.send(packet)
+                        }
+                        Timber.v("UDP broadcast sent to ${targets.size} network(s)")
                     } catch (e: IOException) {
                         // Handle background restriction (EPERM) or other IO errors
                         Timber.w("UDP broadcast failed: ${e.message}")
@@ -351,7 +447,7 @@ class NetworkDiscoveryService @Inject constructor(
                 }
                 
             } catch (e: Exception) {
-                Timber.e("UDP broadcast setup error", e)
+                Timber.e(e, "UDP broadcast setup error")
             } finally {
                 socket?.close()
             }
@@ -375,8 +471,10 @@ class NetworkDiscoveryService @Inject constructor(
         
         udpDiscoveryJob = serviceScope.launch {
             try {
-                udpSocket = DatagramSocket(UDP_DISCOVERY_PORT).apply {
+                // reuseAddress must be set BEFORE binding to be effective
+                udpSocket = DatagramSocket(null).apply {
                     reuseAddress = true
+                    bind(InetSocketAddress(UDP_DISCOVERY_PORT))
                 }
                 val buffer = ByteArray(1024)
                 val packet = DatagramPacket(buffer, buffer.size)
@@ -393,7 +491,7 @@ class NetworkDiscoveryService @Inject constructor(
                 
             } catch (e: IOException) {
                 if (udpDiscoveryJob?.isActive == true) {
-                    Timber.e("UDP discovery error", e)
+                    Timber.e(e, "UDP discovery error")
                 }
             } finally {
                 udpSocket?.close()
@@ -443,7 +541,7 @@ class NetworkDiscoveryService @Inject constructor(
                 )
             } else null
         } catch (e: Exception) {
-            Timber.w("Failed to parse broadcast message: $message", e)
+            Timber.w(e, "Failed to parse broadcast message: $message")
             null
         }
     }
@@ -467,25 +565,15 @@ class NetworkDiscoveryService @Inject constructor(
     }
     
     /**
-     * Get local IP addresses
+     * Get local IP addresses, hotspot (SoftAP) first.
+     * The hotspot network is preferred: when the device runs a hotspot while
+     * also being connected to a router/cellular, the first address is the one
+     * hotspot clients can actually reach.
      */
     suspend fun getLocalIpAddresses(): List<String> = withContext(Dispatchers.IO) {
-        val addresses = mutableListOf<String>()
-        
-        try {
-            NetworkInterface.getNetworkInterfaces().asSequence()
-                .filter { !it.isLoopback && it.isUp }
-                .flatMap { it.inetAddresses.asSequence() }
-                .filter { !it.isLoopbackAddress && it.isSiteLocalAddress }
-                .forEach { it.hostAddress?.let { ip -> addresses.add(ip) } }
-                
-        } catch (e: Exception) {
-            Timber.e("Failed to get local IP addresses", e)
-        }
-        
-        return@withContext addresses
+        hotspotNetworkHelper.getOrderedIpAddresses()
     }
-    
+
     /**
      * Check if a host is reachable
      */
@@ -494,7 +582,7 @@ class NetworkDiscoveryService @Inject constructor(
             val address = InetAddress.getByName(ipAddress)
             address.isReachable(timeoutMs)
         } catch (e: Exception) {
-            Timber.e("Failed to check host reachability: $ipAddress", e)
+            Timber.e(e, "Failed to check host reachability: $ipAddress")
             false
         }
     }

@@ -120,17 +120,15 @@ class DiscoveryViewModel @Inject constructor(
             
             try {
                 when (_discoveryMethod.value) {
-                    DiscoveryMethod.MDNS -> {
-                        val hosts = performMDNSDiscovery()
-                        _availableHosts.value = hosts
-                    }
-                    DiscoveryMethod.UDP_BROADCAST -> {
-                        val hosts = performUDPBroadcastDiscovery()
-                        _availableHosts.value = hosts
-                    }
                     DiscoveryMethod.MANUAL_IP -> {
-                        val hosts = performManualDiscovery()
-                        _availableHosts.value = hosts
+                        // Manual entry is handled directly by the UI dialog
+                    }
+                    else -> {
+                        // Both mDNS and UDP broadcast results arrive via
+                        // observeDiscoveredHosts(); no local re-mapping needed
+                        // (the old branches fabricated Source/Quality values)
+                        networkDiscoveryService.startDiscovery()
+                        delay(3000) // Wait for mDNS/UDP results
                     }
                 }
                 _lastDiscoveryTime.value = System.currentTimeMillis()
@@ -164,101 +162,6 @@ class DiscoveryViewModel @Inject constructor(
     }
 
     /**
-     * Perform mDNS discovery
-     */
-    private suspend fun performMDNSDiscovery(): List<DiscoveredHost> {
-        return try {
-            networkDiscoveryService.startDiscovery()
-            delay(3000) // Wait for discovery
-            networkDiscoveryService.discoveredHosts.value.map { networkInfo ->
-                DiscoveredHost(
-                    hostId = networkInfo.serviceName,
-                    hostName = networkInfo.serviceName,
-                    ipAddress = networkInfo.localIpAddress,
-                    port = networkInfo.port,
-                    serviceName = networkInfo.serviceName,
-                    discoveryMethod = networkInfo.discoveryMethod.name,
-                    lastSeen = System.currentTimeMillis(),
-                    audioSource = "MICROPHONE",
-                    quality = "STANDARD",
-                    connectedClients = 0,
-                    maxClients = 50,
-                    isAcceptingClients = true
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    /**
-     * Perform UDP broadcast discovery
-     */
-    private suspend fun performUDPBroadcastDiscovery(): List<DiscoveredHost> {
-        return try {
-            networkDiscoveryService.startDiscovery()
-            delay(3000) // Wait for discovery
-            networkDiscoveryService.discoveredHosts.value.map { networkInfo ->
-                DiscoveredHost(
-                    hostId = networkInfo.serviceName,
-                    hostName = networkInfo.serviceName,
-                    ipAddress = networkInfo.localIpAddress,
-                    port = networkInfo.port,
-                    serviceName = networkInfo.serviceName,
-                    discoveryMethod = networkInfo.discoveryMethod.name,
-                    lastSeen = System.currentTimeMillis(),
-                    audioSource = "SYSTEM_AUDIO",
-                    quality = "HIGH",
-                    connectedClients = 0,
-                    maxClients = 50,
-                    isAcceptingClients = true
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    /**
-     * Perform manual discovery by connecting to specific address
-     */
-    private suspend fun performManualDiscovery(): List<DiscoveredHost> {
-        if (_manualHostAddress.value.isBlank()) {
-            throw Exception("Please enter a host address")
-        }
-        
-        // TODO: Implement actual manual connection attempt
-        // For now, create a mock host based on the address
-        delay(2000) // Simulate connection attempt
-        
-        val parts = _manualHostAddress.value.split(":")
-        val address = parts[0]
-        val port = parts.getOrElse(1) { "8080" }.toIntOrNull() ?: 8080
-        
-        // Validate IP address format
-        if (!isValidIPAddress(address)) {
-            throw Exception("Invalid IP address format")
-        }
-        
-        return listOf(
-            DiscoveredHost(
-                hostId = "manual-session",
-                hostName = "Manual Host",
-                ipAddress = address,
-                port = port,
-                serviceName = "speakershare-manual",
-                discoveryMethod = "MANUAL_IP",
-                lastSeen = System.currentTimeMillis(),
-                audioSource = "MICROPHONE",
-                quality = "STANDARD",
-                connectedClients = 0,
-                maxClients = 0,
-                isAcceptingClients = true
-            )
-        )
-    }
-
-    /**
      * Select a host for connection
      */
     fun selectHost(host: DiscoveredHost) {
@@ -287,27 +190,6 @@ class DiscoveryViewModel @Inject constructor(
      */
     fun setManualHostAddress(address: String) {
         _manualHostAddress.value = address.trim()
-    }
-
-    /**
-     * Connect to manual host
-     */
-    fun connectToManualHost() {
-        viewModelScope.launch {
-            _isConnecting.value = true
-            try {
-                _discoveryMethod.value = DiscoveryMethod.MANUAL_IP
-                val hosts = performManualDiscovery()
-                if (hosts.isNotEmpty()) {
-                    _availableHosts.value = hosts
-                    _selectedHost.value = hosts.first()
-                }
-            } catch (e: Exception) {
-                _error.value = "Failed to connect to manual host: ${e.message}"
-            } finally {
-                _isConnecting.value = false
-            }
-        }
     }
 
     /**
@@ -368,8 +250,4 @@ class DiscoveryViewModel @Inject constructor(
         _error.value = null
     }
 
-    // Helper functions
-    private fun isValidIPAddress(ip: String): Boolean {
-        return ip.matches(Regex("^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"))
-    }
 }

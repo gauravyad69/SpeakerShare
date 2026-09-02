@@ -149,7 +149,7 @@ class ClientForegroundService : Service() {
             }
 
         } catch (e: Exception) {
-            Timber.e("Failed to start playback service", e)
+            Timber.e(e, "Failed to start playback service")
             _serviceState.value = ServiceState.STOPPED
             stopSelf()
         }

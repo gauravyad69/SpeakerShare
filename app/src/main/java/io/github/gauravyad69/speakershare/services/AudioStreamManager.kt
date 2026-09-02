@@ -123,7 +123,7 @@ class AudioStreamManager @Inject constructor(
             Timber.d("Audio stream started successfully")
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to start audio stream", e)
+            Timber.e(e, "Failed to start audio stream")
             _currentStream.value = _currentStream.value?.copy(state = StreamState.ERROR)
             Result.failure(e)
         }
@@ -259,7 +259,7 @@ class AudioStreamManager @Inject constructor(
             Timber.d("Audio stream stopped successfully")
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to stop audio stream", e)
+            Timber.e(e, "Failed to stop audio stream")
             _currentStream.value = _currentStream.value?.copy(state = StreamState.ERROR)
             Result.failure(e)
         }
@@ -289,7 +289,7 @@ class AudioStreamManager @Inject constructor(
             Timber.d("Audio source switched successfully")
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to switch audio source", e)
+            Timber.e(e, "Failed to switch audio source")
             Result.failure(e)
         }
     }
@@ -316,7 +316,7 @@ class AudioStreamManager @Inject constructor(
             Timber.d("Audio quality updated successfully")
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to update audio quality", e)
+            Timber.e(e, "Failed to update audio quality")
             Result.failure(e)
         }
     }

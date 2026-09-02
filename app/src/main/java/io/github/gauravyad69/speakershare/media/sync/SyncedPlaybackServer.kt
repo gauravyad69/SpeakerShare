@@ -13,12 +13,18 @@ import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.server.websocket.*
+import io.ktor.utils.io.*
+import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.google.gson.Gson
 
 /**
  * HTTP Server for synced playback command distribution
@@ -37,6 +43,7 @@ class SyncedPlaybackServer @Inject constructor(
     
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var server: NettyApplicationEngine? = null
+    private val gson = Gson()
     
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
@@ -44,6 +51,9 @@ class SyncedPlaybackServer @Inject constructor(
     // Queue of commands to broadcast to clients (per-client queues to avoid missed commands)
     private val clientCommandQueues = mutableMapOf<String, MutableList<SyncCommand>>()
     private val commandQueueLock = Any()
+    
+    // WebSocket sessions for instant push
+    private val webSocketSessions = ConcurrentHashMap<String, WebSocketSession>()
     
     // Current session info
     private var sessionInfo: SessionInfo? = null
@@ -97,9 +107,16 @@ class SyncedPlaybackServer @Inject constructor(
                     allowMethod(HttpMethod.Post)
                     allowHeader(HttpHeaders.ContentType)
                 }
+                install(WebSockets) {
+                    pingPeriod = Duration.ofSeconds(15)
+                    timeout = Duration.ofSeconds(30)
+                    maxFrameSize = Long.MAX_VALUE
+                    masking = false
+                }
                 
                 routing {
                     configureSyncRoutes()
+                    configureWebSocketRoutes()
                 }
             }
             
@@ -110,7 +127,7 @@ class SyncedPlaybackServer @Inject constructor(
             true
             
         } catch (e: Exception) {
-            Timber.e("Failed to start sync server", e)
+            Timber.e(e, "Failed to start sync server")
             false
         }
     }
@@ -121,6 +138,16 @@ class SyncedPlaybackServer @Inject constructor(
     fun stopServer() {
         scope.launch {
             try {
+                // Close all WebSocket sessions
+                webSocketSessions.values.forEach { session ->
+                    try {
+                        session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Server stopping"))
+                    } catch (e: Exception) {
+                        Timber.w(e, "Error closing WebSocket session")
+                    }
+                }
+                webSocketSessions.clear()
+                
                 server?.stop(500, 1000)
                 server = null
                 _isRunning.value = false
@@ -134,7 +161,7 @@ class SyncedPlaybackServer @Inject constructor(
                 
                 Timber.i("Sync server stopped")
             } catch (e: Exception) {
-                Timber.e("Error stopping sync server", e)
+                Timber.e(e, "Error stopping sync server")
             }
         }
     }
@@ -176,9 +203,14 @@ class SyncedPlaybackServer @Inject constructor(
                 type = "stop",
                 timestamp = command.timestamp
             )
+            is PlaybackCommand.Volume -> SyncCommand(
+                type = "volume",
+                timestamp = command.timestamp,
+                volume = command.volume
+            )
         }
         
-        // Add command to each connected client's queue
+        // Add command to each connected client's queue (for HTTP polling fallback)
         synchronized(commandQueueLock) {
             for (clientId in _connectedClients.value) {
                 val queue = clientCommandQueues.getOrPut(clientId) { mutableListOf() }
@@ -191,7 +223,26 @@ class SyncedPlaybackServer @Inject constructor(
             }
         }
         
-        Timber.d("Broadcast command: ${syncCommand.type} to ${_connectedClients.value.size} clients")
+        // Push immediately to all WebSocket clients
+        val json = gson.toJson(syncCommand)
+        scope.launch {
+            val deadSessions = mutableListOf<String>()
+            webSocketSessions.forEach { (clientId, session) ->
+                try {
+                    session.send(Frame.Text(json))
+                } catch (e: Exception) {
+                    Timber.w("Failed to send to WebSocket client $clientId: ${e.message}")
+                    deadSessions.add(clientId)
+                }
+            }
+            // Clean up dead sessions
+            deadSessions.forEach { clientId ->
+                webSocketSessions.remove(clientId)
+                Timber.d("Removed dead WebSocket session: $clientId")
+            }
+        }
+        
+        Timber.d("Broadcast command: ${syncCommand.type} to ${_connectedClients.value.size} HTTP + ${webSocketSessions.size} WS clients")
     }
     
     /**
@@ -322,22 +373,213 @@ class SyncedPlaybackServer @Inject constructor(
                         return@get
                     }
                     
-                    val bytes = inputStream.readBytes()
-                    inputStream.close()
-                    
-                    // Try to determine content type from file info
+                    // Try to determine content type and size from file info
                     val fileInfo = sessionInfo?.files?.find { it.hash == hash }
                     val contentType = fileInfo?.mimeType?.let { mimeType -> 
                         ContentType.parse(mimeType) 
                     } ?: ContentType.Application.OctetStream
+                    val fileSize = fileInfo?.sizeBytes ?: 0L
                     
-                    call.respondBytes(bytes, contentType)
-                    Timber.i("Served file: ${bytes.size} bytes")
+                    // Stream the file instead of loading into memory to avoid OOM
+                    call.respondBytesWriter(contentType = contentType, contentLength = fileSize) {
+                        val buffer = ByteArray(256 * 1024) // 256KB buffer for faster transfer
+                        var bytesWritten = 0L
+                        try {
+                            while (true) {
+                                val bytesRead = inputStream.read(buffer)
+                                if (bytesRead == -1) break
+                                writeFully(buffer, 0, bytesRead)
+                                bytesWritten += bytesRead
+                            }
+                            flush()
+                            Timber.i("Streamed file: $bytesWritten bytes")
+                        } finally {
+                            inputStream.close()
+                        }
+                    }
                 } catch (e: Exception) {
-                    Timber.e("Error serving file", e)
+                    Timber.e(e, "Error serving file")
                     call.respond(HttpStatusCode.InternalServerError, mapOf("error" to e.message))
                 }
             }
+        }
+    }
+    
+    /**
+     * Configure WebSocket routes for real-time sync command push
+     */
+    private fun Routing.configureWebSocketRoutes() {
+        webSocket("/sync/ws/{clientId}") {
+            val clientId = call.parameters["clientId"] ?: "ws-${System.currentTimeMillis()}"
+            
+            Timber.i("WebSocket client connected: $clientId")
+            webSocketSessions[clientId] = this
+            _connectedClients.value = _connectedClients.value + clientId
+            
+            try {
+                // Send current session state immediately
+                sessionInfo?.let { session ->
+                    val joinInfo = JoinResponse(
+                        success = true,
+                        sessionId = session.sessionId,
+                        files = session.files,
+                        currentFileIndex = session.currentFileIndex,
+                        currentPositionMs = session.currentPositionMs,
+                        isPlaying = session.isPlaying
+                    )
+                    send(Frame.Text(gson.toJson(mapOf("type" to "session", "data" to joinInfo))))
+                }
+                
+                // Listen for messages from client (clock sync, etc.)
+                for (frame in incoming) {
+                    when (frame) {
+                        is Frame.Text -> {
+                            val text = frame.readText()
+                            handleWebSocketMessage(clientId, text)
+                        }
+                        is Frame.Close -> {
+                            Timber.d("WebSocket client $clientId sent close frame")
+                            break
+                        }
+                        else -> {}
+                    }
+                }
+            } catch (e: Exception) {
+                Timber.w("WebSocket error for client $clientId: ${e.message}")
+            } finally {
+                webSocketSessions.remove(clientId)
+                _connectedClients.value = _connectedClients.value - clientId
+                Timber.i("WebSocket client disconnected: $clientId")
+            }
+        }
+        
+        // WebSocket file transfer - faster than HTTP with progress streaming
+        webSocket("/file/ws/{hash}") {
+            val hash = call.parameters["hash"]
+            if (hash == null) {
+                send(Frame.Text(gson.toJson(mapOf("type" to "error", "message" to "Missing hash"))))
+                close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Missing hash"))
+                return@webSocket
+            }
+            
+            val uri = fileUriMap[hash]
+            if (uri == null) {
+                Timber.w("WebSocket file transfer: File not found for hash: $hash")
+                send(Frame.Text(gson.toJson(mapOf("type" to "error", "message" to "File not found"))))
+                close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "File not found"))
+                return@webSocket
+            }
+            
+            try {
+                Timber.i("WebSocket file transfer started: hash=$hash")
+                val appContext = this@SyncedPlaybackServer.context
+                val inputStream = appContext.contentResolver.openInputStream(uri)
+                
+                if (inputStream == null) {
+                    send(Frame.Text(gson.toJson(mapOf("type" to "error", "message" to "Cannot read file"))))
+                    close(CloseReason(CloseReason.Codes.INTERNAL_ERROR, "Cannot read file"))
+                    return@webSocket
+                }
+                
+                val fileInfo = sessionInfo?.files?.find { it.hash == hash }
+                val totalSize = fileInfo?.sizeBytes ?: inputStream.available().toLong()
+                val mimeType = fileInfo?.mimeType ?: "application/octet-stream"
+                
+                // Send file metadata first
+                send(Frame.Text(gson.toJson(mapOf(
+                    "type" to "file_start",
+                    "hash" to hash,
+                    "size" to totalSize,
+                    "mimeType" to mimeType
+                ))))
+                
+                // Wait for client acknowledgment to support resume
+                var startOffset = 0L
+                for (frame in incoming) {
+                    if (frame is Frame.Text) {
+                        val msg = gson.fromJson(frame.readText(), Map::class.java)
+                        if (msg["type"] == "resume") {
+                            startOffset = (msg["offset"] as? Number)?.toLong() ?: 0L
+                            Timber.d("Client requesting resume from offset: $startOffset")
+                        }
+                        break
+                    }
+                }
+                
+                // Skip to offset if resuming
+                if (startOffset > 0) {
+                    inputStream.skip(startOffset)
+                }
+                
+                // Stream file in chunks as binary frames
+                val chunkSize = 64 * 1024 // 64KB chunks
+                val buffer = ByteArray(chunkSize)
+                var bytesSent = startOffset
+                var bytesRead: Int
+                
+                inputStream.use { stream ->
+                    while (stream.read(buffer).also { bytesRead = it } != -1) {
+                        // Send binary data
+                        val chunk = if (bytesRead == chunkSize) buffer else buffer.copyOf(bytesRead)
+                        send(Frame.Binary(true, chunk))
+                        
+                        bytesSent += bytesRead
+                        
+                        // Send progress update every 256KB
+                        if (bytesSent % (256 * 1024) < chunkSize) {
+                            send(Frame.Text(gson.toJson(mapOf(
+                                "type" to "progress",
+                                "sent" to bytesSent,
+                                "total" to totalSize
+                            ))))
+                        }
+                    }
+                }
+                
+                // Send completion
+                send(Frame.Text(gson.toJson(mapOf(
+                    "type" to "file_complete",
+                    "hash" to hash,
+                    "size" to bytesSent
+                ))))
+                
+                Timber.i("WebSocket file transfer complete: hash=$hash, bytes=$bytesSent")
+                
+            } catch (e: Exception) {
+                Timber.e(e, "WebSocket file transfer error")
+                send(Frame.Text(gson.toJson(mapOf("type" to "error", "message" to e.message))))
+            }
+        }
+    }
+    
+    /**
+     * Handle incoming WebSocket messages from clients
+     */
+    private suspend fun WebSocketSession.handleWebSocketMessage(clientId: String, message: String) {
+        try {
+            val request = gson.fromJson(message, Map::class.java)
+            when (request["type"]) {
+                "clock_sync" -> {
+                    // Respond with clock sync
+                    val t1 = (request["t1"] as? Number)?.toLong() ?: 0L
+                    val t2 = System.currentTimeMillis()
+                    val t3 = System.currentTimeMillis()
+                    send(Frame.Text(gson.toJson(mapOf(
+                        "type" to "clock_sync_response",
+                        "t1" to t1,
+                        "t2" to t2,
+                        "t3" to t3
+                    ))))
+                }
+                "ping" -> {
+                    send(Frame.Text(gson.toJson(mapOf("type" to "pong"))))
+                }
+                else -> {
+                    Timber.d("Unknown WebSocket message type from $clientId: ${request["type"]}")
+                }
+            }
+        } catch (e: Exception) {
+            Timber.w("Failed to parse WebSocket message from $clientId: ${e.message}")
         }
     }
 }
@@ -374,7 +616,8 @@ data class SyncCommand(
     val positionMs: Long = 0L,
     val fileIndex: Int = 0,
     val resumePlayback: Boolean = false,
-    val autoPlay: Boolean = false
+    val autoPlay: Boolean = false,
+    val volume: Float = 1.0f
 )
 
 /**

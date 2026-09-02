@@ -36,8 +36,17 @@ class ClientViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), null)
 
     // Connection state
-    val connectionState: StateFlow<ConnectionStatus> = clientManager.isConnected.map { connected ->
-        if (connected) ConnectionStatus.CONNECTED else ConnectionStatus.DISCONNECTED
+    // KICKED is surfaced so the status card shows the distinct red "KICKED"
+    // state; previously that enum branch was unreachable
+    val connectionState: StateFlow<ConnectionStatus> = combine(
+        clientManager.isConnected,
+        clientManager.kickedByHost
+    ) { connected, kicked ->
+        when {
+            kicked -> ConnectionStatus.KICKED
+            connected -> ConnectionStatus.CONNECTED
+            else -> ConnectionStatus.DISCONNECTED
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), ConnectionStatus.DISCONNECTED)
 
     // Audio settings (local to this client)
@@ -77,6 +86,19 @@ class ClientViewModel @Inject constructor(
         viewModelScope.launch {
             screenStreamClient.screenFrameFlow.collect { bitmap ->
                 _currentScreenFrame.value = bitmap
+            }
+        }
+        
+        // Observe kick notification from host and surface it to the UI
+        viewModelScope.launch {
+            clientManager.kickedByHost.collect { kicked ->
+                if (kicked) {
+                    _connectedHost.value = null
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = "You were kicked by the host"
+                    )
+                }
             }
         }
     }
@@ -171,6 +193,8 @@ class ClientViewModel @Inject constructor(
     }
 
     fun clearError() {
+        // Also reset the kicked state so the notification doesn't re-trigger
+        clientManager.clearKickedState()
         _uiState.value = _uiState.value.copy(error = null)
     }
     

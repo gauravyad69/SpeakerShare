@@ -112,7 +112,7 @@ class DiscoveryClient @Inject constructor() {
                 discoveredHosts.toList()
                 
             } catch (e: Exception) {
-                Timber.e("Discovery failed", e)
+                Timber.e(e, "Discovery failed")
                 
                 scope.launch {
                     _discoveryEvents.emit(DiscoveryEvent.ScanError("Discovery failed: ${e.message}"))
@@ -177,7 +177,7 @@ class DiscoveryClient @Inject constructor() {
                 discoveredHosts.toList()
                 
             } catch (e: Exception) {
-                Timber.e("Range discovery failed", e)
+                Timber.e(e, "Range discovery failed")
                 
                 scope.launch {
                     _discoveryEvents.emit(DiscoveryEvent.ScanError("Range discovery failed: ${e.message}"))
@@ -292,7 +292,7 @@ class DiscoveryClient @Inject constructor() {
             addresses.distinct().sorted()
             
         } catch (e: Exception) {
-            Timber.e("Failed to get network addresses", e)
+            Timber.e(e, "Failed to get network addresses")
             emptyList()
         }
     }

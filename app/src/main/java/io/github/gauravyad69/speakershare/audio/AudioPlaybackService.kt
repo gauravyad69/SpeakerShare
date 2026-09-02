@@ -356,13 +356,15 @@ class AudioPlaybackService @Inject constructor(
 
     /**
      * Handle audio focus changes
+     * Called on the main thread - must not block (no runBlocking) since
+     * stopPlayback() joins the playback loop which may be blocked in write()
      */
     override fun onAudioFocusChange(focusChange: Int) {
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> {
                 hasAudioFocus = true
                 // Resume playback or restore volume
-                runBlocking {
+                playbackScope.launch {
                     val currentState = _playbackState.value
                     if (!currentState.isMuted) {
                         // Restore saved volume (not current volume which might be 0)
@@ -375,8 +377,8 @@ class AudioPlaybackService @Inject constructor(
             AudioManager.AUDIOFOCUS_LOSS -> {
                 hasAudioFocus = false
                 Timber.d("Audio focus lost permanently, stopping playback")
-                // Stop playback
-                runBlocking {
+                // Stop playback asynchronously - runBlocking here would ANR
+                playbackScope.launch {
                     stopPlayback()
                 }
             }

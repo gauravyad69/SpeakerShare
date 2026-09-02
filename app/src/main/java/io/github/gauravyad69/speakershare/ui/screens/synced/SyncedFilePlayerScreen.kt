@@ -1,22 +1,25 @@
 package io.github.gauravyad69.speakershare.ui.screens.synced
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.view.View
+import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,25 +27,63 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import compose.icons.TablerIcons
+import compose.icons.tablericons.ArrowLeft
+import compose.icons.tablericons.Headphones
+import compose.icons.tablericons.Microphone
+import compose.icons.tablericons.PlayerPlay
+import compose.icons.tablericons.PlayerPause
+import compose.icons.tablericons.ArrowsMaximize
+import compose.icons.tablericons.ArrowsMinimize
+import compose.icons.tablericons.PlayerSkipBack
+import compose.icons.tablericons.PlayerSkipForward
+import compose.icons.tablericons.RotateClockwise2
+import compose.icons.tablericons.Rotate2
+import compose.icons.tablericons.DeviceSpeaker
+import compose.icons.tablericons.Refresh
+import compose.icons.tablericons.Wifi
+import compose.icons.tablericons.Plus
+import compose.icons.tablericons.Video
+import compose.icons.tablericons.Music
+import compose.icons.tablericons.Trash
+import compose.icons.tablericons.PlayerStop
+import compose.icons.tablericons.Unlink
+import compose.icons.tablericons.Link
+import compose.icons.tablericons.ChartBar
+import compose.icons.tablericons.InfoCircle
+import compose.icons.tablericons.Volume
+import compose.icons.tablericons.Volume2
+import compose.icons.tablericons.Volume3
+import compose.icons.tablericons.Clock
 import io.github.gauravyad69.speakershare.data.model.NetworkInfo
 import io.github.gauravyad69.speakershare.media.sync.SyncedMediaFile
 import io.github.gauravyad69.speakershare.media.sync.SyncSessionState
 import io.github.gauravyad69.speakershare.media.sync.TransferProgress
+import io.github.gauravyad69.speakershare.ui.components.DuolingoButton
+import io.github.gauravyad69.speakershare.ui.theme.*
 import io.github.gauravyad69.speakershare.ui.viewmodels.SyncedFilePlayerViewModel
 import io.github.gauravyad69.speakershare.ui.viewmodels.SyncedPlayerUiState
 import androidx.compose.runtime.saveable.rememberSaveable
 import java.util.concurrent.TimeUnit
+import timber.log.Timber
 
 /**
  * Composable screen for synchronized file playback
@@ -61,7 +102,8 @@ fun SyncedFilePlayerScreen(
     val discoveredHosts by viewModel.discoveredHosts.collectAsState()
     
     // Use rememberSaveable to survive configuration changes (rotation)
-    var selectedTabIndex by rememberSaveable { mutableStateOf(0) }
+    // Default to Client mode (1) instead of Host mode (0)
+    var selectedTabIndex by rememberSaveable { mutableStateOf(1) }
     
     // Auto-derive mode from session state - if we're in a session, show that mode
     val effectiveTabIndex = when (uiState.sessionState) {
@@ -70,20 +112,71 @@ fun SyncedFilePlayerScreen(
         else -> selectedTabIndex
     }
     
-    val tabs = listOf("Host", "Client")
+    val tabs = listOf("HOST", "CLIENT")
     
-    // File picker launcher for multiple files
+    // File picker launcher for multiple files using OpenMultipleDocuments
+    // This works better across different devices compared to GetMultipleContents
     val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
+        contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
+            // Take persistable URI permission for each file so we can access them later
+            uris.forEach { uri ->
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (e: Exception) {
+                    // Permission may not be grantable for some URIs, but file may still be readable
+                    Timber.w("Could not take persistable permission for $uri: ${e.message}")
+                }
+            }
             viewModel.addFiles(uris)
         }
     }
     
-    // Initialize player when screen is created
-    LaunchedEffect(Unit) {
-        viewModel.initializePlayer()
+    // Fallback single file picker for devices that don't support multi-select well
+    val singleFilePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    it,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: Exception) {
+                Timber.w("Could not take persistable permission for $it: ${e.message}")
+            }
+            viewModel.addFiles(listOf(it))
+        }
+    }
+    
+    // Keep screen on while this screen is active
+    val activity = context as? Activity
+    DisposableEffect(Unit) {
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+    
+    // Helper to force restart the app
+    fun restartApp() {
+        activity?.let { act ->
+            val packageManager = act.packageManager
+            val intent = packageManager.getLaunchIntentForPackage(act.packageName)
+            intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            act.startActivity(intent)
+            act.finishAffinity()
+            Runtime.getRuntime().exit(0)
+        }
+    }
+    
+    // Initialize player when screen is created with appropriate media type settings
+    LaunchedEffect(mediaType) {
+        viewModel.initializePlayer(isVideo = mediaType == "video")
     }
     
     // Always run discovery in background to find available hosts
@@ -91,12 +184,9 @@ fun SyncedFilePlayerScreen(
         viewModel.startDiscovery()
     }
     
-    // Clean up when leaving screen
-    DisposableEffect(Unit) {
-        onDispose {
-            viewModel.stopSession()
-        }
-    }
+    // Note: We don't call stopSession() in DisposableEffect because it would
+    // clear files on rotation. Session cleanup happens in ViewModel.onCleared()
+    // when the screen is actually destroyed (navigating away).
     
     // Show error toast
     LaunchedEffect(uiState.error) {
@@ -107,23 +197,114 @@ fun SyncedFilePlayerScreen(
     }
     
     Scaffold(
+        containerColor = DuoBackground,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = if (mediaType == "video") "Synced Video" else "Synced Audio",
-                        fontWeight = FontWeight.SemiBold
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(
+                        TablerIcons.ArrowLeft,
+                        contentDescription = "Back",
+                        tint = DuoTextSecondary,
+                        modifier = Modifier.size(28.dp)
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        if (mediaType == "video") "WATCH TOGETHER" else "LISTEN TOGETHER",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = DuoTextSecondary
+                    )
+                    Text(
+                        if (uiState.sessionState is SyncSessionState.HostActive) "HOSTING" 
+                        else if (uiState.sessionState is SyncSessionState.ClientReady) "CONNECTED"
+                        else "PLAYER",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = DuoTextPrimary
+                    )
+                }
+                
+                // Refresh host discovery (client tab, not yet connected)
+                val showRefresh = selectedTabIndex == 1 &&
+                        uiState.sessionState !is SyncSessionState.ClientReady &&
+                        uiState.sessionState !is SyncSessionState.ClientJoining
+                if (showRefresh) {
+                    IconButton(
+                        onClick = { viewModel.startDiscovery() },
+                        enabled = !uiState.isDiscovering
+                    ) {
+                        if (uiState.isDiscovering) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = DuoTextDisabled
+                            )
+                        } else {
+                            Icon(
+                                TablerIcons.Refresh,
+                                contentDescription = "Refresh",
+                                tint = DuoBlue,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
+                }
+            }
+        },
+        bottomBar = {
+            // Mode selector - always pinned at bottom
+            val isInSession = uiState.sessionState is SyncSessionState.HostActive ||
+                              uiState.sessionState is SyncSessionState.ClientJoining ||
+                              uiState.sessionState is SyncSessionState.ClientReady
+            
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding(),
+                color = DuoSurface,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+                border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Mode selector buttons
+                    tabs.forEachIndexed { index, title ->
+                        val isSelected = effectiveTabIndex == index
+                        val isActiveSession = when (index) {
+                            0 -> uiState.sessionState is SyncSessionState.HostActive
+                            1 -> uiState.sessionState is SyncSessionState.ClientJoining ||
+                                 uiState.sessionState is SyncSessionState.ClientReady
+                            else -> false
+                        }
+                        
+                        DuolingoButton(
+                            text = title,
+                            onClick = { 
+                                if (!isInSession) {
+                                    selectedTabIndex = index 
+                                }
+                            },
+                            icon = if (index == 0) TablerIcons.DeviceSpeaker else TablerIcons.Headphones,
+                            color = if (isActiveSession || isSelected) DuoBlue else DuoSurfaceHighlight,
+                            shadowColor = if (isActiveSession || isSelected) DuoBlueShadow else DuoOutline,
+                            textColor = if (isActiveSession || isSelected) DuoTextPrimary else DuoTextSecondary,
+                            modifier = Modifier.weight(1f),
+                            enabled = !isInSession || isActiveSession
+                        )
+                    }
+                }
+            }
         }
     ) { paddingValues ->
         Column(
@@ -131,53 +312,6 @@ fun SyncedFilePlayerScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Mode selector - only show when not in active session
-            val isInSession = uiState.sessionState is SyncSessionState.HostActive ||
-                              uiState.sessionState is SyncSessionState.ClientJoining ||
-                              uiState.sessionState is SyncSessionState.ClientReady
-            
-            if (!isInSession) {
-                // Segmented button style mode selector
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    tabs.forEachIndexed { index, title ->
-                        val isSelected = effectiveTabIndex == index
-                        FilledTonalButton(
-                            onClick = { selectedTabIndex = index },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (isSelected) 
-                                    MaterialTheme.colorScheme.primaryContainer 
-                                else 
-                                    MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            Icon(
-                                imageVector = if (index == 0) Icons.Filled.Podcasts else Icons.Filled.Headphones,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(title)
-                        }
-                    }
-                }
-            }
-            
-            // Show available hosts count when in host mode setup
-            if (!isInSession && effectiveTabIndex == 0 && discoveredHosts.isNotEmpty()) {
-                Text(
-                    text = "${discoveredHosts.size} host(s) available on network",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-            }
-            
             // Content based on selected tab (use effectiveTabIndex for rotation survival)
             AnimatedContent(
                 targetState = effectiveTabIndex,
@@ -192,18 +326,28 @@ fun SyncedFilePlayerScreen(
                         selectedFiles = selectedFiles,
                         mediaType = mediaType,
                         onSelectFiles = {
-                            val mimeType = if (mediaType == "video") "video/*" else "audio/*"
-                            filePickerLauncher.launch(mimeType)
+                            // OpenMultipleDocuments takes array of mime types
+                            val mimeTypes = if (mediaType == "video") {
+                                arrayOf("video/*")
+                            } else {
+                                arrayOf("audio/*")
+                            }
+                            filePickerLauncher.launch(mimeTypes)
                         },
                         onRemoveFile = { index -> viewModel.removeFile(index) },
                         onPlay = { viewModel.play() },
                         onPause = { viewModel.pause() },
                         onSeek = { viewModel.seekTo(it) },
+                        onVolumeChange = { viewModel.setVolume(it) },
                         onNextTrack = { viewModel.nextTrack() },
                         onPreviousTrack = { viewModel.previousTrack() },
                         onStartHosting = { viewModel.startHostSession() },
-                        onStopHosting = { viewModel.stopSession() },
-                        context = context
+                        onStopHosting = { 
+                            viewModel.stopSession()
+                            restartApp()
+                        },
+                        context = context,
+                        exoPlayer = viewModel.exoPlayer
                     )
                     1 -> ClientModeContent(
                         uiState = uiState,
@@ -212,9 +356,13 @@ fun SyncedFilePlayerScreen(
                         onJoinSession = { host, sessionId, files -> 
                             viewModel.joinSession(host, sessionId, files)
                         },
-                        onLeaveSession = { viewModel.stopSession() },
+                        onLeaveSession = { 
+                            viewModel.stopSession()
+                            restartApp()
+                        },
                         onRefreshDiscovery = { viewModel.startDiscovery() },
-                        context = context
+                        context = context,
+                        exoPlayer = viewModel.exoPlayer
                     )
                 }
             }
@@ -232,11 +380,13 @@ private fun HostModeContent(
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onSeek: (Long) -> Unit,
+    onVolumeChange: (Float) -> Unit,
     onNextTrack: () -> Unit,
     onPreviousTrack: () -> Unit,
     onStartHosting: () -> Unit,
     onStopHosting: () -> Unit,
-    context: Context
+    context: Context,
+    exoPlayer: ExoPlayer? = null
 ) {
     val isHostActive = uiState.sessionState is SyncSessionState.HostActive
     
@@ -245,33 +395,83 @@ private fun HostModeContent(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Status Banner
+        // Hero status card (matches main app's ON AIR card)
         item {
-            StatusBanner(
+            HeroStatusCard(
                 isActive = isHostActive,
-                activeText = "Hosting • Session: ${uiState.sessionId ?: ""}",
-                inactiveText = "Not hosting",
-                activeColor = MaterialTheme.colorScheme.primary
+                statusText = if (isHostActive) "IN SESSION" else "READY TO HOST",
+                icon = if (mediaType == "video") TablerIcons.Video else TablerIcons.Music,
+                activeColor = DuoGreen,
+                detailChip = if (isHostActive) {
+                    "${uiState.connectedClientsCount} LISTENER${if (uiState.connectedClientsCount == 1) "" else "S"} CONNECTED"
+                } else null
             )
         }
         
-        // File Selection Card
-        item {
-            FileSelectionCard(
-                filesCount = selectedFiles.size,
-                onSelectFiles = onSelectFiles,
-                isHosting = isHostActive
-            )
+        // Media Player (now-playing first when hosting, like main app's status-first layout)
+        if (isHostActive && uiState.currentFile != null) {
+            item {
+                SectionLabel("NOW PLAYING")
+            }
+            item {
+                if (mediaType == "video") {
+                    VideoPlayerCard(
+                        file = uiState.currentFile!!,
+                        isPlaying = uiState.isPlaying,
+                        isBuffering = uiState.isBuffering,
+                        currentPosition = uiState.currentPositionMs,
+                        duration = uiState.durationMs,
+                        volume = uiState.volume,
+                        onPlay = onPlay,
+                        onPause = onPause,
+                        onSeek = onSeek,
+                        onVolumeChange = onVolumeChange,
+                        onNext = onNextTrack,
+                        onPrevious = onPreviousTrack,
+                        hasNext = true,
+                        hasPrevious = true,
+                        context = context,
+                        exoPlayer = exoPlayer
+                    )
+                } else {
+                    AudioPlayerCard(
+                        file = uiState.currentFile!!,
+                        isPlaying = uiState.isPlaying,
+                        isBuffering = uiState.isBuffering,
+                        currentPosition = uiState.currentPositionMs,
+                        duration = uiState.durationMs,
+                        volume = uiState.volume,
+                        onPlay = onPlay,
+                        onPause = onPause,
+                        onSeek = onSeek,
+                        onVolumeChange = onVolumeChange,
+                        onNext = onNextTrack,
+                        onPrevious = onPreviousTrack,
+                        hasNext = true,
+                        hasPrevious = true
+                    )
+                }
+            }
         }
         
-        // Selected Files List
+        // Session control (main action, like START BROADCAST in the main app)
+        if (!isHostActive) {
+            item {
+                SectionLabel("MEDIA FILES")
+            }
+            item {
+                FileSelectionCard(
+                    filesCount = selectedFiles.size,
+                    onSelectFiles = onSelectFiles,
+                    isHosting = isHostActive
+                )
+            }
+        }
+        
+        // Playlist
         if (selectedFiles.isNotEmpty()) {
             item {
-                Text(
-                    text = "Selected Files (${selectedFiles.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
+                SectionLabel("PLAYLIST (${selectedFiles.size})")
             }
             
             itemsIndexed(selectedFiles) { index, file ->
@@ -284,46 +484,10 @@ private fun HostModeContent(
             }
         }
         
-        // Media Player Card (if files selected and hosting)
-        if (isHostActive && uiState.currentFile != null) {
-            item {
-                if (mediaType == "video") {
-                    VideoPlayerCard(
-                        file = uiState.currentFile!!,
-                        isPlaying = uiState.isPlaying,
-                        isBuffering = uiState.isBuffering,
-                        currentPosition = uiState.currentPositionMs,
-                        duration = uiState.durationMs,
-                        onPlay = onPlay,
-                        onPause = onPause,
-                        onSeek = onSeek,
-                        onNext = onNextTrack,
-                        onPrevious = onPreviousTrack,
-                        hasNext = true,
-                        hasPrevious = true,
-                        context = context
-                    )
-                } else {
-                    AudioPlayerCard(
-                        file = uiState.currentFile!!,
-                        isPlaying = uiState.isPlaying,
-                        isBuffering = uiState.isBuffering,
-                        currentPosition = uiState.currentPositionMs,
-                        duration = uiState.durationMs,
-                        onPlay = onPlay,
-                        onPause = onPause,
-                        onSeek = onSeek,
-                        onNext = onNextTrack,
-                        onPrevious = onPreviousTrack,
-                        hasNext = true,
-                        hasPrevious = true
-                    )
-                }
-            }
-        }
-        
-        // Host Control Card
+        // Session Control Card
         item {
+            SectionLabel("SESSION CONTROL")
+            Spacer(modifier = Modifier.height(8.dp))
             HostControlCard(
                 isHosting = isHostActive,
                 hasFiles = selectedFiles.isNotEmpty(),
@@ -333,15 +497,14 @@ private fun HostModeContent(
             )
         }
         
-        // Drift indicator - always show when hosting
+        // Sync health (drift + stats combined when hosting)
         if (isHostActive) {
+            item {
+                SectionLabel("SYNC")
+            }
             item {
                 DriftIndicatorCard(driftMs = uiState.driftMs)
             }
-        }
-        
-        // Sync Stats Card (always show when hosting)
-        if (isHostActive) {
             item {
                 SyncStatsCard(
                     isHost = true,
@@ -355,17 +518,8 @@ private fun HostModeContent(
             }
         }
         
-        // Instructions Card
         item {
-            InstructionsCard(
-                title = "How to Host",
-                instructions = listOf(
-                    "Select ${if (mediaType == "video") "video" else "audio"} file(s) from your device",
-                    "Tap 'Start Hosting' to begin the session",
-                    "Share the session ID with others on the same network",
-                    "All connected clients will play the same file in sync"
-                )
-            )
+            Spacer(modifier = Modifier.height(80.dp))
         }
     }
 }
@@ -378,105 +532,88 @@ private fun ClientModeContent(
     onJoinSession: (String, String, List<SyncedMediaFile>) -> Unit,
     onLeaveSession: () -> Unit,
     onRefreshDiscovery: () -> Unit,
-    context: Context
+    context: Context,
+    exoPlayer: ExoPlayer? = null
 ) {
     var hostAddress by remember { mutableStateOf("") }
     var sessionId by remember { mutableStateOf("") }
     var showManualEntry by remember { mutableStateOf(false) }
     
-    val isConnected = uiState.sessionState is SyncSessionState.ClientReady ||
-                      uiState.sessionState is SyncSessionState.ClientJoining
+    val isJoining = uiState.sessionState is SyncSessionState.ClientJoining
+    val isReady = uiState.sessionState is SyncSessionState.ClientReady
+    val isConnected = isJoining || isReady
     
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Status Banner
+        // Hero status card (matches main app's ClientScreen status card)
         item {
-            val statusText = when (uiState.sessionState) {
-                is SyncSessionState.ClientJoining -> {
-                    val state = uiState.sessionState as SyncSessionState.ClientJoining
-                    "Joining... (${state.cachedFiles}/${state.totalFiles} files ready)"
+            HeroStatusCard(
+                isActive = isReady,
+                statusText = when {
+                    isReady -> "CONNECTED"
+                    isJoining -> "JOINING..."
+                    else -> "FINDING HOSTS"
+                },
+                icon = if (mediaType == "video") TablerIcons.Video else TablerIcons.Headphones,
+                activeColor = DuoBlue,
+                detailChip = when {
+                    isJoining -> {
+                        val state = uiState.sessionState as SyncSessionState.ClientJoining
+                        "${state.cachedFiles}/${state.totalFiles} FILES READY"
+                    }
+                    else -> null
                 }
-                is SyncSessionState.ClientReady -> "Connected and ready"
-                else -> "Not connected"
-            }
-            
-            StatusBanner(
-                isActive = isConnected,
-                activeText = statusText,
-                inactiveText = "Searching for hosts...",
-                activeColor = MaterialTheme.colorScheme.secondary
             )
         }
         
         // Discovered Hosts Section
         if (!isConnected) {
             item {
+                SectionLabel("AVAILABLE HOSTS (${discoveredHosts.size})")
+            }
+            item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = DuoSurface),
+                    border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Available Hosts",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            
-                            IconButton(onClick = onRefreshDiscovery) {
-                                if (uiState.isDiscovering) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
-                                }
-                            }
-                        }
-                        
-                        if (discoveredHosts.isEmpty()) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 16.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (uiState.isDiscovering) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        text = "Searching for hosts on the network...",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                } else {
-                                    Icon(
-                                        Icons.Outlined.WifiFind,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.outline
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "No hosts found",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                        if (uiState.isDiscovering || discoveredHosts.isEmpty()) {
+                            if (uiState.isDiscovering) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(28.dp),
+                                    strokeWidth = 3.dp,
+                                    color = DuoBlue
+                                )
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Text(
+                                    text = "Scanning the network...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = DuoTextSecondary
+                                )
+                            } else {
+                                Icon(
+                                    TablerIcons.Wifi,
+                                    contentDescription = null,
+                                    tint = DuoTextDisabled,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Text(
+                                    text = "No hosts found yet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = DuoTextSecondary
+                                )
                             }
                         }
                     }
@@ -504,12 +641,17 @@ private fun ClientModeContent(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(
-                        if (showManualEntry) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                        if (showManualEntry) TablerIcons.ArrowLeft else TablerIcons.Plus,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(18.dp),
+                        tint = DuoBlue
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (showManualEntry) "Hide Manual Entry" else "Enter Host Address Manually")
+                    Text(
+                        if (showManualEntry) "HIDE MANUAL ENTRY" else "ENTER HOST ADDRESS MANUALLY",
+                        color = DuoBlue,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
             
@@ -537,7 +679,10 @@ private fun ClientModeContent(
         }
         
         // Transfer Progress Card (when joining)
-        if (uiState.sessionState is SyncSessionState.ClientJoining) {
+        if (isJoining) {
+            item {
+                SectionLabel("PREPARING FILES")
+            }
             item {
                 TransferProgressCard(
                     progress = uiState.transferProgress
@@ -546,7 +691,10 @@ private fun ClientModeContent(
         }
         
         // Playback Status Card (when ready)
-        if (uiState.sessionState is SyncSessionState.ClientReady && uiState.currentFile != null) {
+        if (isReady && uiState.currentFile != null) {
+            item {
+                SectionLabel("NOW PLAYING")
+            }
             item {
                 if (mediaType == "video") {
                     VideoPlayerCard(
@@ -563,7 +711,8 @@ private fun ClientModeContent(
                         hasNext = false,
                         hasPrevious = false,
                         context = context,
-                        isReadOnly = true
+                        isReadOnly = true,
+                        exoPlayer = exoPlayer
                     )
                 } else {
                     AudioPlayerCard(
@@ -584,12 +733,13 @@ private fun ClientModeContent(
                 }
             }
             
-            // Drift indicator for client - always show when connected
+            // Sync health for client
+            item {
+                SectionLabel("SYNC")
+            }
             item {
                 DriftIndicatorCard(driftMs = uiState.driftMs)
             }
-            
-            // Sync Stats Card for client
             item {
                 SyncStatsCard(
                     isHost = false,
@@ -602,35 +752,20 @@ private fun ClientModeContent(
                 )
             }
             
-            // Disconnect button
+            // Leave session
             item {
-                Button(
+                DuolingoButton(
+                    text = "LEAVE SESSION",
                     onClick = onLeaveSession,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    ),
+                    color = DuoRed,
+                    shadowColor = DuoRedShadow,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Filled.LinkOff, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Disconnect")
-                }
+                )
             }
         }
         
-        // Instructions Card
-        if (!isConnected) {
-            item {
-                InstructionsCard(
-                    title = "How to Join",
-                    instructions = listOf(
-                        "Make sure you're on the same WiFi network as the host",
-                        "Wait for hosts to appear automatically, or enter the IP manually",
-                        "Tap on a host to connect",
-                        "Files will be downloaded/verified automatically"
-                    )
-                )
-            }
+        item {
+            Spacer(modifier = Modifier.height(80.dp))
         }
     }
 }
@@ -646,8 +781,9 @@ private fun DiscoveredHostCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+            containerColor = DuoSurface
         ),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight),
         enabled = !isLoading
     ) {
         Row(
@@ -660,14 +796,14 @@ private fun DiscoveredHostCard(
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(DuoBlue),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Filled.Podcasts,
+                    TablerIcons.DeviceSpeaker,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary
+                    tint = DuoTextPrimary
                 )
             }
             
@@ -675,19 +811,20 @@ private fun DiscoveredHostCard(
                 Text(
                     text = host.serviceName ?: "SpeakerShare Host",
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    color = DuoTextPrimary
                 )
                 Text(
                     text = "${host.localIpAddress}:${host.port}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = DuoTextSecondary
                 )
             }
             
             Icon(
-                Icons.Filled.ChevronRight,
+                TablerIcons.PlayerPlay,
                 contentDescription = "Connect",
-                tint = MaterialTheme.colorScheme.primary
+                tint = DuoBlue
             )
         }
     }
@@ -695,36 +832,83 @@ private fun DiscoveredHostCard(
 
 // ==================== UI Components ====================
 
+/**
+ * Large centered status card - matches the HostScreen "ON AIR" /
+ * ClientScreen "CONNECTED" hero cards in the main design system.
+ */
 @Composable
-private fun StatusBanner(
+private fun HeroStatusCard(
     isActive: Boolean,
-    activeText: String,
-    inactiveText: String,
-    activeColor: Color
+    statusText: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    activeColor: Color,
+    detailChip: String? = null
 ) {
-    Surface(
+    Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = if (isActive) activeColor.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
                 modifier = Modifier
-                    .size(12.dp)
-                    .clip(CircleShape)
-                    .background(if (isActive) activeColor else MaterialTheme.colorScheme.outline)
-            )
+                    .size(80.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (isActive) activeColor.copy(alpha = 0.2f) else DuoTextDisabled.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(40.dp),
+                    tint = if (isActive) activeColor else DuoTextDisabled
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Text(
-                text = if (isActive) activeText else inactiveText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (isActive) activeColor else MaterialTheme.colorScheme.onSurfaceVariant
+                text = statusText,
+                style = MaterialTheme.typography.titleLarge,
+                color = if (isActive) activeColor else DuoTextDisabled
             )
+
+            if (detailChip != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    color = DuoSurfaceHighlight,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = detailChip,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = DuoTextSecondary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
         }
     }
+}
+
+/**
+ * Section label matching the main app (HomeScreen SectionTitle /
+ * HostScreen "AUDIO SOURCE" label style).
+ */
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        color = DuoTextDisabled,
+        modifier = Modifier.padding(start = 4.dp)
+    )
 }
 
 @Composable
@@ -735,41 +919,44 @@ private fun FileSelectionCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Media Files",
+                text = "MEDIA FILES",
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                color = DuoTextPrimary
             )
             
             if (filesCount > 0) {
                 Text(
                     text = "$filesCount file(s) selected",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = DuoGreen
                 )
             } else {
                 Text(
                     text = "No files selected",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = DuoTextSecondary
                 )
             }
             
-            Button(
+            DuolingoButton(
+                text = if (filesCount > 0) "ADD MORE FILES" else "SELECT FILES",
                 onClick = onSelectFiles,
+                icon = TablerIcons.Plus,
+                color = DuoBlue,
+                shadowColor = DuoBlueShadow,
                 enabled = !isHosting,
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(if (filesCount > 0) "Add More Files" else "Select Files")
-            }
+            )
         }
     }
 }
@@ -786,9 +973,10 @@ private fun FileItemCard(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isCurrentFile) 
-                MaterialTheme.colorScheme.primaryContainer 
-            else MaterialTheme.colorScheme.surface
-        )
+                DuoSurfaceHighlight 
+            else DuoSurface
+        ),
+        border = if (isCurrentFile) androidx.compose.foundation.BorderStroke(2.dp, DuoBlue) else null
     ) {
         Row(
             modifier = Modifier
@@ -798,11 +986,11 @@ private fun FileItemCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Icon(
-                imageVector = if (file.isVideo) Icons.Filled.VideoFile else Icons.Filled.AudioFile,
+                imageVector = if (file.isVideo) TablerIcons.Video else TablerIcons.Music,
                 contentDescription = null,
                 tint = if (isCurrentFile) 
-                    MaterialTheme.colorScheme.onPrimaryContainer 
-                else MaterialTheme.colorScheme.primary,
+                    DuoBlue 
+                else DuoTextSecondary,
                 modifier = Modifier.size(32.dp)
             )
             
@@ -811,30 +999,31 @@ private fun FileItemCard(
                     text = file.name,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (isCurrentFile) DuoBlue else DuoTextPrimary
                 )
                 Text(
                     text = "${formatFileSize(file.sizeBytes)} • ${formatDuration(file.durationMs)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = DuoTextSecondary
                 )
             }
             
             if (canRemove) {
                 IconButton(onClick = onRemove) {
                     Icon(
-                        Icons.Filled.Close,
+                        TablerIcons.Trash,
                         contentDescription = "Remove",
-                        tint = MaterialTheme.colorScheme.error
+                        tint = DuoRed
                     )
                 }
             }
             
             if (isCurrentFile) {
                 Icon(
-                    Icons.Filled.PlayArrow,
+                    TablerIcons.PlayerPlay,
                     contentDescription = "Now Playing",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    tint = DuoBlue
                 )
             }
         }
@@ -848,9 +1037,11 @@ private fun AudioPlayerCard(
     isBuffering: Boolean,
     currentPosition: Long,
     duration: Long,
+    volume: Float = 1.0f,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onSeek: (Long) -> Unit,
+    onVolumeChange: ((Float) -> Unit)? = null,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     hasNext: Boolean,
@@ -859,7 +1050,9 @@ private fun AudioPlayerCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -874,18 +1067,18 @@ private fun AudioPlayerCard(
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
-                                MaterialTheme.colorScheme.primaryContainer,
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                DuoBlue.copy(alpha = 0.2f),
+                                DuoBlue.copy(alpha = 0.05f)
                             )
                         )
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Filled.MusicNote,
+                    TablerIcons.Music,
                     contentDescription = null,
                     modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = DuoBlue
                 )
             }
             
@@ -896,7 +1089,8 @@ private fun AudioPlayerCard(
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                color = DuoTextPrimary
             )
             
             // Progress bar
@@ -906,8 +1100,9 @@ private fun AudioPlayerCard(
                     onValueChange = { if (!isReadOnly) onSeek((it * duration).toLong()) },
                     enabled = !isReadOnly,
                     colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary
+                        thumbColor = DuoBlue,
+                        activeTrackColor = DuoBlue,
+                        inactiveTrackColor = DuoSurfaceHighlight
                     )
                 )
                 Row(
@@ -916,11 +1111,13 @@ private fun AudioPlayerCard(
                 ) {
                     Text(
                         text = formatDuration(currentPosition),
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DuoTextSecondary
                     )
                     Text(
                         text = formatDuration(duration),
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DuoTextSecondary
                     )
                 }
             }
@@ -936,43 +1133,95 @@ private fun AudioPlayerCard(
                         onClick = onPrevious,
                         enabled = hasPrevious
                     ) {
-                        Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
+                        Icon(
+                            TablerIcons.PlayerSkipBack, 
+                            contentDescription = "Previous",
+                            tint = if (hasPrevious) DuoTextPrimary else DuoTextDisabled
+                        )
                     }
                     
                     IconButton(onClick = { onSeek(maxOf(0, currentPosition - 10000)) }) {
-                        Icon(Icons.Filled.Replay10, contentDescription = "Rewind 10s")
+                        Icon(
+                            TablerIcons.PlayerSkipBack, // Using skip back as rewind placeholder
+                            contentDescription = "Rewind 10s",
+                            tint = DuoTextPrimary
+                        )
                     }
                     
                     Box(contentAlignment = Alignment.Center) {
                         FilledIconButton(
                             onClick = { if (isPlaying) onPause() else onPlay() },
-                            modifier = Modifier.size(64.dp)
+                            modifier = Modifier.size(64.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = DuoBlue
+                            )
                         ) {
                             if (isBuffering) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(24.dp),
                                     strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onPrimary
+                                    color = DuoTextPrimary
                                 )
                             } else {
                                 Icon(
-                                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    imageVector = if (isPlaying) TablerIcons.PlayerPause else TablerIcons.PlayerPlay,
                                     contentDescription = if (isPlaying) "Pause" else "Play",
-                                    modifier = Modifier.size(32.dp)
+                                    modifier = Modifier.size(32.dp),
+                                    tint = DuoTextPrimary
                                 )
                             }
                         }
                     }
                     
                     IconButton(onClick = { onSeek(currentPosition + 10000) }) {
-                        Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s")
+                        Icon(
+                            TablerIcons.PlayerSkipForward, // Using skip forward as forward placeholder
+                            contentDescription = "Forward 10s",
+                            tint = DuoTextPrimary
+                        )
                     }
                     
                     IconButton(
                         onClick = onNext,
                         enabled = hasNext
                     ) {
-                        Icon(Icons.Filled.SkipNext, contentDescription = "Next")
+                        Icon(
+                            TablerIcons.PlayerSkipForward, 
+                            contentDescription = "Next",
+                            tint = if (hasNext) DuoTextPrimary else DuoTextDisabled
+                        )
+                    }
+                }
+                
+                // Volume control (only shown for host)
+                if (onVolumeChange != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = TablerIcons.Volume,
+                            contentDescription = "Volume",
+                            tint = DuoTextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Slider(
+                            value = volume,
+                            onValueChange = onVolumeChange,
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = DuoTextSecondary,
+                                activeTrackColor = DuoTextSecondary,
+                                inactiveTrackColor = DuoSurfaceHighlight
+                            )
+                        )
+                        Text(
+                            text = "${(volume * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DuoTextSecondary,
+                            modifier = Modifier.width(40.dp)
+                        )
                     }
                 }
             } else {
@@ -983,16 +1232,16 @@ private fun AudioPlayerCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Filled.Sync,
+                        TablerIcons.Refresh,
                         contentDescription = null,
-                        tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        tint = if (isPlaying) DuoGreen else DuoTextDisabled,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = if (isPlaying) "Synced with host" else "Waiting for host",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = DuoTextSecondary
                     )
                 }
             }
@@ -1007,52 +1256,43 @@ private fun VideoPlayerCard(
     isBuffering: Boolean,
     currentPosition: Long,
     duration: Long,
+    volume: Float = 1.0f,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onSeek: (Long) -> Unit,
+    onVolumeChange: ((Float) -> Unit)? = null,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     hasNext: Boolean,
     hasPrevious: Boolean,
-    context: Context,
-    isReadOnly: Boolean = false
+    @Suppress("UNUSED_PARAMETER") context: Context, // Kept for API compatibility
+    isReadOnly: Boolean = false,
+    exoPlayer: ExoPlayer? = null // The ViewModel's single ExoPlayer instance
 ) {
-    var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
+    // Uses the ViewModel's ExoPlayer for video display - NO separate player created
     var isFullscreen by remember { mutableStateOf(false) }
+    val useLightSystemIcons = !isSystemInDarkTheme()
     
-    // Create ExoPlayer
-    DisposableEffect(file.uri) {
-        val player = ExoPlayer.Builder(context).build()
-        exoPlayer = player
-        
-        val mediaItem = MediaItem.fromUri(file.localUri ?: file.uri)
-        player.setMediaItem(mediaItem)
-        player.prepare()
-        
-        onDispose {
-            player.release()
-        }
-    }
-    
-    // Sync playback state
-    LaunchedEffect(isPlaying, exoPlayer) {
-        exoPlayer?.let { player ->
-            if (isPlaying && !player.isPlaying) {
-                player.play()
-            } else if (!isPlaying && player.isPlaying) {
-                player.pause()
-            }
-        }
-    }
-    
-    // Sync position
-    LaunchedEffect(currentPosition, exoPlayer) {
-        exoPlayer?.let { player ->
-            val diff = kotlin.math.abs(player.currentPosition - currentPosition)
-            if (diff > 500) {
-                player.seekTo(currentPosition)
-            }
-        }
+    // Fullscreen Dialog
+    if (isFullscreen && exoPlayer != null) {
+        FullscreenVideoDialog(
+            exoPlayer = exoPlayer,
+            isPlaying = isPlaying,
+            isBuffering = isBuffering,
+            currentPosition = currentPosition,
+            duration = duration,
+            volume = volume,
+            onPlay = onPlay,
+            onPause = onPause,
+            onSeek = onSeek,
+            onVolumeChange = onVolumeChange,
+            onNext = onNext,
+            onPrevious = onPrevious,
+            hasNext = hasNext,
+            hasPrevious = hasPrevious,
+            isReadOnly = isReadOnly,
+            onExitFullscreen = { isFullscreen = false }
+        )
     }
     
     Card(
@@ -1063,27 +1303,43 @@ private fun VideoPlayerCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Video player view with fullscreen support
+            // Video player view
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(
-                        if (isFullscreen) Modifier.fillMaxHeight()
-                        else Modifier.aspectRatio(16f / 9f)
-                    )
+                    .aspectRatio(16f / 9f)
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color.Black)
+                    .clickable { isFullscreen = true }
             ) {
+                // Display video using the ViewModel's ExoPlayer (no new player created)
+                // Use key() to prevent unnecessary re-creation of PlayerView
                 exoPlayer?.let { player ->
-                    AndroidView(
-                        factory = { ctx ->
-                            PlayerView(ctx).apply {
-                                this.player = player
-                                useController = false
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    key(player) {
+                        AndroidView(
+                            factory = { ctx ->
+                                PlayerView(ctx).apply {
+                                    this.player = player
+                                    useController = false
+                                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER) // We show our own indicator
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                } ?: run {
+                    // Placeholder if no player
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            TablerIcons.Video,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
                 }
                 
                 // Buffering indicator
@@ -1104,92 +1360,349 @@ private fun VideoPlayerCard(
                     contentAlignment = Alignment.TopEnd
                 ) {
                     IconButton(
-                        onClick = { isFullscreen = !isFullscreen },
+                        onClick = { isFullscreen = true },
                         colors = IconButtonDefaults.iconButtonColors(
                             containerColor = Color.Black.copy(alpha = 0.5f),
                             contentColor = Color.White
                         )
                     ) {
                         Icon(
-                            imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                            contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen"
+                            imageVector = TablerIcons.ArrowsMaximize,
+                            contentDescription = "Fullscreen"
                         )
                     }
                 }
             }
             
-            // Hide controls in fullscreen mode
-            if (!isFullscreen) {
-                Column {
-                    Slider(
-                        value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
-                        onValueChange = { if (!isReadOnly) onSeek((it * duration).toLong()) },
-                        enabled = !isReadOnly
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(formatDuration(currentPosition), style = MaterialTheme.typography.bodySmall)
-                        Text(formatDuration(duration), style = MaterialTheme.typography.bodySmall)
-                    }
+            // Progress bar
+            Column {
+                Slider(
+                    value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
+                    onValueChange = { if (!isReadOnly) onSeek((it * duration).toLong()) },
+                    enabled = !isReadOnly
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(formatDuration(currentPosition), style = MaterialTheme.typography.bodySmall)
+                    Text(formatDuration(duration), style = MaterialTheme.typography.bodySmall)
                 }
-            
-                // Playback controls
-                if (!isReadOnly) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = onPrevious, enabled = hasPrevious) {
-                            Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
-                        }
-                        
-                        IconButton(onClick = { onSeek(maxOf(0, currentPosition - 10000)) }) {
-                            Icon(Icons.Filled.Replay10, contentDescription = "Rewind 10s")
-                        }
-                        
-                        FilledIconButton(
-                            onClick = { if (isPlaying) onPause() else onPlay() },
-                            modifier = Modifier.size(56.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                        
-                        IconButton(onClick = { onSeek(currentPosition + 10000) }) {
-                            Icon(Icons.Filled.Forward10, contentDescription = "Forward 10s")
-                        }
-                        
-                        IconButton(onClick = onNext, enabled = hasNext) {
-                            Icon(Icons.Filled.SkipNext, contentDescription = "Next")
-                        }
+            }
+        
+            // Playback controls
+            if (!isReadOnly) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onPrevious, enabled = hasPrevious) {
+                        Icon(TablerIcons.PlayerSkipBack, contentDescription = "Previous")
                     }
-                } else {
-                    // Sync indicator
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                    
+                    IconButton(onClick = { onSeek(maxOf(0, currentPosition - 10000)) }) {
+                        Icon(TablerIcons.Rotate2, contentDescription = "Rewind 10s")
+                    }
+                    
+                    FilledIconButton(
+                        onClick = { if (isPlaying) onPause() else onPlay() },
+                        modifier = Modifier.size(56.dp)
                     ) {
                         Icon(
-                            Icons.Filled.Sync,
-                            contentDescription = null,
-                            tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                            imageVector = if (isPlaying) TablerIcons.PlayerPause else TablerIcons.PlayerPlay,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            modifier = Modifier.size(28.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    
+                    IconButton(onClick = { onSeek(currentPosition + 10000) }) {
+                        Icon(TablerIcons.RotateClockwise2, contentDescription = "Forward 10s")
+                    }
+                    
+                    IconButton(onClick = onNext, enabled = hasNext) {
+                        Icon(TablerIcons.PlayerSkipForward, contentDescription = "Next")
+                    }
+                }
+                
+                // Volume control (only shown for host)
+                if (onVolumeChange != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (volume == 0f) TablerIcons.Volume3 
+                                         else if (volume < 0.5f) TablerIcons.Volume2 
+                                         else TablerIcons.Volume,
+                            contentDescription = "Volume",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Slider(
+                            value = volume,
+                            onValueChange = onVolumeChange,
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.secondary,
+                                activeTrackColor = MaterialTheme.colorScheme.secondary
+                            )
+                        )
                         Text(
-                            text = if (isPlaying) "Synced with host" else "Waiting for host",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "${(volume * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.width(40.dp)
                         )
                     }
                 }
-            } // End of !isFullscreen
+            } else {
+                // Sync indicator
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        TablerIcons.Refresh,
+                        contentDescription = null,
+                        tint = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isPlaying) "Synced with host" else "Waiting for host",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Fullscreen video dialog with immersive mode
+ */
+@Composable
+private fun FullscreenVideoDialog(
+    exoPlayer: ExoPlayer?,
+    isPlaying: Boolean,
+    isBuffering: Boolean,
+    currentPosition: Long,
+    duration: Long,
+    volume: Float,
+    onPlay: () -> Unit,
+    onPause: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onVolumeChange: ((Float) -> Unit)?,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    hasNext: Boolean,
+    hasPrevious: Boolean,
+    isReadOnly: Boolean,
+    onExitFullscreen: () -> Unit
+) {
+    val context = LocalContext.current
+    val useLightSystemIcons = !isSystemInDarkTheme()
+    var showControls by remember { mutableStateOf(true) }
+    
+    // Handle back button to exit fullscreen
+    BackHandler { onExitFullscreen() }
+    
+    // Hide controls after 3 seconds
+    LaunchedEffect(showControls) {
+        if (showControls && isPlaying) {
+            kotlinx.coroutines.delay(3000)
+            showControls = false
+        }
+    }
+    
+    Dialog(
+        onDismissRequest = onExitFullscreen,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        // Enter immersive mode
+        val activity = context as? Activity
+        DisposableEffect(Unit) {
+            activity?.window?.let { window ->
+                // Keep screen on during fullscreen playback
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                
+                // Hide system bars for immersive mode
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                val controller = WindowInsetsControllerCompat(window, window.decorView)
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+            
+            onDispose {
+                activity?.window?.let { window ->
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
+                    val controller = WindowInsetsControllerCompat(window, window.decorView)
+                    controller.show(WindowInsetsCompat.Type.systemBars())
+                    
+                    // Restore system bar appearance to match app theme
+                    val systemBarColor = Color.Transparent.toArgb()
+                    window.statusBarColor = systemBarColor
+                    window.navigationBarColor = systemBarColor
+                    controller.isAppearanceLightStatusBars = useLightSystemIcons
+                    controller.isAppearanceLightNavigationBars = useLightSystemIcons
+                }
+            }
+        }
+        
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .clickable { showControls = !showControls }
+        ) {
+            // Video player - use key() to prevent unnecessary re-creation
+            exoPlayer?.let { player ->
+                key(player) {
+                    AndroidView(
+                        factory = { ctx ->
+                            PlayerView(ctx).apply {
+                                this.player = player
+                                useController = false
+                                setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+            
+            // Buffering indicator
+            if (isBuffering) {
+                CircularProgressIndicator(
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+            
+            // Controls overlay
+            AnimatedVisibility(
+                visible = showControls,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.4f))
+                ) {
+                    // Close button (top right)
+                    IconButton(
+                        onClick = onExitFullscreen,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(16.dp),
+                        colors = IconButtonDefaults.iconButtonColors(
+                            containerColor = Color.Black.copy(alpha = 0.5f),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(
+                            TablerIcons.ArrowsMinimize,
+                            contentDescription = "Exit fullscreen"
+                        )
+                    }
+                    
+                    // Center playback controls
+                    if (!isReadOnly) {
+                        Row(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalArrangement = Arrangement.spacedBy(32.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { onSeek(maxOf(0, currentPosition - 10000)) },
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    TablerIcons.Rotate2,
+                                    contentDescription = "Rewind 10s",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            }
+                            
+                            FilledIconButton(
+                                onClick = { 
+                                    if (isPlaying) onPause() else onPlay()
+                                    showControls = true
+                                },
+                                modifier = Modifier.size(72.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = Color.White.copy(alpha = 0.9f),
+                                    contentColor = Color.Black
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = if (isPlaying) TablerIcons.PlayerPause else TablerIcons.PlayerPlay,
+                                    contentDescription = if (isPlaying) "Pause" else "Play",
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            }
+                            
+                            IconButton(
+                                onClick = { onSeek(currentPosition + 10000) },
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    TablerIcons.RotateClockwise2,
+                                    contentDescription = "Forward 10s",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(40.dp)
+                                )
+                            }
+                        }
+                    }
+                    
+                    // Bottom progress bar
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Slider(
+                            value = if (duration > 0) currentPosition.toFloat() / duration else 0f,
+                            onValueChange = { if (!isReadOnly) onSeek((it * duration).toLong()) },
+                            enabled = !isReadOnly,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = Color.White,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                            )
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                formatDuration(currentPosition),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White
+                            )
+                            Text(
+                                formatDuration(duration),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1204,56 +1717,39 @@ private fun HostControlCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "Hosting Control",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            
             if (isHosting) {
-                Button(
+                DuolingoButton(
+                    text = "END SESSION",
                     onClick = onStopHosting,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    ),
+                    icon = TablerIcons.PlayerStop,
+                    color = DuoRed,
+                    shadowColor = DuoRedShadow,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Filled.Stop, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Stop Hosting")
-                }
+                )
             } else {
-                Button(
+                DuolingoButton(
+                    text = if (isLoading) "STARTING..." else "START SESSION",
                     onClick = onStartHosting,
+                    icon = TablerIcons.Microphone,
+                    color = DuoGreen,
+                    shadowColor = DuoGreenShadow,
                     enabled = hasFiles && !isLoading,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Starting...")
-                    } else {
-                        Icon(Icons.Filled.Podcasts, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Start Hosting")
-                    }
-                }
+                )
                 
                 if (!hasFiles) {
                     Text(
-                        text = "Select files first to start hosting",
+                        text = "Select files first to start a session",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = DuoTextSecondary
                     )
                 }
             }
@@ -1275,16 +1771,19 @@ private fun ConnectionCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Connect to Host",
+                text = "CONNECT TO HOST",
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                color = DuoTextPrimary
             )
             
             OutlinedTextField(
@@ -1294,7 +1793,16 @@ private fun ConnectionCard(
                 placeholder = { Text("192.168.1.x") },
                 enabled = !isConnected,
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = DuoBlue,
+                    unfocusedBorderColor = DuoSurfaceHighlight,
+                    focusedLabelColor = DuoBlue,
+                    unfocusedLabelColor = DuoTextSecondary,
+                    cursorColor = DuoBlue,
+                    focusedTextColor = DuoTextPrimary,
+                    unfocusedTextColor = DuoTextPrimary
+                )
             )
             
             OutlinedTextField(
@@ -1303,41 +1811,37 @@ private fun ConnectionCard(
                 label = { Text("Session ID") },
                 enabled = !isConnected,
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = DuoBlue,
+                    unfocusedBorderColor = DuoSurfaceHighlight,
+                    focusedLabelColor = DuoBlue,
+                    unfocusedLabelColor = DuoTextSecondary,
+                    cursorColor = DuoBlue,
+                    focusedTextColor = DuoTextPrimary,
+                    unfocusedTextColor = DuoTextPrimary
+                )
             )
             
             if (isConnected) {
-                Button(
+                DuolingoButton(
+                    text = "DISCONNECT",
                     onClick = onDisconnect,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    ),
+                    icon = TablerIcons.Unlink,
+                    color = DuoRed,
+                    shadowColor = DuoRedShadow,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Filled.LinkOff, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Disconnect")
-                }
+                )
             } else {
-                Button(
+                DuolingoButton(
+                    text = if (isLoading) "CONNECTING..." else "CONNECT",
                     onClick = onConnect,
+                    icon = TablerIcons.Link,
+                    color = DuoBlue,
+                    shadowColor = DuoBlueShadow,
                     enabled = !isLoading,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Connecting...")
-                    } else {
-                        Icon(Icons.Filled.Link, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Connect")
-                    }
-                }
+                )
             }
         }
     }
@@ -1349,23 +1853,26 @@ private fun TransferProgressCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoSurface),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Downloading Files",
+                text = "DOWNLOADING FILES",
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                color = DuoTextPrimary
             )
             
             if (progress.isEmpty()) {
                 Text(
                     text = "Verifying local files...",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = DuoTextSecondary
                 )
             } else {
                 progress.forEach { (fileName, transfer) ->
@@ -1379,16 +1886,20 @@ private fun TransferProgressCard(
                                 style = MaterialTheme.typography.bodySmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                color = DuoTextPrimary
                             )
                             Text(
                                 text = "${(transfer.progressPercent * 100).toInt()}%",
-                                style = MaterialTheme.typography.bodySmall
+                                style = MaterialTheme.typography.bodySmall,
+                                color = DuoBlue
                             )
                         }
                         LinearProgressIndicator(
                             progress = { transfer.progressPercent },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            color = DuoBlue,
+                            trackColor = DuoSurfaceHighlight
                         )
                     }
                 }
@@ -1400,13 +1911,16 @@ private fun TransferProgressCard(
 @Composable
 private fun DriftIndicatorCard(driftMs: Long) {
     val absDrift = kotlin.math.abs(driftMs)
-    val isMeasuring = absDrift == 0L
+    // Show "measuring" only for the initial zero state before the first
+    // sync pulse arrives - a playing session never shows it (previously the
+    // value blinked between 0 and real drift, flipping this state constantly)
+    val isMeasuring = driftMs == 0L
     
     val driftColor = when {
-        isMeasuring -> MaterialTheme.colorScheme.outline
-        absDrift < 30 -> MaterialTheme.colorScheme.primary
-        absDrift < 70 -> Color(0xFFFF9800) // Orange
-        else -> MaterialTheme.colorScheme.error
+        isMeasuring -> DuoTextDisabled
+        absDrift < 30 -> DuoGreen
+        absDrift < 70 -> DuoOrange
+        else -> DuoRed
     }
     
     Card(
@@ -1414,7 +1928,8 @@ private fun DriftIndicatorCard(driftMs: Long) {
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = driftColor.copy(alpha = 0.1f)
-        )
+        ),
+        border = androidx.compose.foundation.BorderStroke(1.dp, driftColor.copy(alpha = 0.3f))
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -1422,13 +1937,13 @@ private fun DriftIndicatorCard(driftMs: Long) {
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Icon(
-                if (isMeasuring) Icons.Filled.Sync else Icons.Filled.Timer,
+                if (isMeasuring) TablerIcons.Refresh else TablerIcons.Clock,
                 contentDescription = null,
                 tint = driftColor
             )
             Column {
                 Text(
-                    text = if (isMeasuring) "Sync Drift: Measuring..." else "Sync Drift: ${absDrift}ms",
+                    text = if (isMeasuring) "SYNC DRIFT: MEASURING..." else "SYNC DRIFT: ${absDrift}ms",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = driftColor
@@ -1442,7 +1957,7 @@ private fun DriftIndicatorCard(driftMs: Long) {
                         else -> "High drift - try reconnecting"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = DuoTextSecondary
                 )
             }
         }
@@ -1463,8 +1978,9 @@ private fun SyncStatsCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
+            containerColor = DuoSurface
+        ),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -1475,15 +1991,16 @@ private fun SyncStatsCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    Icons.Filled.Analytics,
+                    TablerIcons.ChartBar,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = DuoBlue,
                     modifier = Modifier.size(20.dp)
                 )
                 Text(
-                    text = "Sync Statistics",
+                    text = "SYNC STATISTICS",
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    color = DuoTextPrimary
                 )
             }
             
@@ -1501,9 +2018,9 @@ private fun SyncStatsCard(
                         label = "Clock Offset",
                         value = "${clockOffsetMs}ms",
                         valueColor = when {
-                            kotlin.math.abs(clockOffsetMs) < 50 -> MaterialTheme.colorScheme.primary
-                            kotlin.math.abs(clockOffsetMs) < 200 -> Color(0xFFFF9800)
-                            else -> MaterialTheme.colorScheme.error
+                            kotlin.math.abs(clockOffsetMs) < 50 -> DuoGreen
+                            kotlin.math.abs(clockOffsetMs) < 200 -> DuoOrange
+                            else -> DuoRed
                         }
                     )
                     if (!isHost) {
@@ -1512,10 +2029,10 @@ private fun SyncStatsCard(
                             label = "Drift",
                             value = if (absDrift == 0L) "..." else "${absDrift}ms",
                             valueColor = when {
-                                absDrift == 0L -> MaterialTheme.colorScheme.outline
-                                absDrift < 30 -> MaterialTheme.colorScheme.primary
-                                absDrift < 70 -> Color(0xFFFF9800)
-                                else -> MaterialTheme.colorScheme.error
+                                absDrift == 0L -> DuoTextDisabled
+                                absDrift < 30 -> DuoGreen
+                                absDrift < 70 -> DuoOrange
+                                else -> DuoRed
                             }
                         )
                     }
@@ -1526,7 +2043,7 @@ private fun SyncStatsCard(
                     StatRow(
                         label = "Status",
                         value = if (isPlaying) "Playing" else "Paused",
-                        valueColor = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        valueColor = if (isPlaying) DuoGreen else DuoTextSecondary
                     )
                     if (isHost) {
                         StatRow(
@@ -1548,7 +2065,7 @@ private fun SyncStatsCard(
 private fun StatRow(
     label: String,
     value: String,
-    valueColor: Color = MaterialTheme.colorScheme.onSurface
+    valueColor: Color = DuoTextPrimary
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1557,7 +2074,7 @@ private fun StatRow(
         Text(
             text = "$label:",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = DuoTextSecondary
         )
         Text(
             text = value,
@@ -1577,8 +2094,9 @@ private fun InstructionsCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+            containerColor = DuoSurface
+        ),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -1589,14 +2107,15 @@ private fun InstructionsCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    Icons.Outlined.Info,
+                    TablerIcons.InfoCircle,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = DuoBlue
                 )
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    color = DuoTextPrimary
                 )
             }
             
@@ -1607,13 +2126,13 @@ private fun InstructionsCard(
                     Text(
                         text = "${index + 1}.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = DuoBlue,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = instruction,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = DuoTextSecondary
                     )
                 }
             }

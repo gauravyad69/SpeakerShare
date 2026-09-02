@@ -96,7 +96,7 @@ class WebRTCManager @Inject constructor(
             Timber.d("Started broadcasting audio")
             true
         } catch (e: Exception) {
-            Timber.e("Failed to start broadcasting", e)
+            Timber.e(e, "Failed to start broadcasting")
             false
         }
     }
@@ -166,7 +166,7 @@ class WebRTCManager @Inject constructor(
             Timber.d("Peer connection added for client: $clientId")
             true
         } catch (e: Exception) {
-            Timber.e("Failed to add peer connection for client: $clientId", e)
+            Timber.e(e, "Failed to add peer connection for client: $clientId")
             false
         }
     }
@@ -285,7 +285,7 @@ class WebRTCManager @Inject constructor(
                     }, constraints)
                     
                 } catch (e: Exception) {
-                    Timber.e("Failed to create offer for client: $clientId", e)
+                    Timber.e(e, "Failed to create offer for client: $clientId")
                     continuation.resume(null)
                 }
             } ?: continuation.resume(null)
@@ -318,7 +318,7 @@ class WebRTCManager @Inject constructor(
                         }
                     }, answer)
                 } catch (e: Exception) {
-                    Timber.e("Failed to set remote description for client: $clientId", e)
+                    Timber.e(e, "Failed to set remote description for client: $clientId")
                     continuation.resume(false)
                 }
             } ?: continuation.resume(false)

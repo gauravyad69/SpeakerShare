@@ -6,10 +6,15 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import timber.log.Timber
 import io.ktor.client.*
+import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.*
+import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.websocket.*
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
@@ -34,7 +39,7 @@ class SyncedFileTransfer @Inject constructor() {
     
     companion object {
         private const val CACHE_DIR = "synced_media"
-        private const val CHUNK_SIZE = 64 * 1024 // 64KB chunks
+        private const val CHUNK_SIZE = 256 * 1024 // 256KB chunks for faster transfer
         const val FILE_SERVE_PORT = 9092
     }
     
@@ -67,7 +72,7 @@ class SyncedFileTransfer @Inject constructor() {
                 digest.digest().joinToString("") { "%02x".format(it) }
                 
             } catch (e: Exception) {
-                Timber.e("Failed to calculate file hash", e)
+                Timber.e(e, "Failed to calculate file hash")
                 ""
             }
         }
@@ -110,7 +115,7 @@ class SyncedFileTransfer @Inject constructor() {
                     } else null
                 }
             } catch (e: Exception) {
-                Timber.e("Failed to get file metadata", e)
+                Timber.e(e, "Failed to get file metadata")
                 null
             }
         }
@@ -156,14 +161,14 @@ class SyncedFileTransfer @Inject constructor() {
                 null
                 
             } catch (e: Exception) {
-                Timber.e("Error finding local file", e)
+                Timber.e(e, "Error finding local file")
                 null
             }
         }
     }
     
     /**
-     * Download file from host
+     * Download file from host using streaming to avoid OOM
      */
     suspend fun downloadFile(
         context: Context,
@@ -182,13 +187,6 @@ class SyncedFileTransfer @Inject constructor() {
                     status = TransferStatus.DOWNLOADING
                 ))
                 
-                val client = HttpClient {
-                    install(HttpTimeout) {
-                        requestTimeoutMillis = 5 * 60 * 1000 // 5 minutes
-                        connectTimeoutMillis = 10_000
-                    }
-                }
-                
                 // Create cache directory
                 val cacheDir = File(context.cacheDir, CACHE_DIR)
                 cacheDir.mkdirs()
@@ -197,27 +195,36 @@ class SyncedFileTransfer @Inject constructor() {
                 val tempFile = File(cacheDir, "${file.contentHash}.tmp")
                 val finalFile = File(cacheDir, file.contentHash)
                 
-                val response = client.get("http://$hostAddress:${SyncedPlaybackServer.SYNC_SERVER_PORT}/file/${file.contentHash}") {
-                    onDownload { bytesSentTotal, contentLength ->
-                        updateProgress(file.contentHash, TransferProgress(
-                            fileName = file.name,
-                            totalBytes = contentLength,
-                            downloadedBytes = bytesSentTotal,
-                            status = TransferStatus.DOWNLOADING
-                        ))
-                    }
-                }
+                // Use raw URL connection for large file streaming to avoid Ktor OOM
+                val url = java.net.URL("http://$hostAddress:${SyncedPlaybackServer.SYNC_SERVER_PORT}/file/${file.contentHash}")
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 5 * 60 * 1000 // 5 minutes
+                connection.requestMethod = "GET"
                 
-                if (response.status == HttpStatusCode.OK) {
-                    // Write to file
-                    FileOutputStream(tempFile).use { output ->
-                        val channel = response.bodyAsChannel()
-                        val buffer = ByteArray(CHUNK_SIZE)
-                        
-                        while (!channel.isClosedForRead) {
-                            val bytesRead = channel.readAvailable(buffer, 0, buffer.size)
-                            if (bytesRead > 0) {
+                val responseCode = connection.responseCode
+                if (responseCode == java.net.HttpURLConnection.HTTP_OK) {
+                    val contentLength = connection.contentLengthLong.takeIf { it > 0 } ?: file.sizeBytes
+                    var downloadedBytes = 0L
+                    
+                    connection.inputStream.use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            val buffer = ByteArray(CHUNK_SIZE)
+                            var bytesRead: Int
+                            
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
                                 output.write(buffer, 0, bytesRead)
+                                downloadedBytes += bytesRead
+                                
+                                // Update progress periodically (every ~256KB)
+                                if (downloadedBytes % (CHUNK_SIZE * 4) < CHUNK_SIZE) {
+                                    updateProgress(file.contentHash, TransferProgress(
+                                        fileName = file.name,
+                                        totalBytes = contentLength,
+                                        downloadedBytes = downloadedBytes,
+                                        status = TransferStatus.DOWNLOADING
+                                    ))
+                                }
                             }
                         }
                     }
@@ -225,7 +232,14 @@ class SyncedFileTransfer @Inject constructor() {
                     // Verify hash
                     val downloadedHash = calculateLocalFileHash(tempFile)
                     if (downloadedHash == file.contentHash) {
-                        tempFile.renameTo(finalFile)
+                        // Try rename, fall back to copy if rename fails (cross-filesystem)
+                        val renameSuccess = tempFile.renameTo(finalFile)
+                        if (!renameSuccess) {
+                            // Copy and delete if rename fails
+                            tempFile.copyTo(finalFile, overwrite = true)
+                            tempFile.delete()
+                            Timber.d("Used copy fallback for file rename")
+                        }
                         
                         updateProgress(file.contentHash, TransferProgress(
                             fileName = file.name,
@@ -235,7 +249,6 @@ class SyncedFileTransfer @Inject constructor() {
                         ))
                         
                         Timber.i("Downloaded and verified: ${file.name}")
-                        client.close()
                         return@withContext Uri.fromFile(finalFile)
                     } else {
                         Timber.e("Hash mismatch after download")
@@ -249,21 +262,21 @@ class SyncedFileTransfer @Inject constructor() {
                         ))
                     }
                 } else {
-                    Timber.e("Download failed: ${response.status}")
+                    Timber.e("Download failed: HTTP $responseCode")
                     updateProgress(file.contentHash, TransferProgress(
                         fileName = file.name,
                         totalBytes = file.sizeBytes,
                         downloadedBytes = 0,
                         status = TransferStatus.FAILED,
-                        error = "HTTP ${response.status}"
+                        error = "HTTP $responseCode"
                     ))
                 }
                 
-                client.close()
+                connection.disconnect()
                 null
                 
             } catch (e: Exception) {
-                Timber.e("Download failed", e)
+                Timber.e(e, "Download failed")
                 updateProgress(file.contentHash, TransferProgress(
                     fileName = file.name,
                     totalBytes = file.sizeBytes,
@@ -273,6 +286,180 @@ class SyncedFileTransfer @Inject constructor() {
                 ))
                 null
             }
+        }
+    }
+    
+    private val gson = Gson()
+    
+    /**
+     * Download file from host via WebSocket (faster, with real-time progress)
+     * Falls back to HTTP if WebSocket fails
+     */
+    suspend fun downloadFileViaWebSocket(
+        context: Context,
+        hostAddress: String,
+        file: SyncedMediaFile,
+        resumeOffset: Long = 0L
+    ): Uri? {
+        return withContext(Dispatchers.IO) {
+            try {
+                Timber.d("WebSocket download starting: ${file.name} from $hostAddress")
+                
+                updateProgress(file.contentHash, TransferProgress(
+                    fileName = file.name,
+                    totalBytes = file.sizeBytes,
+                    downloadedBytes = resumeOffset,
+                    status = TransferStatus.DOWNLOADING
+                ))
+                
+                // Create cache directory
+                val cacheDir = File(context.cacheDir, CACHE_DIR)
+                cacheDir.mkdirs()
+                
+                val tempFile = File(cacheDir, "${file.contentHash}.tmp")
+                val finalFile = File(cacheDir, file.contentHash)
+                
+                // If resuming, check temp file exists
+                val actualOffset = if (resumeOffset > 0 && tempFile.exists()) {
+                    minOf(resumeOffset, tempFile.length())
+                } else {
+                    if (tempFile.exists()) tempFile.delete()
+                    0L
+                }
+                
+                val client = HttpClient(CIO) {
+                    install(WebSockets) {
+                        pingInterval = 15_000
+                    }
+                    engine {
+                        requestTimeout = 5 * 60 * 1000 // 5 minutes
+                    }
+                }
+                
+                var downloadedBytes = actualOffset
+                var success = false
+                
+                try {
+                    client.webSocket(
+                        host = hostAddress,
+                        port = SyncedPlaybackServer.SYNC_SERVER_PORT,
+                        path = "/file/ws/${file.contentHash}"
+                    ) {
+                        // Wait for file_start message
+                        val startFrame = incoming.receive()
+                        if (startFrame is Frame.Text) {
+                            val msg = parseJsonMap(startFrame.readText())
+                            if (msg["type"] == "error") {
+                                Timber.e("Server error: ${msg["message"]}")
+                                return@webSocket
+                            }
+                            Timber.d("File transfer started: ${msg["size"]} bytes")
+                        }
+                        
+                        // Send resume offset if needed
+                        send(Frame.Text(gson.toJson(mapOf(
+                            "type" to "resume",
+                            "offset" to actualOffset
+                        ))))
+                        
+                        // Open file for writing (append if resuming)
+                        FileOutputStream(tempFile, actualOffset > 0).use { output ->
+                            for (frame in incoming) {
+                                when (frame) {
+                                    is Frame.Binary -> {
+                                        // Write binary data to file
+                                        // IMPORTANT: readBytes() consumes the buffer, so we must only call it once!
+                                        val bytes = frame.readBytes()
+                                        output.write(bytes)
+                                        downloadedBytes += bytes.size
+                                        
+                                        // Update progress every ~256KB
+                                        if (downloadedBytes % (256 * 1024) < 65536) {
+                                            updateProgress(file.contentHash, TransferProgress(
+                                                fileName = file.name,
+                                                totalBytes = file.sizeBytes,
+                                                downloadedBytes = downloadedBytes,
+                                                status = TransferStatus.DOWNLOADING
+                                            ))
+                                        }
+                                    }
+                                    is Frame.Text -> {
+                                        val msg = parseJsonMap(frame.readText())
+                                        when (msg["type"]) {
+                                            "progress" -> {
+                                                // Server-sent progress (every 256KB)
+                                                val sent = (msg["sent"] as? Number)?.toLong() ?: downloadedBytes
+                                                downloadedBytes = sent
+                                                updateProgress(file.contentHash, TransferProgress(
+                                                    fileName = file.name,
+                                                    totalBytes = file.sizeBytes,
+                                                    downloadedBytes = downloadedBytes,
+                                                    status = TransferStatus.DOWNLOADING
+                                                ))
+                                            }
+                                            "file_complete" -> {
+                                                Timber.d("Server reports transfer complete")
+                                                success = true
+                                            }
+                                            "error" -> {
+                                                Timber.e("Transfer error: ${msg["message"]}")
+                                            }
+                                        }
+                                    }
+                                    is Frame.Close -> {
+                                        Timber.d("WebSocket closed")
+                                    }
+                                    else -> {}
+                                }
+                                // Exit loop when complete
+                                if (success) break
+                            }
+                        }
+                    }
+                } finally {
+                    client.close()
+                }
+                
+                if (success) {
+                    // Verify hash
+                    val downloadedHash = calculateLocalFileHash(tempFile)
+                    Timber.d("WebSocket download hash check: expected=${file.contentHash.take(16)}..., got=${downloadedHash.take(16)}..., file size=${tempFile.length()}, expected=${file.sizeBytes}")
+                    if (downloadedHash == file.contentHash) {
+                        tempFile.renameTo(finalFile)
+                        
+                        updateProgress(file.contentHash, TransferProgress(
+                            fileName = file.name,
+                            totalBytes = file.sizeBytes,
+                            downloadedBytes = file.sizeBytes,
+                            status = TransferStatus.COMPLETED
+                        ))
+                        
+                        Timber.i("WebSocket download verified: ${file.name}")
+                        return@withContext Uri.fromFile(finalFile)
+                    } else {
+                        Timber.e("Hash mismatch after WebSocket download: expected=${file.contentHash.take(16)}..., got=${downloadedHash.take(16)}..., downloaded=${tempFile.length()} bytes, expected=${file.sizeBytes} bytes")
+                        tempFile.delete()
+                    }
+                }
+                
+                // Fall back to HTTP if WebSocket failed
+                Timber.w("WebSocket download failed, falling back to HTTP")
+                downloadFile(context, hostAddress, file)
+                
+            } catch (e: Exception) {
+                Timber.e(e, "WebSocket download error, falling back to HTTP")
+                // Fall back to HTTP
+                downloadFile(context, hostAddress, file)
+            }
+        }
+    }
+    
+    private fun parseJsonMap(json: String): Map<String, Any?> {
+        return try {
+            val mapType = object : TypeToken<Map<String, Any?>>() {}.type
+            gson.fromJson(json, mapType)
+        } catch (e: Exception) {
+            emptyMap()
         }
     }
     
@@ -291,7 +478,7 @@ class SyncedFileTransfer @Inject constructor() {
                 }
                 
             } catch (e: Exception) {
-                Timber.e("Failed to serve file", e)
+                Timber.e(e, "Failed to serve file")
                 null
             }
         }
@@ -308,7 +495,7 @@ class SyncedFileTransfer @Inject constructor() {
                 Timber.i("Cache cleared")
             }
         } catch (e: Exception) {
-            Timber.e("Failed to clear cache", e)
+            Timber.e(e, "Failed to clear cache")
         }
     }
     

@@ -81,6 +81,27 @@ class SettingsViewModel @Inject constructor(
     private val _autoStopTimer = MutableStateFlow(0) // 0 = no auto-stop
     val autoStopTimer: StateFlow<Int> = _autoStopTimer.asStateFlow()
 
+    // Audio sync settings
+    private val _audioSyncPositionTolerance = MutableStateFlow(250) // ms
+    val audioSyncPositionTolerance: StateFlow<Int> = _audioSyncPositionTolerance.asStateFlow()
+
+    private val _audioSyncMinSeekInterval = MutableStateFlow(2000) // ms  
+    val audioSyncMinSeekInterval: StateFlow<Int> = _audioSyncMinSeekInterval.asStateFlow()
+
+    // Video sync settings
+    private val _videoSyncPositionTolerance = MutableStateFlow(500) // ms
+    val videoSyncPositionTolerance: StateFlow<Int> = _videoSyncPositionTolerance.asStateFlow()
+
+    private val _videoSyncMinSeekInterval = MutableStateFlow(5000) // ms  
+    val videoSyncMinSeekInterval: StateFlow<Int> = _videoSyncMinSeekInterval.asStateFlow()
+
+    // Legacy sync settings (for backward compatibility)
+    private val _syncPositionTolerance = MutableStateFlow(250) // ms
+    val syncPositionTolerance: StateFlow<Int> = _syncPositionTolerance.asStateFlow()
+
+    private val _syncMinSeekInterval = MutableStateFlow(3000) // ms  
+    val syncMinSeekInterval: StateFlow<Int> = _syncMinSeekInterval.asStateFlow()
+
     // UI state
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -94,6 +115,7 @@ class SettingsViewModel @Inject constructor(
     init {
         loadSettings()
         loadLatencyProfile()
+        loadSyncSettings()
         observeSettingsChanges()
     }
     
@@ -105,6 +127,21 @@ class SettingsViewModel @Inject constructor(
         _latencyProfile.value = savedProfile
         _latencyConfig.value = LatencyConfig.fromProfile(savedProfile)
         audioStreamManager.setLatencyProfile(savedProfile)
+    }
+    
+    /**
+     * Load sync settings from settings repository
+     */
+    private fun loadSyncSettings() {
+        // Load audio sync settings
+        _audioSyncPositionTolerance.value = settingsRepository.getAudioSyncPositionTolerance()
+        _audioSyncMinSeekInterval.value = settingsRepository.getAudioSyncMinSeekInterval()
+        // Load video sync settings
+        _videoSyncPositionTolerance.value = settingsRepository.getVideoSyncPositionTolerance()
+        _videoSyncMinSeekInterval.value = settingsRepository.getVideoSyncMinSeekInterval()
+        // Load legacy settings (for backward compatibility)
+        _syncPositionTolerance.value = settingsRepository.getSyncPositionTolerance()
+        _syncMinSeekInterval.value = settingsRepository.getSyncMinSeekInterval()
     }
 
     /**
@@ -262,6 +299,60 @@ class SettingsViewModel @Inject constructor(
 
     fun setAutoStopTimer(minutes: Int) {
         _autoStopTimer.value = minutes.coerceAtLeast(0)
+    }
+
+    /**
+     * Set audio sync position tolerance (how much drift before corrective seek)
+     */
+    fun setAudioSyncPositionTolerance(toleranceMs: Int) {
+        val clamped = toleranceMs.coerceIn(50, 1000)
+        _audioSyncPositionTolerance.value = clamped
+        settingsRepository.saveAudioSyncPositionTolerance(clamped)
+    }
+
+    /**
+     * Set audio sync minimum seek interval (cooldown between corrective seeks)
+     */
+    fun setAudioSyncMinSeekInterval(intervalMs: Int) {
+        val clamped = intervalMs.coerceIn(500, 10000)
+        _audioSyncMinSeekInterval.value = clamped
+        settingsRepository.saveAudioSyncMinSeekInterval(clamped)
+    }
+
+    /**
+     * Set video sync position tolerance (how much drift before corrective seek)
+     */
+    fun setVideoSyncPositionTolerance(toleranceMs: Int) {
+        val clamped = toleranceMs.coerceIn(100, 2000)
+        _videoSyncPositionTolerance.value = clamped
+        settingsRepository.saveVideoSyncPositionTolerance(clamped)
+    }
+
+    /**
+     * Set video sync minimum seek interval (cooldown between corrective seeks)
+     */
+    fun setVideoSyncMinSeekInterval(intervalMs: Int) {
+        val clamped = intervalMs.coerceIn(1000, 15000)
+        _videoSyncMinSeekInterval.value = clamped
+        settingsRepository.saveVideoSyncMinSeekInterval(clamped)
+    }
+
+    /**
+     * Set sync position tolerance (legacy - updates audio setting)
+     */
+    fun setSyncPositionTolerance(toleranceMs: Int) {
+        val clamped = toleranceMs.coerceIn(50, 1000)
+        _syncPositionTolerance.value = clamped
+        settingsRepository.saveSyncPositionTolerance(clamped)
+    }
+
+    /**
+     * Set sync minimum seek interval (legacy - updates audio setting)
+     */
+    fun setSyncMinSeekInterval(intervalMs: Int) {
+        val clamped = intervalMs.coerceIn(500, 10000)
+        _syncMinSeekInterval.value = clamped
+        settingsRepository.saveSyncMinSeekInterval(clamped)
     }
 
     /**
