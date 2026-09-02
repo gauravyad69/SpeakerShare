@@ -67,7 +67,7 @@ class HttpApiServer @Inject constructor(
             true
             
         } catch (e: Exception) {
-            Timber.e("Failed to start HTTP server", e)
+            Timber.e(e, "Failed to start HTTP server")
             
             scope.launch {
                 _serverEvents.emit(HttpServerEvent.ServerError("Failed to start server: ${e.message}"))
@@ -78,24 +78,24 @@ class HttpApiServer @Inject constructor(
     
     /**
      * Stop HTTP server
+     * Synchronous (suspend) so callers can immediately restart a new server
+     * without racing the shutdown - the previous async stop left isRunning
+     * true and a quick re-host would skip starting the server entirely.
      */
-    fun stopServer() {
+    suspend fun stopServer() {
         if (!isRunning) {
             return
         }
         
-        scope.launch {
-            try {
-                server?.stop(1000, 2000)
-                server = null
-                isRunning = false
-                
-                _serverEvents.emit(HttpServerEvent.ServerStopped)
-                Timber.i("HTTP server stopped")
-                
-            } catch (e: Exception) {
-                Timber.e("Error stopping HTTP server", e)
-            }
+        try {
+            server?.stop(1000, 2000)
+        } catch (e: Exception) {
+            Timber.e(e, "Error stopping HTTP server")
+        } finally {
+            server = null
+            isRunning = false
+            _serverEvents.emit(HttpServerEvent.ServerStopped)
+            Timber.i("HTTP server stopped")
         }
     }
     
@@ -146,6 +146,24 @@ class HttpApiServer @Inject constructor(
     }
     
     /**
+     * Map known API exceptions to proper HTTP responses.
+     * Without this, every API exception falls into the generic catch and
+     * becomes a 500 - e.g. a double-disconnect (UDP DISCONNECT arrives before
+     * the HTTP call) logs an error and returns 500 instead of 404.
+     */
+    private suspend fun io.ktor.server.application.ApplicationCall.respondApiError(e: Exception): Boolean {
+        val (status, code) = when (e) {
+            is BadRequestException -> HttpStatusCode(e.statusCode, e.message ?: "Bad request") to "BAD_REQUEST"
+            is NotFoundException -> HttpStatusCode(e.statusCode, e.message ?: "Not found") to "NOT_FOUND"
+            is TooManyRequestsException -> HttpStatusCode(e.statusCode, e.message ?: "Too many requests") to "TOO_MANY_REQUESTS"
+            is ServiceUnavailableException -> HttpStatusCode(e.statusCode, e.message ?: "Service unavailable") to "SERVICE_UNAVAILABLE"
+            else -> return false
+        }
+        respond(status, ErrorResponse(e.message ?: "API error", code))
+        return true
+    }
+    
+    /**
      * Configure discovery endpoints
      */
     private fun Route.configureDiscoveryRoutes() {
@@ -160,7 +178,7 @@ class HttpApiServer @Inject constructor(
                     }
                     
                 } catch (e: Exception) {
-                    Timber.e("Error handling discovery request", e)
+                    Timber.e(e, "Error handling discovery request")
                     call.respond(
                         HttpStatusCode.InternalServerError,
                         ErrorResponse("Internal server error", "DISCOVERY_ERROR")
@@ -200,11 +218,13 @@ class HttpApiServer @Inject constructor(
                     }
                     
                 } catch (e: Exception) {
-                    Timber.e("Error handling client connect", e)
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ErrorResponse("Invalid request", "CONNECT_ERROR")
-                    )
+                    if (!call.respondApiError(e)) {
+                        Timber.e(e, "Error handling client connect")
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ErrorResponse("Invalid request", "CONNECT_ERROR")
+                        )
+                    }
                 }
             }
             
@@ -232,11 +252,16 @@ class HttpApiServer @Inject constructor(
                     }
                     
                 } catch (e: Exception) {
-                    Timber.e("Error handling client disconnect", e)
-                    call.respond(
-                        HttpStatusCode.InternalServerError,
-                        ErrorResponse("Internal server error", "DISCONNECT_ERROR")
-                    )
+                    // Known API exceptions (NotFound, BadRequest, ...) get proper
+                    // status codes; the client's UDP disconnect usually wins the
+                    // race and the HTTP call finds nothing - that's a 404, not a 500
+                    if (!call.respondApiError(e)) {
+                        Timber.e(e, "Error handling client disconnect")
+                        call.respond(
+                            HttpStatusCode.InternalServerError,
+                            ErrorResponse("Internal server error", "DISCONNECT_ERROR")
+                        )
+                    }
                 }
             }
             
@@ -264,11 +289,13 @@ class HttpApiServer @Inject constructor(
                     }
                     
                 } catch (e: Exception) {
-                    Timber.e("Error handling client kick", e)
-                    call.respond(
-                        HttpStatusCode.InternalServerError,
-                        ErrorResponse("Internal server error", "KICK_ERROR")
-                    )
+                    if (!call.respondApiError(e)) {
+                        Timber.e(e, "Error handling client kick")
+                        call.respond(
+                            HttpStatusCode.InternalServerError,
+                            ErrorResponse("Internal server error", "KICK_ERROR")
+                        )
+                    }
                 }
             }
             
@@ -279,7 +306,7 @@ class HttpApiServer @Inject constructor(
                     call.respond(HttpStatusCode.OK, clientList)
                     
                 } catch (e: Exception) {
-                    Timber.e("Error getting client list", e)
+                    Timber.e(e, "Error getting client list")
                     call.respond(
                         HttpStatusCode.InternalServerError,
                         ErrorResponse("Internal server error", "CLIENT_LIST_ERROR")
@@ -313,7 +340,7 @@ class HttpApiServer @Inject constructor(
                     }
                     
                 } catch (e: Exception) {
-                    Timber.e("Error updating host settings", e)
+                    Timber.e(e, "Error updating host settings")
                     call.respond(
                         HttpStatusCode.BadRequest,
                         ErrorResponse("Invalid settings", "SETTINGS_ERROR")
@@ -335,7 +362,7 @@ class HttpApiServer @Inject constructor(
                     call.respond(HttpStatusCode.OK, status)
                     
                 } catch (e: Exception) {
-                    Timber.e("Error getting session status", e)
+                    Timber.e(e, "Error getting session status")
                     call.respond(
                         HttpStatusCode.InternalServerError,
                         ErrorResponse("Internal server error", "STATUS_ERROR")
@@ -363,7 +390,7 @@ class HttpApiServer @Inject constructor(
                         "t3" to t3
                     ))
                 } catch (e: Exception) {
-                    Timber.e("Clock sync error", e)
+                    Timber.e(e, "Clock sync error")
                     call.respond(HttpStatusCode.InternalServerError, 
                         ErrorResponse("Clock sync failed", "CLOCK_SYNC_ERROR"))
                 }
@@ -379,7 +406,7 @@ class HttpApiServer @Inject constructor(
                         "files" to emptyList<String>()
                     ))
                 } catch (e: Exception) {
-                    Timber.e("Session info error", e)
+                    Timber.e(e, "Session info error")
                     call.respond(HttpStatusCode.InternalServerError,
                         ErrorResponse("Failed to get session info", "SESSION_ERROR"))
                 }
@@ -397,7 +424,7 @@ class HttpApiServer @Inject constructor(
                     
                     call.respond(HttpStatusCode.OK, mapOf("status" to "sent"))
                 } catch (e: Exception) {
-                    Timber.e("Command error", e)
+                    Timber.e(e, "Command error")
                     call.respond(HttpStatusCode.BadRequest,
                         ErrorResponse("Invalid command", "COMMAND_ERROR"))
                 }
@@ -409,7 +436,7 @@ class HttpApiServer @Inject constructor(
                     // TODO: Return queued commands for client
                     call.respond(HttpStatusCode.OK, emptyList<Any>())
                 } catch (e: Exception) {
-                    Timber.e("Commands error", e)
+                    Timber.e(e, "Commands error")
                     call.respond(HttpStatusCode.InternalServerError,
                         ErrorResponse("Failed to get commands", "COMMANDS_ERROR"))
                 }
@@ -424,7 +451,7 @@ class HttpApiServer @Inject constructor(
                     // TODO: Get from SyncedPlaybackManager
                     call.respond(HttpStatusCode.OK, emptyList<Any>())
                 } catch (e: Exception) {
-                    Timber.e("File list error", e)
+                    Timber.e(e, "File list error")
                     call.respond(HttpStatusCode.InternalServerError,
                         ErrorResponse("Failed to get file list", "FILE_LIST_ERROR"))
                 }
@@ -441,7 +468,7 @@ class HttpApiServer @Inject constructor(
                     call.respond(HttpStatusCode.NotFound,
                         ErrorResponse("File not found", "FILE_NOT_FOUND"))
                 } catch (e: Exception) {
-                    Timber.e("File download error", e)
+                    Timber.e(e, "File download error")
                     call.respond(HttpStatusCode.InternalServerError,
                         ErrorResponse("Failed to serve file", "FILE_ERROR"))
                 }

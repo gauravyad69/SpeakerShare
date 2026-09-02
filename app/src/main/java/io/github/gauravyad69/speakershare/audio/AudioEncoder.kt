@@ -255,19 +255,44 @@ class AudioEncoder @Inject constructor() {
                     val (pcmData, timestampUs) = inputData
                     val inputBuffer = codec.getInputBuffer(inputBufferIndex)
                     
-                    inputBuffer?.apply {
-                        clear()
-                        put(pcmData)
+                    if (inputBuffer != null) {
+                        inputBuffer.clear()
+                        val capacity = inputBuffer.capacity()
+                        if (pcmData.size <= capacity) {
+                            inputBuffer.put(pcmData)
+                            codec.queueInputBuffer(
+                                inputBufferIndex,
+                                0,
+                                pcmData.size,
+                                timestampUs,
+                                0
+                            )
+                            Timber.d("Queued ${pcmData.size} bytes to encoder input buffer")
+                        } else {
+                            // PCM chunk larger than one codec input buffer (capture
+                            // chunks are getMinBufferSize x 4, commonly 16-64KB).
+                            // Fill what fits and requeue the remainder at the front
+                            // to preserve ordering - a plain put() here would throw
+                            // BufferOverflowException and drop every chunk.
+                            inputBuffer.put(pcmData, 0, capacity)
+                            codec.queueInputBuffer(
+                                inputBufferIndex,
+                                0,
+                                capacity,
+                                timestampUs,
+                                0
+                            )
+                            val remainder = pcmData.copyOfRange(capacity, pcmData.size)
+                            // Advance timestamp by the duration of the queued bytes
+                            // (16-bit mono: 2 bytes per sample)
+                            val sampleRate = _encoderState.value.config.sampleRate
+                            val durationUs = (capacity / 2) * 1_000_000L / sampleRate
+                            inputBufferQueue.addFirst(Pair(remainder, timestampUs + durationUs))
+                            Timber.d("Split PCM chunk: $capacity of ${pcmData.size} bytes queued, ${remainder.size} requeued")
+                        }
+                    } else {
+                        codec.queueInputBuffer(inputBufferIndex, 0, 0, timestampUs, 0)
                     }
-                    
-                    codec.queueInputBuffer(
-                        inputBufferIndex,
-                        0,
-                        pcmData.size,
-                        timestampUs,
-                        0
-                    )
-                    Timber.d("Queued ${pcmData.size} bytes to encoder input buffer")
                 } else {
                     // No data to encode, return the buffer
                     codec.queueInputBuffer(inputBufferIndex, 0, 0, 0, 0)
@@ -295,21 +320,28 @@ class AudioEncoder @Inject constructor() {
                 val outputBuffer = codec.getOutputBuffer(outputBufferIndex)
                 
                 if (outputBuffer != null && bufferInfo.size > 0) {
-                    val encodedData = ByteArray(bufferInfo.size)
-                    outputBuffer.apply {
-                        position(bufferInfo.offset)
-                        get(encodedData)
+                    val isCodecConfig = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0
+                    if (!isCodecConfig) {
+                        val encodedData = ByteArray(bufferInfo.size)
+                        outputBuffer.apply {
+                            position(bufferInfo.offset)
+                            get(encodedData)
+                        }
+                        
+                        val packet = EncodedAudioPacket(
+                            data = encodedData,
+                            presentationTimeUs = bufferInfo.presentationTimeUs,
+                            isKeyFrame = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
+                        )
+                        
+                        val emitted = _encodedPacketFlow.tryEmit(packet)
+                        Timber.d("Emitted encoded packet: ${encodedData.size} bytes, emitted=$emitted")
+                        updateEncodingStats(packet)
+                    } else {
+                        // Codec config (csd-0/ASC) is not audio data and must not
+                        // be broadcast - the client synthesizes its own ASC.
+                        Timber.d("Skipping codec config buffer (${bufferInfo.size} bytes)")
                     }
-                    
-                    val packet = EncodedAudioPacket(
-                        data = encodedData,
-                        presentationTimeUs = bufferInfo.presentationTimeUs,
-                        isKeyFrame = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
-                    )
-                    
-                    val emitted = _encodedPacketFlow.tryEmit(packet)
-                    Timber.d("Emitted encoded packet: ${encodedData.size} bytes, emitted=$emitted")
-                    updateEncodingStats(packet)
                 }
                 
                 codec.releaseOutputBuffer(outputBufferIndex, false)

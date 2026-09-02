@@ -28,6 +28,9 @@ class UdpAudioClient @Inject constructor(
         private const val PACKET_TIMEOUT_MS = 1000L
         private const val MAX_PACKET_BUFFER_SIZE = 100
         private const val HOST_AUDIO_PORT = 9090  // Default host port for sending heartbeats
+        private const val CLIENT_AUDIO_PORT = 9091  // Port where clients listen for audio
+        private const val HOST_LOSS_TIMEOUT_MS = 25000L  // > 2 heartbeat intervals (10s)
+        private const val WATCHDOG_CHECK_INTERVAL_MS = 5000L
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -54,6 +57,11 @@ class UdpAudioClient @Inject constructor(
     private var receiverJob: Job? = null
     private var heartbeatJob: Job? = null
     private var bufferCleanupJob: Job? = null
+    private var watchdogJob: Job? = null
+    
+    // Host-loss watchdog state
+    @Volatile
+    private var lastPacketReceivedAt: Long = 0L
     
     // Events
     private val _clientEvents = MutableSharedFlow<UdpClientEvent>()
@@ -70,10 +78,12 @@ class UdpAudioClient @Inject constructor(
         
         return withContext(Dispatchers.IO) {
             try {
-                discoverySocket = DatagramSocket(discoveryPort).apply {
-                    broadcast = true
+                // reuseAddress must be set BEFORE binding to be effective
+                discoverySocket = DatagramSocket(null).apply {
                     reuseAddress = true
+                    broadcast = true
                     soTimeout = 1000 // 1 second timeout for receive
+                    bind(InetSocketAddress(discoveryPort))
                 }
                 
                 isDiscovering.set(true)
@@ -87,7 +97,7 @@ class UdpAudioClient @Inject constructor(
                 true
                 
             } catch (e: Exception) {
-                Timber.e("Failed to start discovery", e)
+                Timber.e(e, "Failed to start discovery")
                 
                 scope.launch {
                     _clientEvents.emit(UdpClientEvent.DiscoveryError("Failed to start discovery: ${e.message}"))
@@ -115,14 +125,17 @@ class UdpAudioClient @Inject constructor(
                 Timber.d("Creating DatagramSocket on port $listenPort with clientId=$clientId")
                 
                 // Create audio socket bound to the specified port
-                audioSocket = DatagramSocket(listenPort).apply {
+                // reuseAddress must be set BEFORE binding to be effective
+                audioSocket = DatagramSocket(null).apply {
                     reuseAddress = true
                     soTimeout = 1000 // 1 second timeout for receive
+                    bind(InetSocketAddress(listenPort))
                 }
                 
                 isConnected.set(true)
                 startAudioReceiver()
                 startBufferCleanup()
+                startHostWatchdog()
                 
                 scope.launch {
                     _clientEvents.emit(UdpClientEvent.Connected("0.0.0.0", listenPort))
@@ -132,7 +145,7 @@ class UdpAudioClient @Inject constructor(
                 true
                 
             } catch (e: Exception) {
-                Timber.e("Failed to start listening on port $listenPort", e)
+                Timber.e(e, "Failed to start listening on port $listenPort")
                 cleanup()
                 
                 scope.launch {
@@ -154,7 +167,7 @@ class UdpAudioClient @Inject constructor(
             try {
                 discoverySocket?.close()
             } catch (e: Exception) {
-                Timber.w("Error closing discovery socket", e)
+                Timber.w(e, "Error closing discovery socket")
             } finally {
                 discoverySocket = null
             }
@@ -182,10 +195,14 @@ class UdpAudioClient @Inject constructor(
                 hostAudioPort = audioPort
                 clientId = "client_${System.currentTimeMillis()}"
                 
-                // Create audio socket
-                audioSocket = DatagramSocket().apply {
+                // Create audio socket bound to the standard client audio port.
+                // The host sends ACK and audio to CLIENT_AUDIO_PORT, so binding an
+                // ephemeral port would never receive either (ack timeout + silent audio).
+                // reuseAddress must be set BEFORE binding to be effective.
+                audioSocket = DatagramSocket(null).apply {
                     reuseAddress = true
                     soTimeout = 1000 // 1 second timeout for receive
+                    bind(InetSocketAddress(CLIENT_AUDIO_PORT))
                 }
                 
                 // Send connection request
@@ -212,6 +229,7 @@ class UdpAudioClient @Inject constructor(
                     startAudioReceiver()
                     startHeartbeat()
                     startBufferCleanup()
+                    startHostWatchdog()
                     
                     scope.launch {
                         _clientEvents.emit(UdpClientEvent.Connected(hostIp, audioPort))
@@ -229,7 +247,7 @@ class UdpAudioClient @Inject constructor(
                 }
                 
             } catch (e: Exception) {
-                Timber.e("Failed to connect to host", e)
+                Timber.e(e, "Failed to connect to host")
                 cleanup()
                 
                 scope.launch {
@@ -267,7 +285,7 @@ class UdpAudioClient @Inject constructor(
                     audioSocket?.send(packet)
                 }
             } catch (e: Exception) {
-                Timber.w("Error sending disconnect message", e)
+                Timber.w(e, "Error sending disconnect message")
             }
             
             isConnected.set(false)
@@ -276,12 +294,15 @@ class UdpAudioClient @Inject constructor(
             receiverJob?.cancel()
             heartbeatJob?.cancel()
             bufferCleanupJob?.cancel()
+            watchdogJob?.cancel()
             receiverJob?.join()
             heartbeatJob?.join()
             bufferCleanupJob?.join()
+            watchdogJob?.join()
             receiverJob = null
             heartbeatJob = null
             bufferCleanupJob = null
+            watchdogJob = null
             
             // Clear buffers
             audioPacketBuffer.clear()
@@ -334,7 +355,7 @@ class UdpAudioClient @Inject constructor(
                     // Expected timeout, continue listening
                 } catch (e: Exception) {
                     if (isDiscovering.get()) {
-                        Timber.w("Discovery listener error", e)
+                        Timber.w(e, "Discovery listener error")
                     }
                 }
             }
@@ -372,7 +393,7 @@ class UdpAudioClient @Inject constructor(
                 } catch (e: SocketTimeoutException) {
                     // Expected timeout, continue waiting
                 } catch (e: Exception) {
-                    Timber.w("Error waiting for connection ack", e)
+                    Timber.w(e, "Error waiting for connection ack")
                     break
                 }
             }
@@ -398,6 +419,9 @@ class UdpAudioClient @Inject constructor(
                     
                     socket.receive(packet)
                     packetCount++
+                    
+                    // Refresh host-loss watchdog - any packet proves the host is alive
+                    lastPacketReceivedAt = System.currentTimeMillis()
                     
                     // Capture host address from first packet to enable heartbeats
                     if (hostAddress == null && packet.address != null) {
@@ -454,7 +478,7 @@ class UdpAudioClient @Inject constructor(
                     // Expected timeout, continue listening
                 } catch (e: Exception) {
                     if (isConnected.get()) {
-                        Timber.w("Audio receiver error", e)
+                        Timber.w(e, "Audio receiver error")
                         scope.launch {
                             _clientEvents.emit(UdpClientEvent.ReceiveError("Audio receiver error: ${e.message}"))
                         }
@@ -509,6 +533,9 @@ class UdpAudioClient @Inject constructor(
     
     /**
      * Handle control packet
+     * Note: never call disconnect() from here - it runs inside the receiver job
+     * and disconnect() joins that job (self-join aborts the cleanup midway).
+     * Instead, emit the event and let an external observer drive the cleanup.
      */
     private suspend fun handleControlPacket(packet: UdpPacket) {
         val controlCommand = packetHandler.parseControlCommand(packet) ?: return
@@ -516,7 +543,12 @@ class UdpAudioClient @Inject constructor(
         when (controlCommand.command) {
             UdpPacketHandler.CONTROL_DISCONNECT -> {
                 Timber.i("Received disconnect command from host")
-                disconnect()
+                scope.launch {
+                    _clientEvents.emit(UdpClientEvent.Disconnected)
+                }
+                // Stop the receiver loop; full cleanup is driven by the
+                // event observer (ClientManager) calling disconnect()
+                isConnected.set(false)
             }
             
             UdpPacketHandler.CONTROL_KICK -> {
@@ -524,7 +556,7 @@ class UdpAudioClient @Inject constructor(
                 scope.launch {
                     _clientEvents.emit(UdpClientEvent.Kicked)
                 }
-                disconnect()
+                isConnected.set(false)
             }
             
             UdpPacketHandler.CONTROL_MUTE -> {
@@ -605,7 +637,7 @@ class UdpAudioClient @Inject constructor(
                     }
                     
                 } catch (e: Exception) {
-                    Timber.w("Failed to send heartbeat", e)
+                    Timber.w(e, "Failed to send heartbeat")
                 }
                 
                 delay(HEARTBEAT_INTERVAL_MS)
@@ -638,6 +670,34 @@ class UdpAudioClient @Inject constructor(
     }
     
     /**
+     * Start host-loss watchdog.
+     * The host sends heartbeats every 10s and audio continuously; if nothing
+     * is received for HOST_LOSS_TIMEOUT_MS the host is considered gone and a
+     * HostLost event is emitted so the upper layer can reconnect.
+     */
+    private fun startHostWatchdog() {
+        watchdogJob?.cancel()
+        watchdogJob = scope.launch {
+            lastPacketReceivedAt = System.currentTimeMillis()
+            
+            while (isConnected.get()) {
+                delay(WATCHDOG_CHECK_INTERVAL_MS)
+                
+                val silenceMs = System.currentTimeMillis() - lastPacketReceivedAt
+                if (silenceMs > HOST_LOSS_TIMEOUT_MS) {
+                    Timber.w("No packets from host for ${silenceMs}ms - host lost")
+                    scope.launch {
+                        _clientEvents.emit(UdpClientEvent.HostLost)
+                    }
+                    // Stop the receiver loop; reconnection is driven by the event observer
+                    isConnected.set(false)
+                    break
+                }
+            }
+        }
+    }
+    
+    /**
      * Send volume control command
      */
     suspend fun sendVolumeControl(volume: Float) {
@@ -665,7 +725,7 @@ class UdpAudioClient @Inject constructor(
                 
                 Timber.d("Sent volume control: $volume")
             } catch (e: Exception) {
-                Timber.e("Failed to send volume control", e)
+                Timber.e(e, "Failed to send volume control")
             }
         }
     }
@@ -704,7 +764,7 @@ class UdpAudioClient @Inject constructor(
                 
                 Timber.i("Sent transfer accept with new server port: $newServerPort")
             } catch (e: Exception) {
-                Timber.e("Failed to send transfer accept", e)
+                Timber.e(e, "Failed to send transfer accept")
             }
         }
     }
@@ -735,7 +795,7 @@ class UdpAudioClient @Inject constructor(
                 
                 Timber.i("Sent transfer reject")
             } catch (e: Exception) {
-                Timber.e("Failed to send transfer reject", e)
+                Timber.e(e, "Failed to send transfer reject")
             }
         }
     }
@@ -780,7 +840,7 @@ class UdpAudioClient @Inject constructor(
         try {
             audioSocket?.close()
         } catch (e: Exception) {
-            Timber.w("Error closing audio socket", e)
+            Timber.w(e, "Error closing audio socket")
         } finally {
             audioSocket = null
         }
@@ -814,6 +874,7 @@ sealed class UdpClientEvent {
     data class Connected(val hostAddress: String, val audioPort: Int) : UdpClientEvent()
     object Disconnected : UdpClientEvent()
     object Kicked : UdpClientEvent()  // Kicked by host
+    object HostLost : UdpClientEvent()  // Host stopped responding (heartbeats/audio stopped)
     data class ConnectionError(val message: String) : UdpClientEvent()
     
     data class AudioDataReceived(val audioData: ByteArray, val timestamp: Long) : UdpClientEvent()

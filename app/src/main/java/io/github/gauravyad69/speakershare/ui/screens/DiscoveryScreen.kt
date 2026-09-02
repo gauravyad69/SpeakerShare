@@ -26,7 +26,6 @@ import io.github.gauravyad69.speakershare.network.discovery.DiscoveredHost
 import io.github.gauravyad69.speakershare.ui.components.DuolingoButton
 import io.github.gauravyad69.speakershare.ui.theme.*
 import io.github.gauravyad69.speakershare.ui.viewmodels.DiscoveryViewModel
-import kotlinx.coroutines.delay
 
 /**
  * Discovery Screen for finding and selecting available hosts
@@ -54,6 +53,7 @@ fun DiscoveryScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -137,13 +137,39 @@ fun DiscoveryScreen(
                 lastScanTime = lastScanTime
             )
 
-                        // Filter and Sort Options
-            DiscoveryFilters(
-                sortBy = "name", // TODO: Add sort state to ViewModel
-                filterByTransport = "all", // TODO: Add filter state to ViewModel
-                onSortChange = { /* TODO: Implement sorting */ },
-                onFilterChange = { /* TODO: Implement filtering */ }
-            )
+            // Error message (previously never displayed)
+            error?.let { errorMessage ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = DuoRed.copy(alpha = 0.12f)),
+                    border = androidx.compose.foundation.BorderStroke(2.dp, DuoRed.copy(alpha = 0.4f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            TablerIcons.Ban,
+                            contentDescription = null,
+                            tint = DuoRed,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            text = errorMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = DuoTextPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { viewModel.clearError() }) {
+                            Text("DISMISS", color = DuoTextSecondary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
 
             // Discovered Hosts List
             if (discoveredHosts.isEmpty() && !isScanning) {
@@ -153,9 +179,8 @@ fun DiscoveryScreen(
                 )
             } else {
                 DiscoveredHostsList(
-                    hosts = discoveredHosts, // Use directly since filtering/sorting is TODO
-                    onHostSelected = onHostSelected,
-                    onRefreshHost = { /* TODO: Implement host refresh */ }
+                    hosts = discoveredHosts,
+                    onHostSelected = onHostSelected
                 )
             }
         }
@@ -166,22 +191,30 @@ fun DiscoveryScreen(
         ManualConnectDialog(
             onDismiss = { showManualConnect = false },
             onConnect = { ip, port ->
-                // TODO: Set manual address in ViewModel and then connect
-                // viewModel.setManualHostAddress("$ip:$port")
-                // viewModel.connectToManualHost()
+                // Navigate to the client screen with the manual address.
+                // Previously this dialog was a dead end (TODO stub).
+                onHostSelected(
+                    DiscoveredHost(
+                        hostId = "manual-$ip:$port",
+                        hostName = "Host $ip",
+                        ipAddress = ip,
+                        port = port,
+                        serviceName = "Host $ip",
+                        discoveryMethod = "MANUAL_IP",
+                        lastSeen = System.currentTimeMillis(),
+                        audioSource = "",
+                        quality = "",
+                        connectedClients = 0,
+                        maxClients = 0,
+                        isAcceptingClients = true
+                    )
+                )
                 showManualConnect = false
             }
         )
     }
 
-    // Error handling
-    error?.let { errorMessage ->
-        LaunchedEffect(errorMessage) {
-            // Show error message
-            delay(3000)
-            // TODO: Add clearError method to ViewModel
-        }
-    }
+    // Error state is displayed inline above the host list
 }
 
 @Composable
@@ -207,7 +240,7 @@ private fun DiscoveryStatusCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "NETWORK DISCOVERY",
+                    text = "DISCOVERY STATUS",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = DuoTextPrimary
@@ -282,120 +315,9 @@ private fun DiscoveryStatusCard(
 }
 
 @Composable
-private fun DiscoveryFilters(
-    sortBy: String,
-    filterByTransport: String?,
-    onSortChange: (String) -> Unit,
-    onFilterChange: (String?) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = DuoSurface),
-        border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "FILTER & SORT",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = DuoTextSecondary
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Sort by dropdown
-                var sortExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(
-                    expanded = sortExpanded,
-                    onExpandedChange = { sortExpanded = it },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    OutlinedTextField(
-                        value = formatSortBy(sortBy),
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Sort by", color = DuoTextSecondary) },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = sortExpanded) },
-                        modifier = Modifier.menuAnchor(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = DuoBlue,
-                            unfocusedBorderColor = DuoSurfaceHighlight,
-                            focusedTextColor = DuoTextPrimary,
-                            unfocusedTextColor = DuoTextPrimary
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = sortExpanded,
-                        onDismissRequest = { sortExpanded = false },
-                        containerColor = DuoSurface
-                    ) {
-                        listOf("name", "distance", "clients", "quality").forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(formatSortBy(option), color = DuoTextPrimary) },
-                                onClick = {
-                                    onSortChange(option)
-                                    sortExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // Transport filter dropdown
-                var filterExpanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(
-                    expanded = filterExpanded,
-                    onExpandedChange = { filterExpanded = it },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    OutlinedTextField(
-                        value = filterByTransport ?: "All",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Transport", color = DuoTextSecondary) },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = filterExpanded) },
-                        modifier = Modifier.menuAnchor(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = DuoBlue,
-                            unfocusedBorderColor = DuoSurfaceHighlight,
-                            focusedTextColor = DuoTextPrimary,
-                            unfocusedTextColor = DuoTextPrimary
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    ExposedDropdownMenu(
-                        expanded = filterExpanded,
-                        onDismissRequest = { filterExpanded = false },
-                        containerColor = DuoSurface
-                    ) {
-                        listOf(null, "WEBRTC", "UDP").forEach { option ->
-                            DropdownMenuItem(
-                                text = { Text(option ?: "All", color = DuoTextPrimary) },
-                                onClick = {
-                                    onFilterChange(option)
-                                    filterExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun DiscoveredHostsList(
     hosts: List<DiscoveredHost>,
-    onHostSelected: (DiscoveredHost) -> Unit,
-    onRefreshHost: (DiscoveredHost) -> Unit
+    onHostSelected: (DiscoveredHost) -> Unit
 ) {
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -404,8 +326,7 @@ private fun DiscoveredHostsList(
         items(hosts, key = { it.hostId }) { host ->
             DiscoveredHostCard(
                 host = host,
-                onSelect = { onHostSelected(host) },
-                onRefresh = { onRefreshHost(host) }
+                onSelect = { onHostSelected(host) }
             )
         }
     }
@@ -414,8 +335,7 @@ private fun DiscoveredHostsList(
 @Composable
 private fun DiscoveredHostCard(
     host: DiscoveredHost,
-    onSelect: () -> Unit,
-    onRefresh: () -> Unit
+    onSelect: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -482,67 +402,33 @@ private fun DiscoveredHostCard(
                             )
                         }
                     }
-                }
-            }
-
-            // Host Details
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = "Source: ${host.audioSource}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = DuoTextSecondary
-                    )
-                    Text(
-                        text = "Quality: ${host.quality}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = DuoTextSecondary
-                    )
-                }
-                
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "Clients: ${host.connectedClients}/${if (host.maxClients > 0) host.maxClients else "∞"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = DuoTextSecondary
-                    )
-                    Text(
-                        text = "Age: ${formatAge(System.currentTimeMillis() - host.lastSeen)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = DuoTextSecondary
-                    )
+                    if (host.discoveryMethod.contains("MANUAL", ignoreCase = true)) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = DuoPurple
+                        ) {
+                            Text(
+                                text = "Manual",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = DuoTextPrimary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 }
             }
 
             // Action Buttons
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
-                DuolingoButton(
-                    text = "",
-                    onClick = onRefresh,
-                    icon = TablerIcons.Refresh,
-                    color = DuoSurfaceHighlight,
-                    shadowColor = DuoOutline,
-                    textColor = DuoTextSecondary,
-                    modifier = Modifier.weight(0.3f),
-                    height = 40.dp
-                )
-
                 DuolingoButton(
                     text = "CONNECT",
                     onClick = onSelect,
                     icon = TablerIcons.PlayerPlay,
                     color = if (host.isAcceptingClients) DuoGreen else DuoTextDisabled,
                     shadowColor = if (host.isAcceptingClients) DuoGreenShadow else DuoOutline,
-                    modifier = Modifier.weight(0.7f),
+                    modifier = Modifier.fillMaxWidth(),
                     height = 40.dp
                 )
             }

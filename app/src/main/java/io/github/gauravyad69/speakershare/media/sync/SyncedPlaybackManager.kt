@@ -167,7 +167,7 @@ class SyncedPlaybackManager @Inject constructor(
             Result.success(sessionId)
             
         } catch (e: Exception) {
-            Timber.e("Failed to start host session", e)
+            Timber.e(e, "Failed to start host session")
             Result.failure(e)
         }
     }
@@ -279,7 +279,7 @@ class SyncedPlaybackManager @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Timber.e("Failed to join session", e)
+            Timber.e(e, "Failed to join session")
             _sessionState.value = SyncSessionState.Error(e.message ?: "Unknown error")
             Result.failure(e)
         }

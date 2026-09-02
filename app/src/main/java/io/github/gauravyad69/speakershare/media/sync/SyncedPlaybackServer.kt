@@ -127,7 +127,7 @@ class SyncedPlaybackServer @Inject constructor(
             true
             
         } catch (e: Exception) {
-            Timber.e("Failed to start sync server", e)
+            Timber.e(e, "Failed to start sync server")
             false
         }
     }
@@ -143,7 +143,7 @@ class SyncedPlaybackServer @Inject constructor(
                     try {
                         session.close(CloseReason(CloseReason.Codes.GOING_AWAY, "Server stopping"))
                     } catch (e: Exception) {
-                        Timber.w("Error closing WebSocket session", e)
+                        Timber.w(e, "Error closing WebSocket session")
                     }
                 }
                 webSocketSessions.clear()
@@ -161,7 +161,7 @@ class SyncedPlaybackServer @Inject constructor(
                 
                 Timber.i("Sync server stopped")
             } catch (e: Exception) {
-                Timber.e("Error stopping sync server", e)
+                Timber.e(e, "Error stopping sync server")
             }
         }
     }
@@ -398,7 +398,7 @@ class SyncedPlaybackServer @Inject constructor(
                         }
                     }
                 } catch (e: Exception) {
-                    Timber.e("Error serving file", e)
+                    Timber.e(e, "Error serving file")
                     call.respond(HttpStatusCode.InternalServerError, mapOf("error" to e.message))
                 }
             }
@@ -546,7 +546,7 @@ class SyncedPlaybackServer @Inject constructor(
                 Timber.i("WebSocket file transfer complete: hash=$hash, bytes=$bytesSent")
                 
             } catch (e: Exception) {
-                Timber.e("WebSocket file transfer error", e)
+                Timber.e(e, "WebSocket file transfer error")
                 send(Frame.Text(gson.toJson(mapOf("type" to "error", "message" to e.message))))
             }
         }

@@ -306,7 +306,7 @@ class ClockSynchronizer @Inject constructor() {
             Result.success(clockOffset)
             
         } catch (e: Exception) {
-            Timber.e("Failed to sync clock", e)
+            Timber.e(e, "Failed to sync clock")
             _syncState.value = ClockSyncState.Error(e.message ?: "Unknown error")
             Result.failure(e)
         }
@@ -343,7 +343,7 @@ class ClockSynchronizer @Inject constructor() {
             }
             
         } catch (e: Exception) {
-            Timber.e("Sync exchange failed", e)
+            Timber.e(e, "Sync exchange failed")
             null
         } finally {
             client.close()

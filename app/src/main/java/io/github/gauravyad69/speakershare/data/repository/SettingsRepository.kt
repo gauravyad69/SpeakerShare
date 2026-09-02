@@ -94,14 +94,14 @@ class SettingsRepository @Inject constructor(
         val audioSource = try {
             AudioSource.valueOf(sharedPreferences.getString(KEY_DEFAULT_AUDIO_SOURCE, DEFAULT_AUDIO_SOURCE)!!)
         } catch (e: IllegalArgumentException) {
-            Timber.w("Invalid audio source, using default", e)
+            Timber.w(e, "Invalid audio source, using default")
             AudioSource.MICROPHONE
         }
         
         val audioEncoding = try {
             AudioEncoding.valueOf(sharedPreferences.getString(KEY_AUDIO_ENCODING, DEFAULT_ENCODING)!!)
         } catch (e: IllegalArgumentException) {
-            Timber.w("Invalid audio encoding, using default", e)
+            Timber.w(e, "Invalid audio encoding, using default")
             AudioEncoding.AAC
         }
         
@@ -284,7 +284,7 @@ class SettingsRepository @Inject constructor(
             val profileName = sharedPreferences.getString(KEY_LATENCY_PROFILE, LatencyProfile.BALANCED.name)
             LatencyProfile.valueOf(profileName!!)
         } catch (e: Exception) {
-            Timber.w("Invalid latency profile, using default", e)
+            Timber.w(e, "Invalid latency profile, using default")
             LatencyProfile.BALANCED
         }
     }
@@ -408,7 +408,7 @@ class SettingsRepository @Inject constructor(
             Timber.d("Settings import not yet implemented")
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to import settings", e)
+            Timber.e(e, "Failed to import settings")
             Result.failure(e)
         }
     }

@@ -2,6 +2,7 @@ package io.github.gauravyad69.speakershare.services
 
 import io.github.gauravyad69.speakershare.data.model.*
 import io.github.gauravyad69.speakershare.data.repository.HostSessionRepository
+import io.github.gauravyad69.speakershare.network.HotspotNetworkHelper
 import io.github.gauravyad69.speakershare.network.UdpAudioServer
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,7 +30,8 @@ class HostService @Inject constructor(
     private val httpApiServer: io.github.gauravyad69.speakershare.network.HttpApiServer,
     private val networkDiscoveryService: NetworkDiscoveryService,
     private val hostSessionRepository: HostSessionRepository,
-    private val udpAudioServer: UdpAudioServer
+    private val udpAudioServer: UdpAudioServer,
+    private val hotspotNetworkHelper: HotspotNetworkHelper
 ) {
     
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -49,6 +51,9 @@ class HostService @Inject constructor(
     // Transfer events from UDP server
     private val _transferEvents = MutableStateFlow<TransferEvent?>(null)
     val transferEvents: StateFlow<TransferEvent?> = _transferEvents.asStateFlow()
+    
+    // Blacklist of kicked clients (in-memory; cleared when hosting stops)
+    private val kickedClientIds = mutableSetOf<String>()
     
     init {
         observeServerEvents()
@@ -119,13 +124,23 @@ class HostService @Inject constructor(
             )
             
             val sessionId = UUID.randomUUID().toString()
+            // Prefer the hotspot (SoftAP) interface: the advertised address must
+            // be reachable by hotspot clients even when the device is also
+            // attached to a router or cellular network
+            val hotspotInterface = hotspotNetworkHelper.getHotspotInterface()
             val networkInfo = NetworkInfo(
                 localIpAddress = getLocalIpAddress(),
                 port = DEFAULT_PORT,
-                networkInterface = "wlan0", // Default Wi-Fi interface
-                isHotspot = false, // TODO: Detect actual hotspot status
+                networkInterface = hotspotInterface?.name
+                    ?: networkDiscoveryService.getLocalIpAddresses().firstOrNull()
+                        ?.let { ip -> findInterfaceNameForIp(ip) } ?: "wlan0",
+                isHotspot = hotspotInterface != null,
                 discoveryMethod = DiscoveryMethod.MDNS,
                 serviceName = "speakershare-$sessionId"
+            )
+            Timber.i(
+                "Advertising on interface ${networkInfo.networkInterface} " +
+                "(${networkInfo.localIpAddress}), hotspot=${networkInfo.isHotspot}"
             )
             
             Timber.d("Starting host session: $sessionId for $hostName with sampleRate=${effectiveQuality.sampleRate}, encoding=${effectiveQuality.encoding}")
@@ -179,7 +194,7 @@ class HostService @Inject constructor(
             Result.success(activeSession)
             
         } catch (e: Exception) {
-            Timber.e("Failed to start hosting", e)
+            Timber.e(e, "Failed to start hosting")
             cleanup()
             Result.failure(e)
         }
@@ -212,6 +227,9 @@ class HostService @Inject constructor(
             _isHosting.value = false
             _connectedClients.value = emptyList()
             
+            // Reset blacklist - a new session accepts previously kicked clients
+            kickedClientIds.clear()
+            
             // Sync with repository
             hostSessionRepository.stopBroadcasting()
             hostSessionRepository.endSession()
@@ -223,7 +241,7 @@ class HostService @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Timber.e("Failed to stop hosting", e)
+            Timber.e(e, "Failed to stop hosting")
             Result.failure(e)
         }
     }
@@ -241,6 +259,12 @@ class HostService @Inject constructor(
             val session = _currentSession.value
             if (session == null || !session.isActive) {
                 return Result.failure(IllegalStateException("No active session"))
+            }
+            
+            // Reject blacklisted (kicked) clients (FR-006)
+            if (kickedClientIds.contains(clientId)) {
+                Timber.w("Rejected connection from kicked client: $clientId")
+                return Result.success(false)
             }
             
             // Thread-safe client list modification
@@ -270,6 +294,9 @@ class HostService @Inject constructor(
                 
                 val newClients = currentClients + clientConnection
                 _connectedClients.value = newClients
+                // Update the session's client list inside the lock so concurrent
+                // connections can't clobber each other's updates
+                _currentSession.value = _currentSession.value?.copy(connectedClients = newClients)
                 Pair(true, newClients)
             }
             
@@ -283,18 +310,15 @@ class HostService @Inject constructor(
                 udpAudioServer.addClient(clientId, clientAddress, clientAudioPort)
                 Timber.d("Registered client $clientId for UDP audio streaming at $clientIp:$clientAudioPort")
             } catch (e: Exception) {
-                Timber.e("Failed to register client with UDP server", e)
+                Timber.e(e, "Failed to register client with UDP server")
                 // Continue anyway - WebRTC might still work
             }
-            
-            // Update session with new client list
-            _currentSession.value = session.copy(connectedClients = updatedClients)
             
             Timber.d("Client connected successfully: $clientName (${updatedClients.size} total)")
             Result.success(true)
             
         } catch (e: Exception) {
-            Timber.e("Failed to handle client connection", e)
+            Timber.e(e, "Failed to handle client connection")
             Result.failure(e)
         }
     }
@@ -314,14 +338,14 @@ class HostService @Inject constructor(
                 
                 val newClients = currentClients.filter { it.clientId != clientId }
                 _connectedClients.value = newClients
+                // Update the session's client list inside the lock so concurrent
+                // updates can't clobber each other
+                _currentSession.value = _currentSession.value?.copy(connectedClients = newClients)
                 Pair(foundClient, newClients)
             }
             
             // Remove from UDP audio server (outside mutex - network I/O)
             udpAudioServer.removeClient(clientId)
-            
-            // Update session
-            _currentSession.value = _currentSession.value?.copy(connectedClients = updatedClients)
             
             // TODO: Send disconnection message to client via HTTP API
             notifyClientDisconnection(clientId, reason)
@@ -330,7 +354,7 @@ class HostService @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Timber.e("Failed to disconnect client", e)
+            Timber.e(e, "Failed to disconnect client")
             Result.failure(e)
         }
     }
@@ -350,25 +374,46 @@ class HostService @Inject constructor(
                 
                 val newClients = currentClients.filter { it.clientId != clientId }
                 _connectedClients.value = newClients
+                // Update the session's client list inside the lock so concurrent
+                // updates can't clobber each other
+                _currentSession.value = _currentSession.value?.copy(connectedClients = newClients)
                 Pair(foundClient, newClients)
             }
             
-            // Remove from UDP audio server (outside mutex - network I/O)
-            udpAudioServer.removeClient(clientId)
+            // Send the kick packet BEFORE removing the client from the UDP server.
+            // sendKickCommand needs the client entry to know where to send the
+            // packet, and removes the client itself after sending.
+            val kickSent = udpAudioServer.sendKickCommand(clientId)
+            if (!kickSent) {
+                Timber.w("Failed to send kick packet to $clientId - removing without notification")
+                udpAudioServer.removeClient(clientId)
+            }
+            
+            // Blacklist so the client cannot reconnect without host approval (FR-006)
+            kickedClientIds.add(clientId)
             
             // Update session
             _currentSession.value = _currentSession.value?.copy(connectedClients = updatedClients)
-            
-            // TODO: Send kick message to client and add to blacklist
-            notifyClientKick(clientId, reason)
             
             Timber.d("Client kicked: ${client.clientName}")
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Timber.e("Failed to kick client", e)
+            Timber.e(e, "Failed to kick client")
             Result.failure(e)
         }
+    }
+    
+    /**
+     * Check if a client has been kicked from this host (blacklisted)
+     */
+    fun isClientKicked(clientId: String): Boolean = kickedClientIds.contains(clientId)
+    
+    /**
+     * Allow a previously kicked client to reconnect
+     */
+    fun allowClientReconnect(clientId: String) {
+        kickedClientIds.remove(clientId)
     }
     
     /**
@@ -397,7 +442,7 @@ class HostService @Inject constructor(
                 Result.failure(Exception("Failed to send transfer request"))
             }
         } catch (e: Exception) {
-            Timber.e("Failed to request host transfer", e)
+            Timber.e(e, "Failed to request host transfer")
             Result.failure(e)
         }
     }
@@ -427,7 +472,7 @@ class HostService @Inject constructor(
             Result.success(Unit)
             
         } catch (e: Exception) {
-            Timber.e("Failed to handle transfer acceptance", e)
+            Timber.e(e, "Failed to handle transfer acceptance")
             Result.failure(e)
         }
     }
@@ -459,7 +504,7 @@ class HostService @Inject constructor(
             
             result
         } catch (e: Exception) {
-            Timber.e("Failed to switch audio source", e)
+            Timber.e(e, "Failed to switch audio source")
             Result.failure(e)
         }
     }
@@ -482,8 +527,21 @@ class HostService @Inject constructor(
     // Private helper methods
     private suspend fun getLocalIpAddress(): String {
         val ips = networkDiscoveryService.getLocalIpAddresses()
-        Timber.d("Detected local IPs: $ips")
+        Timber.d("Detected local IPs (hotspot first): $ips")
         return ips.firstOrNull() ?: "127.0.0.1"
+    }
+    
+    private fun findInterfaceNameForIp(ip: String): String? {
+        return try {
+            java.net.NetworkInterface.getNetworkInterfaces().asSequence()
+                .firstOrNull { iface ->
+                    iface.inetAddresses.asSequence()
+                        .filterIsInstance<java.net.Inet4Address>()
+                        .any { it.hostAddress == ip }
+                }?.name
+        } catch (e: Exception) {
+            null
+        }
     }
     
     private fun startHttpApiServer(port: Int): Boolean {
@@ -491,7 +549,7 @@ class HostService @Inject constructor(
         return httpApiServer.startServer(port)
     }
     
-    private fun stopHttpApiServer() {
+    private suspend fun stopHttpApiServer() {
         Timber.d("Stopping HTTP API server")
         httpApiServer.stopServer()
     }
@@ -530,18 +588,6 @@ class HostService @Inject constructor(
     private fun notifyClientDisconnection(clientId: String, reason: String) {
         Timber.d("Notifying client $clientId of disconnection: $reason")
         // TODO: Send HTTP notification to client
-    }
-    
-    private fun notifyClientKick(clientId: String, reason: String) {
-        Timber.d("Notifying client $clientId of kick: $reason")
-        serviceScope.launch {
-            val success = udpAudioServer.sendKickCommand(clientId)
-            if (success) {
-                Timber.i("Kick notification sent to client $clientId")
-            } else {
-                Timber.w("Failed to send kick notification to client $clientId - client may not be connected via UDP")
-            }
-        }
     }
     
     private fun cleanup() {

@@ -126,6 +126,7 @@ fun HostScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -142,12 +143,12 @@ fun HostScreen(
                 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "HOST MODE",
+                        "BROADCAST",
                         style = MaterialTheme.typography.labelLarge,
                         color = DuoTextSecondary
                     )
                     Text(
-                        if (uiState.isHosting) "BROADCASTING" else "READY TO HOST",
+                        if (uiState.isHosting) "BROADCASTING" else "READY TO BROADCAST",
                         style = MaterialTheme.typography.titleMedium,
                         color = if (uiState.isHosting) DuoGreen else DuoTextPrimary
                     )
@@ -185,7 +186,7 @@ fun HostScreen(
             // Controls
             if (!uiState.isHosting) {
                 DuolingoButton(
-                    text = "START HOSTING",
+                    text = "START BROADCAST",
                     onClick = { viewModel.startHosting(hostName = android.os.Build.MODEL) },
                     icon = TablerIcons.Microphone,
                     color = DuoGreen,
@@ -260,7 +261,9 @@ fun HostScreen(
                         border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
                     ) {
                         Column(
-                            modifier = Modifier.padding(24.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
@@ -297,12 +300,17 @@ fun HostScreen(
         val client = showTransferConfirmDialog!!
         AlertDialog(
             onDismissRequest = { showTransferConfirmDialog = null },
-            title = { Text("Transfer Host?", style = MaterialTheme.typography.titleLarge) },
-            text = { 
+            title = {
                 Text(
-                    "Are you sure you want to transfer hosting duties to ${client.clientName}? You will become a client.",
+                    "Transfer Broadcast?",
+                    style = MaterialTheme.typography.titleLarge
+                )
+            },
+            text = {
+                Text(
+                    "Are you sure you want to transfer the broadcast to ${client.clientName}? You will become a listener.",
                     style = MaterialTheme.typography.bodyMedium
-                ) 
+                )
             },
             confirmButton = {
                 DuolingoButton(
@@ -342,7 +350,9 @@ private fun HostStatusCard(
         border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
@@ -453,7 +463,7 @@ private fun ClientItem(
             IconButton(onClick = onTransferHost) {
                 Icon(
                     TablerIcons.Share,
-                    contentDescription = "Transfer Host",
+                    contentDescription = "Transfer Broadcast",
                     tint = DuoTextSecondary
                 )
             }

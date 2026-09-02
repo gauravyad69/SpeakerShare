@@ -219,7 +219,7 @@ fun SyncedFilePlayerScreen(
                 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        if (mediaType == "video") "SYNCED VIDEO" else "SYNCED AUDIO",
+                        if (mediaType == "video") "WATCH TOGETHER" else "LISTEN TOGETHER",
                         style = MaterialTheme.typography.labelLarge,
                         color = DuoTextSecondary
                     )
@@ -1698,7 +1698,7 @@ private fun HostControlCard(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "HOSTING CONTROL",
+                text = "SESSION CONTROL",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = DuoTextPrimary
@@ -1706,7 +1706,7 @@ private fun HostControlCard(
             
             if (isHosting) {
                 DuolingoButton(
-                    text = "STOP HOSTING",
+                    text = "END SESSION",
                     onClick = onStopHosting,
                     icon = TablerIcons.PlayerStop,
                     color = DuoRed,
@@ -1715,7 +1715,7 @@ private fun HostControlCard(
                 )
             } else {
                 DuolingoButton(
-                    text = if (isLoading) "STARTING..." else "START HOSTING",
+                    text = if (isLoading) "STARTING..." else "START SESSION",
                     onClick = onStartHosting,
                     icon = TablerIcons.Microphone,
                     color = DuoGreen,
@@ -1726,7 +1726,7 @@ private fun HostControlCard(
                 
                 if (!hasFiles) {
                     Text(
-                        text = "Select files first to start hosting",
+                        text = "Select files first to start a session",
                         style = MaterialTheme.typography.bodySmall,
                         color = DuoTextSecondary
                     )

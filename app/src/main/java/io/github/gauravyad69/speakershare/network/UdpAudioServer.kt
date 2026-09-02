@@ -18,7 +18,8 @@ import javax.inject.Singleton
  */
 @Singleton
 class UdpAudioServer @Inject constructor(
-    private val packetHandler: UdpPacketHandler
+    private val packetHandler: UdpPacketHandler,
+    private val hotspotNetworkHelper: HotspotNetworkHelper
 ) {
     companion object {
         private const val DEFAULT_AUDIO_PORT = 9090
@@ -85,14 +86,17 @@ class UdpAudioServer @Inject constructor(
                 this@UdpAudioServer.discoveryPort = discoveryPort
                 
                 // Create and bind sockets with proper cleanup on partial failure
-                tempAudioSocket = DatagramSocket(audioPort).apply {
-                    broadcast = true
+                // reuseAddress must be set BEFORE binding to be effective
+                tempAudioSocket = DatagramSocket(null).apply {
                     reuseAddress = true
+                    broadcast = true
+                    bind(InetSocketAddress(audioPort))
                 }
                 
-                tempDiscoverySocket = DatagramSocket(discoveryPort).apply {
-                    broadcast = true
+                tempDiscoverySocket = DatagramSocket(null).apply {
                     reuseAddress = true
+                    broadcast = true
+                    bind(InetSocketAddress(discoveryPort))
                 }
                 
                 // Atomically assign sockets only after both succeed
@@ -115,7 +119,7 @@ class UdpAudioServer @Inject constructor(
                 true
                 
             } catch (e: Exception) {
-                Timber.e("Failed to start UDP server", e)
+                Timber.e(e, "Failed to start UDP server")
                 // Clean up any partially created sockets
                 tempAudioSocket?.close()
                 tempDiscoverySocket?.close()
@@ -232,7 +236,7 @@ class UdpAudioServer @Inject constructor(
                             Timber.d("Sent ${if (isPcm) "PCM" else "AAC"} audio packet seq=$seqNum to ${client.address}:${client.audioPort}")
                         }
                     } catch (e: Exception) {
-                        Timber.w("Failed to send audio to client ${client.clientId}", e)
+                        Timber.w(e, "Failed to send audio to client ${client.clientId}")
                         // Remove problematic client
                         removeClient(client.clientId)
                     }
@@ -241,7 +245,7 @@ class UdpAudioServer @Inject constructor(
                 successCount > 0
                 
             } catch (e: Exception) {
-                Timber.e("Failed to broadcast audio", e)
+                Timber.e(e, "Failed to broadcast audio")
                 false
             }
         }
@@ -323,7 +327,7 @@ class UdpAudioServer @Inject constructor(
                 Timber.i("Sent kick command to client $clientId at ${client.address.hostAddress}")
                 true
             } catch (e: Exception) {
-                Timber.e("Failed to send kick command to $clientId", e)
+                Timber.e(e, "Failed to send kick command to $clientId")
                 false
             }
         }
@@ -355,7 +359,7 @@ class UdpAudioServer @Inject constructor(
                 Timber.i("Sent transfer request to client $clientId at ${client.address.hostAddress}")
                 true
             } catch (e: Exception) {
-                Timber.e("Failed to send transfer request to $clientId", e)
+                Timber.e(e, "Failed to send transfer request to $clientId")
                 false
             }
         }
@@ -397,7 +401,7 @@ class UdpAudioServer @Inject constructor(
                     socket.send(packet)
                     Timber.d("Sent redirect to ${client.clientId} -> $newHostIp:$newHostPort")
                 } catch (e: Exception) {
-                    Timber.e("Failed to send redirect to ${client.clientId}", e)
+                    Timber.e(e, "Failed to send redirect to ${client.clientId}")
                 }
             }
             
@@ -491,8 +495,11 @@ class UdpAudioServer @Inject constructor(
      * Handle client connection request
      */
     private suspend fun handleClientConnect(clientId: String, clientAddress: InetAddress) {
-        // Don't register ourselves as a client
-        if (clientAddress.isLoopbackAddress || clientAddress.hostAddress == getLocalIpAddress()) {
+        // Don't register ourselves as a client (match against ALL local
+        // addresses - a single "first interface" IP misses the others)
+        if (clientAddress.isLoopbackAddress ||
+            clientAddress.hostAddress in hotspotNetworkHelper.getAllLocalIpv4Addresses()
+        ) {
             Timber.w("Ignoring self-connection from ${clientAddress.hostAddress}")
             return
         }
@@ -520,7 +527,7 @@ class UdpAudioServer @Inject constructor(
                 
                 Timber.d("Sent connection acknowledgment to $clientId")
             } catch (e: Exception) {
-                Timber.e("Failed to send acknowledgment to $clientId", e)
+                Timber.e(e, "Failed to send acknowledgment to $clientId")
             }
         }
     }
@@ -531,22 +538,27 @@ class UdpAudioServer @Inject constructor(
     private fun startDiscoveryBroadcast() {
         discoveryJob = scope.launch {
             val discoveryPacket = packetHandler.createDiscoveryPacket(hostName, audioPort)
-            val broadcastAddress = InetAddress.getByName("255.255.255.255")
+            // Limited broadcast follows the default route; the hotspot subnet
+            // broadcast guarantees delivery to hotspot clients
+            val targets = hotspotNetworkHelper.getDiscoveryBroadcastTargets()
+            Timber.i("Discovery broadcast targets: ${targets.map { it.hostAddress }}")
             
             while (isRunning.get()) {
                 try {
                     val socket = discoverySocket ?: break
-                    val packet = DatagramPacket(
-                        discoveryPacket,
-                        discoveryPacket.size,
-                        broadcastAddress,
-                        discoveryPort
-                    )
-                    socket.send(packet)
+                    targets.forEach { target ->
+                        val packet = DatagramPacket(
+                            discoveryPacket,
+                            discoveryPacket.size,
+                            target,
+                            discoveryPort
+                        )
+                        socket.send(packet)
+                    }
                     
-                    Timber.v("Sent discovery broadcast")
+                    Timber.v("Sent discovery broadcast to ${targets.size} network(s)")
                 } catch (e: Exception) {
-                    Timber.w("Failed to send discovery broadcast", e)
+                    Timber.w(e, "Failed to send discovery broadcast")
                 }
                 
                 delay(DISCOVERY_INTERVAL_MS)
@@ -574,12 +586,12 @@ class UdpAudioServer @Inject constructor(
                             )
                             socket.send(packet)
                         } catch (e: Exception) {
-                            Timber.w("Failed to send heartbeat to ${client.clientId}", e)
+                            Timber.w(e, "Failed to send heartbeat to ${client.clientId}")
                         }
                     }
                     
                 } catch (e: Exception) {
-                    Timber.w("Failed to send heartbeats", e)
+                    Timber.w(e, "Failed to send heartbeats")
                 }
                 
                 delay(HEARTBEAT_INTERVAL_MS)
@@ -688,18 +700,6 @@ class UdpAudioServer @Inject constructor(
     /**
      * Get local IP address to avoid self-connection
      */
-    private fun getLocalIpAddress(): String? {
-        return try {
-            NetworkInterface.getNetworkInterfaces()?.toList()
-                ?.flatMap { it.inetAddresses.toList() }
-                ?.firstOrNull { !it.isLoopbackAddress && it is Inet4Address }
-                ?.hostAddress
-        } catch (e: Exception) {
-            Timber.w("Failed to get local IP address", e)
-            null
-        }
-    }
-    
     /**
      * Cleanup resources
      */
@@ -708,7 +708,7 @@ class UdpAudioServer @Inject constructor(
             audioSocket?.close()
             discoverySocket?.close()
         } catch (e: Exception) {
-            Timber.e("Error closing sockets", e)
+            Timber.e(e, "Error closing sockets")
         } finally {
             audioSocket = null
             discoverySocket = null

@@ -269,7 +269,7 @@ class AudioForegroundService : Service() {
                 )
                 Timber.d("Started foreground with MEDIA_PROJECTION type")
             } catch (e: Exception) {
-                Timber.e("Failed to start foreground with MEDIA_PROJECTION type", e)
+                Timber.e(e, "Failed to start foreground with MEDIA_PROJECTION type")
             }
         }
         
@@ -307,7 +307,7 @@ class AudioForegroundService : Service() {
             audioCaptureService.switchAudioSource(io.github.gauravyad69.speakershare.data.model.AudioSource.SYSTEM_AUDIO)
             Timber.d("Switched to system audio successfully")
         } catch (e: Exception) {
-            Timber.e("Failed to switch to system audio", e)
+            Timber.e(e, "Failed to switch to system audio")
         }
     }
     
@@ -329,7 +329,7 @@ class AudioForegroundService : Service() {
                 }
             }
         } catch (e: Exception) {
-            Timber.e("Failed to switch to screen and audio", e)
+            Timber.e(e, "Failed to switch to screen and audio")
         }
     }
 
@@ -647,7 +647,7 @@ class AudioForegroundService : Service() {
                 }
             }
         } catch (e: Exception) {
-            Timber.e("Failed to get local IP address", e)
+            Timber.e(e, "Failed to get local IP address")
         }
         return "192.168.1.100" // Fallback IP
     }

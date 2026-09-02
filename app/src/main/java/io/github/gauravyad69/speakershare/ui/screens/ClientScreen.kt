@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import compose.icons.TablerIcons
 import compose.icons.tablericons.ArrowLeft
+import compose.icons.tablericons.Ban
 import compose.icons.tablericons.Check
 import compose.icons.tablericons.DeviceTv
 import compose.icons.tablericons.Headphones
@@ -33,7 +34,6 @@ import compose.icons.tablericons.Search
 import compose.icons.tablericons.Volume
 import compose.icons.tablericons.Volume2
 import compose.icons.tablericons.Volume3
-import compose.icons.tablericons.Volume
 import compose.icons.tablericons.X
 import io.github.gauravyad69.speakershare.data.model.ConnectionStatus
 import io.github.gauravyad69.speakershare.data.model.DiscoveryMethod
@@ -120,6 +120,7 @@ fun ClientScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -136,7 +137,7 @@ fun ClientScreen(
                 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "CLIENT MODE",
+                        "LISTENER",
                         style = MaterialTheme.typography.labelLarge,
                         color = DuoTextSecondary
                     )
@@ -178,6 +179,14 @@ fun ClientScreen(
                 connectedHost = connectedHost,
                 onDisconnect = { viewModel.disconnect() }
             )
+            
+            // Error message card (kick notification, connection failures, etc.)
+            uiState.error?.let { errorMessage ->
+                ErrorCard(
+                    message = errorMessage,
+                    onDismiss = { viewModel.clearError() }
+                )
+            }
             
             // Audio Controls (shown when connected)
             AnimatedVisibility(
@@ -231,11 +240,9 @@ fun ClientScreen(
         }
     }
 
-    // Handle connection errors
-    uiState.error?.let { error ->
-        LaunchedEffect(error) {
-            // Could show snackbar here
-        }
+    // Handle connection errors - displayed via ErrorCard above
+    uiState.error?.let {
+        // Error already shown in the main column
     }
     
     // Host Transfer Request Dialog
@@ -252,7 +259,7 @@ fun ClientScreen(
             },
             title = { 
                 Text(
-                    text = "Become Host?",
+                    text = "Become Broadcaster?",
                     style = MaterialTheme.typography.titleLarge,
                     color = DuoTextPrimary
                 )
@@ -260,7 +267,7 @@ fun ClientScreen(
             text = { 
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        "The current host wants to transfer control to you.",
+                        "The current broadcaster wants to transfer the stream to you.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = DuoTextSecondary
                     )
@@ -344,7 +351,9 @@ private fun ConnectionStatusCard(
         border = androidx.compose.foundation.BorderStroke(2.dp, DuoSurfaceHighlight)
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Status Icon
@@ -456,7 +465,10 @@ private fun AudioControlsCard(
                         )
                 ) {
                     Icon(
-                        if (isMuted) TablerIcons.Volume else TablerIcons.Volume,
+                        // No VolumeOff icon in TablerIcons 1.1.1 - Ban reads clearly
+                        // as "audio off" alongside the red tint. Previously BOTH
+                        // branches showed the same Volume icon.
+                        if (isMuted) TablerIcons.Ban else TablerIcons.Volume3,
                         contentDescription = if (isMuted) "Unmute" else "Mute",
                         tint = if (isMuted) DuoRed else DuoBlue
                     )
@@ -524,8 +536,10 @@ private fun ModernAudioVisualizer(
             val dist = kotlin.math.abs(i - center) / center
             val waveScale = 1f - dist * 0.5f
             
-            val randomFactor = 0.7f + kotlin.random.Random.nextFloat() * 0.6f
-            val targetHeight = maxBarHeight * level * waveScale * randomFactor
+            // Deterministic per-bar offset (Random here made bars jump
+            // randomly on every redraw - a flickering visualizer)
+            val stableOffset = 0.75f + 0.25f * kotlin.math.sin(i * 1.7f)
+            val targetHeight = maxBarHeight * level * waveScale * stableOffset
             val barHeight = targetHeight.coerceIn(6.dp.toPx(), maxBarHeight)
             
             val alpha = if (level > 0.01f) 1f else 0.3f
@@ -544,6 +558,50 @@ private fun ModernAudioVisualizer(
                 size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2)
             )
+        }
+    }
+}
+
+@Composable
+private fun ErrorCard(
+    message: String,
+    onDismiss: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = DuoRed.copy(alpha = 0.12f)),
+        border = androidx.compose.foundation.BorderStroke(2.dp, DuoRed.copy(alpha = 0.4f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                TablerIcons.InfoCircle,
+                contentDescription = null,
+                tint = DuoRed,
+                modifier = Modifier.size(24.dp)
+            )
+            
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = DuoTextPrimary,
+                modifier = Modifier.weight(1f)
+            )
+            
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    TablerIcons.X,
+                    contentDescription = "Dismiss",
+                    tint = DuoTextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
@@ -611,7 +669,6 @@ private fun NoHostCard(
                 modifier = Modifier.size(64.dp),
                 tint = DuoTextDisabled
             )
-            
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(

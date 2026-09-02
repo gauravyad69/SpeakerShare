@@ -66,7 +66,7 @@ class ScreenStreamClient @Inject constructor() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.e("Screen polling error", e)
+                Timber.e(e, "Screen polling error")
             } finally {
                 _isStreaming.value = false
             }

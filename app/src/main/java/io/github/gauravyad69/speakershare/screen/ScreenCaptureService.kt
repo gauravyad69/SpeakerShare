@@ -124,7 +124,7 @@ class ScreenCaptureService @Inject constructor(
             Timber.d("MediaProjection initialized for screen capture")
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to initialize MediaProjection", e)
+            Timber.e(e, "Failed to initialize MediaProjection")
             Result.failure(e)
         }
     }
@@ -207,7 +207,7 @@ class ScreenCaptureService @Inject constructor(
             Timber.d("Screen capture started: ${screenWidth}x${screenHeight} @ ${fps}fps")
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Failed to start screen capture", e)
+            Timber.e(e, "Failed to start screen capture")
             stopCapture()
             Result.failure(e)
         }
@@ -275,7 +275,7 @@ class ScreenCaptureService @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.e("Error capturing screen frame", e)
+                Timber.e(e, "Error capturing screen frame")
                 delay(100) // Brief pause on error
             }
         }
@@ -314,7 +314,7 @@ class ScreenCaptureService @Inject constructor(
             Timber.d("Screen capture stopped")
             Result.success(Unit)
         } catch (e: Exception) {
-            Timber.e("Error stopping screen capture", e)
+            Timber.e(e, "Error stopping screen capture")
             Result.failure(e)
         }
     }

@@ -122,7 +122,7 @@ class WebRTCClient @Inject constructor(
                     false
                 }
             } catch (e: Exception) {
-                Timber.e("Failed to connect to host", e)
+                Timber.e(e, "Failed to connect to host")
                 scope.launch {
                     _connectionEvents.emit(ClientEvent.ConnectionError("Failed to connect: ${e.message}"))
                 }
@@ -167,7 +167,7 @@ class WebRTCClient @Inject constructor(
                 
                 Timber.d("Disconnected from host")
             } catch (e: Exception) {
-                Timber.e("Error during disconnect", e)
+                Timber.e(e, "Error during disconnect")
             }
         }
     }
@@ -191,7 +191,7 @@ class WebRTCClient @Inject constructor(
             
             true
         } catch (e: Exception) {
-            Timber.e("Failed to connect to signaling server", e)
+            Timber.e(e, "Failed to connect to signaling server")
             false
         }
     }
@@ -213,7 +213,7 @@ class WebRTCClient @Inject constructor(
                             val signalingMessage = json.decodeFromString<SignalingMessage>(message)
                             handleSignalingMessage(signalingMessage)
                         } catch (e: Exception) {
-                            Timber.e("Failed to parse signaling message", e)
+                            Timber.e(e, "Failed to parse signaling message")
                         }
                     }
                     is Frame.Close -> {
@@ -226,7 +226,7 @@ class WebRTCClient @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            Timber.e("Signaling message handling error", e)
+            Timber.e(e, "Signaling message handling error")
         }
     }
     
@@ -287,7 +287,7 @@ class WebRTCClient @Inject constructor(
             }, offer)
             
         } catch (e: Exception) {
-            Timber.e("Failed to handle offer", e)
+            Timber.e(e, "Failed to handle offer")
         }
     }
     
@@ -348,7 +348,7 @@ class WebRTCClient @Inject constructor(
             peerConnection?.addIceCandidate(candidate)
             Timber.d("Added ICE candidate from host")
         } catch (e: Exception) {
-            Timber.e("Failed to handle ICE candidate", e)
+            Timber.e(e, "Failed to handle ICE candidate")
         }
     }
     
@@ -456,7 +456,7 @@ class WebRTCClient @Inject constructor(
             val messageJson = json.encodeToString(message)
             websocketSession?.send(Frame.Text(messageJson))
         } catch (e: Exception) {
-            Timber.e("Failed to send signaling message", e)
+            Timber.e(e, "Failed to send signaling message")
         }
     }
     
@@ -486,7 +486,7 @@ class WebRTCClient @Inject constructor(
             val iceState = peerConnection?.iceConnectionState()
             "Connection: $state, ICE: $iceState"
         } catch (e: Exception) {
-            Timber.e("Failed to get connection stats", e)
+            Timber.e(e, "Failed to get connection stats")
             null
         }
     }

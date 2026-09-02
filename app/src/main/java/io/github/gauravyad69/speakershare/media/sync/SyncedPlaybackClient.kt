@@ -110,7 +110,7 @@ class SyncedPlaybackClient @Inject constructor(
                 Result.failure(Exception("Failed to get session info from host"))
             }
         } catch (e: Exception) {
-            Timber.e("Failed to connect to host", e)
+            Timber.e(e, "Failed to connect to host")
             _connectionError.value = e.message
             Result.failure(e)
         }
@@ -133,7 +133,7 @@ class SyncedPlaybackClient @Inject constructor(
             
             Timber.i("Disconnected from host")
         } catch (e: Exception) {
-            Timber.e("Error during disconnect", e)
+            Timber.e(e, "Error during disconnect")
         }
     }
     
@@ -351,7 +351,7 @@ class SyncedPlaybackClient @Inject constructor(
             Timber.i("Clock synced with host: offset=${medianOffset}ms, rtt=${medianRtt}ms (${offsets.size} samples)")
             
         } catch (e: Exception) {
-            Timber.w("Clock sync failed", e)
+            Timber.w(e, "Clock sync failed")
         }
     }
     

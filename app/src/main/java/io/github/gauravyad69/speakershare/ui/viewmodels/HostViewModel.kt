@@ -260,7 +260,7 @@ class HostViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 _error.value = "Failed to switch audio source: ${e.message}"
-                Timber.e("Failed to switch audio source", e)
+                Timber.e(e, "Failed to switch audio source")
             }
         }
     }
@@ -292,7 +292,7 @@ class HostViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 _error.value = "Failed to initialize MediaProjection: ${e.message}"
-                Timber.e("Failed to initialize MediaProjection", e)
+                Timber.e(e, "Failed to initialize MediaProjection")
             }
         }
     }

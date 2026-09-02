@@ -72,7 +72,7 @@ class SyncedFileTransfer @Inject constructor() {
                 digest.digest().joinToString("") { "%02x".format(it) }
                 
             } catch (e: Exception) {
-                Timber.e("Failed to calculate file hash", e)
+                Timber.e(e, "Failed to calculate file hash")
                 ""
             }
         }
@@ -115,7 +115,7 @@ class SyncedFileTransfer @Inject constructor() {
                     } else null
                 }
             } catch (e: Exception) {
-                Timber.e("Failed to get file metadata", e)
+                Timber.e(e, "Failed to get file metadata")
                 null
             }
         }
@@ -161,7 +161,7 @@ class SyncedFileTransfer @Inject constructor() {
                 null
                 
             } catch (e: Exception) {
-                Timber.e("Error finding local file", e)
+                Timber.e(e, "Error finding local file")
                 null
             }
         }
@@ -276,7 +276,7 @@ class SyncedFileTransfer @Inject constructor() {
                 null
                 
             } catch (e: Exception) {
-                Timber.e("Download failed", e)
+                Timber.e(e, "Download failed")
                 updateProgress(file.contentHash, TransferProgress(
                     fileName = file.name,
                     totalBytes = file.sizeBytes,
@@ -447,7 +447,7 @@ class SyncedFileTransfer @Inject constructor() {
                 downloadFile(context, hostAddress, file)
                 
             } catch (e: Exception) {
-                Timber.e("WebSocket download error, falling back to HTTP", e)
+                Timber.e(e, "WebSocket download error, falling back to HTTP")
                 // Fall back to HTTP
                 downloadFile(context, hostAddress, file)
             }
@@ -478,7 +478,7 @@ class SyncedFileTransfer @Inject constructor() {
                 }
                 
             } catch (e: Exception) {
-                Timber.e("Failed to serve file", e)
+                Timber.e(e, "Failed to serve file")
                 null
             }
         }
@@ -495,7 +495,7 @@ class SyncedFileTransfer @Inject constructor() {
                 Timber.i("Cache cleared")
             }
         } catch (e: Exception) {
-            Timber.e("Failed to clear cache", e)
+            Timber.e(e, "Failed to clear cache")
         }
     }
     

@@ -189,20 +189,20 @@ fun HomeScreen(
             }
             
             Text(
-                text = "Stream Audio Anywhere",
+                text = "Live audio & group playback over Wi-Fi",
                 style = MaterialTheme.typography.titleMedium,
                 color = DuoTextSecondary
             )
             
             Spacer(modifier = Modifier.height(48.dp))
             
-            // Live Streaming Section
-            SectionTitle("LIVE STREAMING")
+            // Live Audio Broadcast Section
+            SectionTitle("LIVE AUDIO")
             
             Spacer(modifier = Modifier.height(16.dp))
             
             DuolingoButton(
-                text = "START HOSTING",
+                text = "START BROADCAST",
                 onClick = onHostModeSelected,
                 icon = TablerIcons.Microphone,
                 color = DuoGreen,
@@ -213,7 +213,7 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(16.dp))
             
             DuolingoButton(
-                text = "JOIN SESSION",
+                text = "JOIN BROADCAST",
                 onClick = onClientModeSelected,
                 icon = TablerIcons.Headphones,
                 color = DuoBlue,
@@ -223,13 +223,13 @@ fun HomeScreen(
             
             Spacer(modifier = Modifier.height(48.dp))
             
-            // Synced Playback Section
-            SectionTitle("SYNCED PLAYBACK")
+            // Group Playback Section
+            SectionTitle("GROUP PLAYBACK")
             
             Spacer(modifier = Modifier.height(16.dp))
             
             DuolingoButton(
-                text = "SYNCED AUDIO",
+                text = "LISTEN TOGETHER",
                 onClick = onSyncedAudioPlayerSelected,
                 icon = TablerIcons.Music,
                 color = DuoPurple,
@@ -240,7 +240,7 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(16.dp))
             
             DuolingoButton(
-                text = "SYNCED VIDEO",
+                text = "WATCH TOGETHER",
                 onClick = onSyncedVideoPlayerSelected,
                 icon = TablerIcons.Video,
                 color = DuoOrange,

@@ -56,9 +56,10 @@ class HostApiHandlerImpl @Inject constructor(
         
         val accepted = result.getOrDefault(false)
         if (!accepted) {
+             val reason = if (hostService.isClientKicked(request.clientId)) "KICKED_BY_HOST" else "MAX_CLIENTS_REACHED"
              return ClientConnectResponse(
                 status = "REJECTED",
-                reason = "MAX_CLIENTS_REACHED",
+                reason = reason,
                 maxClients = session.maxClients
             )
         }
@@ -214,16 +215,21 @@ class HostApiHandlerImpl @Inject constructor(
     }
     
     private fun createStreamEndpoint(transport: String): StreamEndpoint {
+        // Use the session's advertised address (hotspot-preferred) instead of
+        // a hardcoded example address clients could never reach
+        val hostService = hostServiceProvider.get()
+        val hostIp = hostService.currentSession.value?.networkInfo?.localIpAddress ?: "0.0.0.0"
+        val httpPort = hostService.currentSession.value?.networkInfo?.port ?: 8080
         return when (transport) {
             "WEBRTC" -> StreamEndpoint(
                 webrtc = WebRTCEndpoint(
-                    signalingUrl = "ws://192.168.1.100:8081/webrtc",
+                    signalingUrl = "ws://$hostIp:${httpPort + 1}/webrtc",
                     iceServers = emptyList()
                 )
             )
             "UDP" -> StreamEndpoint(
                 udp = UdpEndpoint(
-                    host = "192.168.1.100",
+                    host = hostIp,
                     port = 9090
                 )
             )

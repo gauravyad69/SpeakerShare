@@ -332,6 +332,7 @@ class UdpPacketHandler @Inject constructor() {
             
             // Session ID
             val sessionIdBytes = ByteArray(8)
+            buffer.position(position)
             buffer.get(sessionIdBytes)
             val sessionId = String(sessionIdBytes, Charsets.UTF_8).trim('\u0000')
             position += 8
@@ -380,7 +381,7 @@ class UdpPacketHandler @Inject constructor() {
             )
             
         } catch (e: Exception) {
-            Timber.e("Failed to parse packet", e)
+            Timber.e(e, "Failed to parse packet")
             null
         }
     }
@@ -423,7 +424,7 @@ class UdpPacketHandler @Inject constructor() {
             
             DiscoveryInfo(hostName, port)
         } catch (e: Exception) {
-            Timber.e("Failed to parse discovery info", e)
+            Timber.e(e, "Failed to parse discovery info")
             null
         }
     }
